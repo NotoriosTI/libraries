@@ -1,0 +1,163 @@
+Documentación de OdooProduct
+============================
+
+Esta clase proporciona varios métodos para interactuar con productos en el sistema ERP Odoo.
+
+Inicialización:
+---------------
+La clase hereda de `OdooAPI` y se inicializa llamando al constructor de su clase padre.
+
+    ejemplo:
+    instancia_producto = OdooProduct()
+
+Operaciones CRUD:
+-----------------
+
+1. create_product(product_data: dict) -> str:
+    - Crea un producto en Odoo basado en los datos proporcionados.
+    - Si un producto con el SKU dado ya existe, no creará un duplicado.
+    - Devuelve una cadena indicando el resultado de la operación.
+
+    ejemplo:
+    respuesta = instancia_producto.create_product({
+                  'default_code': '12345',
+                  'name': 'Producto Ejemplo'
+               })
+    print(respuesta)
+
+2. update_product(sku: str, df: DataFrame) -> str:
+    - Actualiza un producto existente en Odoo usando el SKU y los datos proporcionados.
+    - Si se encuentra el producto, actualiza los campos; de lo contrario, devuelve un mensaje indicando que el producto no fue encontrado.
+    - Devuelve una cadena indicando el resultado de la operación.
+
+    ejemplo:
+    respuesta = instancia_producto.update_product('12345', dataframe_con_datos_actualizados)
+    print(respuesta)
+
+Otras Funciones:
+----------------
+
+1. product_exists(sku: str) -> bool:
+    - Verifica si un producto con el SKU dado existe en Odoo.
+    - Devuelve True si se encuentra, de lo contrario False.
+
+    ejemplo:
+    if instancia_producto.product_exists('12345'):
+        print("¡El producto existe!")
+    else:
+        print("Producto no encontrado.")
+
+2. get_all_products_in_json(file_path: str = "products.json") -> str:
+    - Obtiene todos los productos de Odoo y los guarda en un archivo JSON.
+    - Devuelve una cadena indicando la ubicación del archivo guardado.
+
+    ejemplo:
+    respuesta = instancia_producto.get_all_products_in_json()
+    print(respuesta)
+3.  process_field_value(value, command_type='add'):
+        """
+        Procesa un valor que puede ser un string que representa una lista de IDs separados por coma,
+        o un valor entero. Retorna una lista de comandos para actualizar un campo many2many en Odoo.
+
+        Args:
+            value (str or int): El valor a procesar.
+            command_type (str): Tipo de operación: 'add' para añadir, 'replace' para reemplazar, 'remove' para eliminar todos.
+
+        Returns:
+            list: Una lista de comandos para actualizar un campo many2many.
+        """
+4.  get_category_id_by_name(self, category_name):
+        """
+        Busca una categoría de producto en Odoo por su nombre y devuelve su ID.
+
+        Args:
+            category_name (str): El nombre de la categoría de producto.
+
+        Returns:
+            int or None: El ID de la categoría si se encuentra, o None si no se encuentra.
+        """
+
+
+Tabla de Traducción de Campos:
+------------------------------
+
+| Campo en Odoo                 | Descripción                               |
+|-------------------------------|-------------------------------------------|
+| x_studio_id_laudus            | id laudus                                 |
+| name                          | Nombre del Producto                       |
+| sale_ok                       | ¿Se puede vender el producto?             |
+| purchase_ok                   | ¿Se puede comprar el producto?            |
+| detailed_type                 | Tipo de Producto                          |
+| invoice_policy                | Política de Facturación                   |
+| Unidad de medida              | Unidad de Medida                          |
+| list_price                    | Precio de lista del producto              |
+| x_studio_tipo_de_almacenaje_1 | tipo de almacenaje                        | 
+| categ_id                      | ID de la Categoría del Producto           |
+| tracking                      | Seguimiento del Producto (ej. serial)     |
+| use_expiration_date           | ¿El producto tiene fecha de vencimiento?  |
+| default_code                  | SKU/Código de barras del producto         |
+| barcode                       | Código de barras (si es diferente del SKU)|
+| product_tag_ids               | Etiquetas asociadas con el producto       |
+| route_ids                     | Rutas asociadas con el producto           |
+
+Recuperación de los valores:
+----------------------------
+
+product_tag_ids -> Campos de tags a la fecha:
+    1 MP
+    2 PT
+    3 ME
+
+warehouse_ids -> Campos de tags a la fecha:
+    Bodega de Envases 
+    Warehouse_Id = 4
+
+    Bodega de Materias Primas
+    Warehouse_Id = 1
+
+Si no encontraste el tag puedes usar:
+    # Crear una instancia de OdooProduct
+    products = OdooProduct()
+
+    # Buscar en el modelo product.tag
+    tag_values = products.models.execute_kw(products.db, products.uid, products.password, 'product.tag', 'search_read', [[]], {'fields': ['id', 'name']})
+
+    # Imprimir los valores encontrados
+    for tag in tag_values:
+        print(tag['id'], tag['name'])
+
+
+route_ids -> Campos de rutas a la fecha:
+    25 Tienda Juan Sabaj: Producto de suministro de Bodega de MP
+    26 Tienda Juan Sabaj: Producto de suministro de Bodega de Envases
+    27 E-Commerce: Producto de suministro de Bodega de Materias Primas
+    16 Mercado Libre: Producto de suministro de E-Commerce
+    28 E-Commerce: Producto de suministro de Bodega de Envases
+    5 Buy
+    2 Bodega de Materias Primas: Recibir en 1 paso (Existencias)
+    21 Tienda Juan Sabaj: Recibir en 1 paso (Existencias)
+    17 Bodega de Envases: Recibir en 1 paso (Existencias)
+    8 E-Commerce: Recibir en 1 paso (Existencias)
+    12 Mercado Libre: Recibir en 1 paso (Existencias)
+    13 Mercado Libre: Entregar en 1 paso (Sólo enviar)
+    3 Bodega de Materias Primas: Entregar en 1 paso (Sólo enviar)
+    6 Manufacture
+    18 Bodega de Envases: Entregar en 1 paso (Sólo enviar)
+    22 Tienda Juan Sabaj: Entregar en 1 paso (Sólo enviar)
+    9 E-Commerce: Entregar en 1 paso (Sólo enviar)
+
+Si no encontraste la ruta puedes usar:
+    # Crear una instancia de OdooProduct
+    products = OdooProduct()
+
+    # Buscar en el modelo correcto: stock.route
+    route_values = products.models.execute_kw(products.db, products.uid, products.password, 'stock.route', 'search_read', [[]], {'fields': ['id', 'name']})
+
+    # Imprimir los valores encontrados
+    for route in route_values:
+        print(route['id'], route['name'])
+
+
+Comentarios Adicionales:
+------------------------
+Nota: Para los campos con "(Proporcionar descripción)", te recomendaría que completes o ajustes las descripciones según tu entendimiento del sistema y tus necesidades.
