@@ -524,12 +524,6 @@ class OdooProduct(OdooAPI):
                 output += f"SKU {sku}: No se encontró una Lista de Materiales activa (ni por variante específica ni por plantilla genérica). Se omite creación de orden.\n"
                 continue
             
-            # 3. Verificar si ya existen órdenes de producción (lógica existente)
-            ordenes_anteriores = self.search_production_orders(sku)
-            if ordenes_anteriores:
-                output += f"SKU {sku}: Ya existen órdenes de producción. Finalizar anteriores antes de crear una nueva. Se omite orden.\n"
-                continue
-            
             # 4. Crear la orden de producción para la variante específica
             production_order_vals = {
                 'product_id': product_variant_id, # MUY IMPORTANTE: la orden es para el product.product (variante)
