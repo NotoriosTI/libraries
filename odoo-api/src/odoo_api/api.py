@@ -8,7 +8,7 @@ class OdooAPI:
         if database not in ['productive', 'test']:
             raise ValueError("Error: La base de datos debe ser 'productive' o 'test'")
             
-        base_path = '/home/snparada/Spacionatural/Libraries/odoo_lib/creds/'
+        base_path = '/home/admin_/langgraph_projects/spacio_natural/juan/'
         env_path = base_path + '.env'
         
         config = Config(RepositoryEnv(env_path))
