@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import xmlrpc.client
 from pprint import pprint
+import csv
 
 
 class OdooProduct(OdooAPI):
@@ -426,7 +427,7 @@ class OdooProduct(OdooAPI):
         )
 
         try:
-            with open(ubicacion, mode='r') as file:
+            with open(csv_file_path, mode='r') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     product_id = self.get_id_by_sku(str(row['productId'])) 
