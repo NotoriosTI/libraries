@@ -5,7 +5,7 @@ except ImportError:
     import os
     # Add the parent directory to sys.path to allow absolute imports
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from odoo_lib.api import OdooAPI
+    from .api import OdooAPI
 import pandas as pd
 from datetime import datetime
 
