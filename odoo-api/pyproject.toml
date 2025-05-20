@@ -1,6 +1,6 @@
 [project]
 name = "odoo-api"
-version = "0.2.5"
+version = "1.0.5"
 description = ""
 authors = [
     {name = "bastianibanez",email = "bastian.miba@gmail.com"}
