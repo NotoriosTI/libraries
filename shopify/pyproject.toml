@@ -1,6 +1,6 @@
 [project]
 name = "shopify"
-version = "0.1.0"
+version = "1.0.0"
 description = ""
 authors = [
     {name = "bastianibanez",email = "bastian.miba@gmail.com"}
