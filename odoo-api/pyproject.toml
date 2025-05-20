@@ -1,15 +1,17 @@
 [project]
 name = "odoo-api"
-version = "0.2.4"
+version = "0.2.5"
 description = ""
 authors = [
     {name = "bastianibanez",email = "bastian.miba@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "pandas (>=2.2.3,<3.0.0)",
     "python-decouple (>=3.8,<4.0)",
+    "langchain (>=0.3.25,<0.4.0)",
+    "langgraph (>=0.4.5,<0.5.0)",
 ]
 
 [tool.poetry]
