@@ -1,4 +1,4 @@
-from external_integrations.shopify_storefront.api_shopify_storefront import StorefrontAPI
+from .api_shopify_storefront import StorefrontAPI
 
 class StorefrontSearch(StorefrontAPI):
     def __init__(self, shop_url=None, storefront_access_token=None, api_version=None):

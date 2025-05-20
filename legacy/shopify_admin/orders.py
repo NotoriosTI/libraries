@@ -1,5 +1,5 @@
 import re
-from external_integrations.shopify_admin.api_shopify_admin import ShopifyAdminAPI
+from .api_shopify_admin import ShopifyAdminAPI
 import pandas as pd
 import requests
 import json
