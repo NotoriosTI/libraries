@@ -1,1 +1,0 @@
-# Este archivo permite que el directorio odoo_lib sea tratado como un paquete Python. 
