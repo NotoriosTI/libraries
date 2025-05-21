@@ -1,6 +1,6 @@
 import requests
 from typing import Optional
-from configuration.application_settings import settings
+from .application_settings import settings
 
 
 class ShopifyAdminAPI:
