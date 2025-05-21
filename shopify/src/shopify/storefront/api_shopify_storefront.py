@@ -1,5 +1,5 @@
 import requests
-from configuration.application_settings import settings
+from .application_settings import settings
 
 
 class StorefrontAPI:

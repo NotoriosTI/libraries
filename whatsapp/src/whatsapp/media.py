@@ -2,7 +2,7 @@ import requests
 import logging
 from typing import Optional
 
-from src.external_integrations.whatsapp.api_whatsapp import whatsapp_service
+from .api_whatsapp import whatsapp_service
 
 logger = logging.getLogger(__name__)
 
