@@ -1,9 +1,9 @@
 import logging
 from typing import Optional, Dict, Any, Union
 
-from src.external_integrations.whatsapp.api_whatsapp import whatsapp_service
-from src.external_integrations.whatsapp.messages import WhatsAppMessages
-from src.external_integrations.whatsapp.media import WhatsAppMedia
+from .api_whatsapp import whatsapp_service
+from .messages import WhatsAppMessages
+from .media import WhatsAppMedia
 
 logger = logging.getLogger(__name__)
 
