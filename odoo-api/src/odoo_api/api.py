@@ -3,7 +3,7 @@ import pandas as pd
 from decouple import Config, RepositoryEnv
 
 class OdooAPI:
-    def __init__(self, database='productive'):
+    def __init__(self, database='test'):
         # Validate database parameter
         if database not in ['productive', 'test']:
             raise ValueError("Error: La base de datos debe ser 'productive' o 'test'")
