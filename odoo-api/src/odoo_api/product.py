@@ -668,3 +668,17 @@ class OdooProduct(OdooAPI):
         productos = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
 
         return [p['default_code'] for p in productos if p.get('default_code')]
+
+    def get_skus_by_name_flexible(self, partial_name):
+        """
+        Devuelve una lista de tuplas (nombre, SKU) de productos cuyo nombre contenga el texto dado (insensible a mayúsculas/minúsculas).
+        :param partial_name: Texto parcial del nombre del producto
+        :return: Lista de tuplas (nombre, default_code)
+        """
+        model = 'product.product'
+        domain = [('name', 'ilike', partial_name)]
+        fields = ['id', 'default_code', 'name']
+    
+        productos = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+    
+        return [(p['name'], p['default_code']) for p in productos if p.get('default_code')]
