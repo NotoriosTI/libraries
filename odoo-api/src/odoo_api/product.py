@@ -7,8 +7,8 @@ import csv
 
 
 class OdooProduct(OdooAPI):
-    def __init__(self, database='productive'):
-        super().__init__(database=database)
+    def __init__(self, database='test', dotenv_path = None):
+        super().__init__(database=database, dotenv_path=dotenv_path)
 
 # CRUD
     def create_product(self, product_data):
@@ -92,7 +92,7 @@ class OdooProduct(OdooAPI):
             return product_name
         else:
             return f"No se encontró el producto con ID {product_id}."
-        
+    
     def read_all_products_in_dataframe(self, batch_size=100):
         offset = 0
         all_products = []
@@ -655,3 +655,16 @@ class OdooProduct(OdooAPI):
         else:
             return None
     
+    def get_skus_by_name(self, product_name):
+        """
+        Devuelve una lista de SKUs (default_code) de todas las variantes que coincidan con el nombre dado.
+        :param product_name: El nombre del producto o variante
+        :return: Lista de SKUs (default_code)
+        """
+        model = 'product.product'
+        domain = [('name', '=', product_name)]
+        fields = ['id', 'default_code']
+
+        productos = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+
+        return [p['default_code'] for p in productos if p.get('default_code')]

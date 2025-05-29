@@ -1,15 +1,20 @@
 import xmlrpc.client as xc
 import pandas as pd
 from decouple import Config, RepositoryEnv
+import os
 
 class OdooAPI:
-    def __init__(self, database='test'):
+    def __init__(self, database='test', dotenv_path=None):
         # Validate database parameter
         if database not in ['productive', 'test']:
             raise ValueError("Error: La base de datos debe ser 'productive' o 'test'")
-            
-        base_path = '/home/admin_/langgraph_projects/spacio_natural/juan/'
-        env_path = base_path + '.env'
+        
+        if dotenv_path is None:
+            base_path = '/home/admin_/langgraph_projects/spacio_natural/juan/'
+            env_path = base_path + '.env'
+        else:
+            env_path = dotenv_path
+            base_path = os.path.dirname(env_path)
         
         config = Config(RepositoryEnv(env_path))
         
