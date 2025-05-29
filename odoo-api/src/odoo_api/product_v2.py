@@ -1,5 +1,5 @@
 import warnings
-from product import *
+from odoo_api.product import *
 
 warnings.warn(
 """
