@@ -11,7 +11,7 @@ odoo_warehouse = OdooWarehouse(
     dotenv_path="/Users/bastianibanez/work/libraries/odoo-api/.env"
 )
 
-resultados = odoo_product.get_skus_by_name_flexible("aceite de coco")
+resultados = odoo_product.get_skus_by_name_flexible("aceite de argan")
 for i, (nombre, sku) in enumerate(resultados[:]):
     var_attrs = odoo_warehouse.get_variant_attributes_by_sku(sku)
     resultados[i] = (nombre, sku, var_attrs)
