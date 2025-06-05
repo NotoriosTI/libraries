@@ -655,33 +655,19 @@ class OdooProduct(OdooAPI):
         else:
             return None
     
-    def get_skus_by_name(self, product_name):
+    def get_skus_by_name_flexible(self, partial_name) -> list[dict]:
         """
-        Devuelve una lista de SKUs (default_code) de todas las variantes que coincidan con el nombre dado.
-        :param product_name: El nombre del producto o variante
-        :return: Lista de SKUs (default_code)
-        """
-        model = 'product.product'
-        domain = [('name', '=', product_name)]
-        fields = ['id', 'default_code']
-
-        productos = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
-
-        return [p['default_code'] for p in productos if p.get('default_code')]
-
-    def get_skus_by_name_flexible(self, partial_name):
-        """
-        Devuelve una lista de tuplas (nombre, SKU) de productos cuyo nombre contenga el texto dado (insensible a mayúsculas/minúsculas).
+        Devuelve una lista de diccionarios {id:str, default_code(sku): str, name:str} de productos cuyo nombre contenga el texto dado (insensible a mayúsculas/minúsculas).
         :param partial_name: Texto parcial del nombre del producto
-        :return: Lista de tuplas (nombre, default_code)
+        :return: Lista de diccionarios {"id", "default_code": str, "name": str}
         """
         model = 'product.product'
         domain = [('name', 'ilike', partial_name)]
         fields = ['id', 'default_code', 'name']
     
-        productos = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
-    
-        return [(p['name'], p['default_code']) for p in productos if p.get('default_code')]
+        products = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+        return products
+        
     
     def get_variant_attributes_by_sku(self, sku: str) -> list:
         """
