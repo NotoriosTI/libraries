@@ -32,6 +32,15 @@ class OdooAPI:
         common = xc.ServerProxy(f'{self.url}/xmlrpc/2/common')
         uid = common.authenticate(self.db, self.username, self.password, {})
         return uid
+    
+    def __enter__(self):
+        # Si necesitas lógica extra al entrar al contexto, agrégala aquí
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Si necesitas limpiar recursos, agrégalo aquí
+        # Por ejemplo, cerrar conexiones si fuera necesario
+        pass
 
     def _create_model(self):
         return xc.ServerProxy(f'{self.url}/xmlrpc/2/object')
