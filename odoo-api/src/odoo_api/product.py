@@ -664,7 +664,8 @@ class OdooProduct(OdooAPI):
         model = 'product.product'
         domain = [('name', 'ilike', partial_name)]
         fields = ['id', 'default_code', 'name']
-    
+
+        db_check, uid_check, pass_check = self.db, self.uid, self.password
         products = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
         return products
         
