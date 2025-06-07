@@ -33,6 +33,12 @@ class OdooAPI:
         uid = common.authenticate(self.db, self.username, self.password, {})
         if not uid:
             raise ValueError("Error de autenticación en Odoo API")
+        print(common)
+        print(uid)
+        print(self.db)
+        print(self.username)
+        print(self.password)
+        
         return (common, uid)
     
     def __enter__(self):
