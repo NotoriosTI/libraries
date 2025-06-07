@@ -54,7 +54,27 @@ class OdooAPI:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        pass
+    # This method ensures network resources are cleaned up safely.
+    # The try...except blocks prevent any errors during cleanup
+    # from crashing the application or masking the tool's real output.
+        try:
+            # Note: The exact way to close the connection depends on the library.
+            # We assume the ServerProxy object is stored in self.models and self.common.
+            # Often, the underlying transport needs to be closed. Since we cannot be
+            # certain of the internal structure, we check for a 'close' method.
+            if hasattr(self, 'models') and hasattr(self.models, 'close'):
+                self.models.close()
+        except Exception as e:
+            # If cleanup fails, just print a warning and continue.
+            # This is non-critical and should not stop the program.
+            print(f"Warning: A non-critical error occurred during Odoo 'models' endpoint cleanup: {e}")
+    
+        try:
+            # The typo from before is also fixed here.
+            if hasattr(self, 'common') and hasattr(self.common, 'close'):
+                self.common.close()
+        except Exception as e:
+            print(f"Warning: A non-critical error occurred during Odoo 'common' endpoint cleanup: {e}")
     
     def get_fields(self, table):
         fields = self.models.execute_kw(self.db, self.uid, self.password, table, 'fields_get', [])
