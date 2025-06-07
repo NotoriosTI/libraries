@@ -31,7 +31,7 @@ class OdooAPI:
     def _authenticate(self):
         common = xc.ServerProxy(f'{self.url}/xmlrpc/2/common')
         uid = common.authenticate(self.db, self.username, self.password, {})
-        return common, uid
+        return (common, uid)
     
     def __enter__(self):
         # Si necesitas lógica extra al entrar al contexto, agrégala aquí
