@@ -65,16 +65,14 @@ class OdooAPI:
             if hasattr(self, 'models') and hasattr(self.models, 'close'):
                 self.models.close()
         except Exception as e:
-            # If cleanup fails, just print a warning and continue.
-            # This is non-critical and should not stop the program.
-            print(f"Warning: A non-critical error occurred during Odoo 'models' endpoint cleanup: {e}")
+            pass
     
         try:
             # The typo from before is also fixed here.
             if hasattr(self, 'common') and hasattr(self.common, 'close'):
                 self.common.close()
         except Exception as e:
-            print(f"Warning: A non-critical error occurred during Odoo 'common' endpoint cleanup: {e}")
+            pass
     
     def get_fields(self, table):
         fields = self.models.execute_kw(self.db, self.uid, self.password, table, 'fields_get', [])
