@@ -56,7 +56,7 @@ class OdooAPI:
     def __exit__(self, exc_type, exc_value, traceback):
         if hasattr(self, 'models') and hasattr(self.models, 'close'):
             self.models.close()
-        if hasattr(self, 'common') and hasattr(self.uid, 'close'):
+        if hasattr(self, 'common') and hasattr(self.common, 'close'):
             self.common.close()
 
     def get_fields(self, table):
