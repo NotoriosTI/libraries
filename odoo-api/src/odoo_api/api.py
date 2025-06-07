@@ -25,8 +25,13 @@ class OdooAPI:
         self.db = config(f'ODOO_{prefix}DB')
         self.username = config(f'ODOO_{prefix}USERNAME')
         self.password = config(f'ODOO_{prefix}PASSWORD')
-        self.common, self.uid = self._authenticate()
-        self.models = self._create_model()
+        self.common = None
+        self.uid = None
+        self.models = None
+
+        self._authenticate()
+        self._create_model()
+
 
     def _authenticate(self):
         self.common = xc.ServerProxy(f'{self.url}/xmlrpc/2/common')
@@ -34,12 +39,16 @@ class OdooAPI:
         if not self.uid:
             raise ValueError("Error de autenticación en Odoo API")
 
+        print("url", self.url)
         print("common", self.common)
         print("uid", self.uid)
         print("db", self.db)
         print("user", self.username)
         print("pass", self.password)
     
+    def _create_model(self):
+        self.models = xc.ServerProxy(f'{self.url}/xmlrpc/2/object')
+
     def __enter__(self):
         # Si necesitas lógica extra al entrar al contexto, agrégala aquí
         return self
@@ -49,9 +58,6 @@ class OdooAPI:
             self.models.close()
         if hasattr(self, 'common') and hasattr(self.uid, 'close'):
             self.common.close()
-
-    def _create_model(self):
-        return xc.ServerProxy(f'{self.url}/xmlrpc/2/object')
 
     def get_fields(self, table):
         fields = self.models.execute_kw(self.db, self.uid, self.password, table, 'fields_get', [])
