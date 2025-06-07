@@ -32,6 +32,9 @@ class OdooAPI:
         self._authenticate()
         self._create_model()
 
+        if self.uid:
+            print("-- Authentication complete --")
+
 
     def _authenticate(self):
         self.common = xc.ServerProxy(f'{self.url}/xmlrpc/2/common')
@@ -39,13 +42,6 @@ class OdooAPI:
         if not self.uid:
             raise ValueError("Error de autenticación en Odoo API")
 
-        print("url", self.url)
-        print("common", self.common)
-        print("uid", self.uid)
-        print("db", self.db)
-        print("user", self.username)
-        print("pass", self.password)
-    
     def _create_model(self):
         self.models = xc.ServerProxy(f'{self.url}/xmlrpc/2/object')
 
