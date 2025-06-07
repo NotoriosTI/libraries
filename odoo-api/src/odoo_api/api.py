@@ -25,22 +25,23 @@ class OdooAPI:
         self.db = config(f'ODOO_{prefix}DB')
         self.username = config(f'ODOO_{prefix}USERNAME')
         self.password = config(f'ODOO_{prefix}PASSWORD')
-        self.uid = self._authenticate()
+        self.common, self.uid = self._authenticate()
         self.models = self._create_model()
 
     def _authenticate(self):
         common = xc.ServerProxy(f'{self.url}/xmlrpc/2/common')
         uid = common.authenticate(self.db, self.username, self.password, {})
-        return uid
+        return common, uid
     
     def __enter__(self):
         # Si necesitas lógica extra al entrar al contexto, agrégala aquí
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        # Si necesitas limpiar recursos, agrégalo aquí
-        # Por ejemplo, cerrar conexiones si fuera necesario
-        pass
+        if hasattr(self, 'models') and hasattr(self.models, 'close'):
+            self.models.close()
+        if hasattr(self, 'common') and hasattr(self.uid, 'close'):
+            self.common.close()
 
     def _create_model(self):
         return xc.ServerProxy(f'{self.url}/xmlrpc/2/object')
