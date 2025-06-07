@@ -54,11 +54,8 @@ class OdooAPI:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if hasattr(self, 'models') and hasattr(self.models, 'close'):
-            self.models.close()
-        if hasattr(self, 'common') and hasattr(self.common, 'close'):
-            self.common.close()
-
+        pass
+    
     def get_fields(self, table):
         fields = self.models.execute_kw(self.db, self.uid, self.password, table, 'fields_get', [])
         df_fields = pd.DataFrame.from_dict(fields, orient='index')
