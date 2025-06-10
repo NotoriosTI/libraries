@@ -725,5 +725,62 @@ class OdooProduct(OdooAPI):
             return attribute_names
 
         except Exception as e:
-            print(f"Error al obtener los atributos para el SKU '{sku}': {str(e)}")
+            print(f"Error while getting attributes for SKU '{sku}': {str(e)}")
             return []
+    
+    def get_last_mo_draft(self) -> dict:
+        """Returns dict of the id, product_name and product_qty of the latest mo draft on Odoo"""
+        try:
+            result = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'search_read',
+                [[['state', '=', 'draft']]], {
+                    'fields': ['id', 'name', 'product_id', 'product_qty'],
+                    'limit': 1,
+                    'order': 'id desc'
+                }
+            )
+        except Exception as e:
+            print(f"Error while getting the last MO from Odoo:\n{e}")
+        
+        mo = result[0]
+
+        if not mo:
+            print("Error while obtaining MO. returning empty dict")
+            return {}
+
+        mo_id = mo.get('id', None)
+        mo_name = mo.get('name', None)
+        _, product_name = mo.get('product_id', [None, None])
+        product_qty = mo.get('product_qty', None)
+
+
+        if not (mo_id and product_qty and product_name and mo_name):
+            print("Error while obtaining MO data. Returning empty dict")
+            return {}
+        
+        return {
+            "mo_id": mo_id,
+            "mo_name": mo_name,
+            "product_name": product_name,
+            "product_qty": product_qty
+        }
+    
+    def confirm_mo(self, mo_id: int):
+        """
+        Confirms a draft Manufacturing order(MO) using it's id
+        :param mo_id: ID of the MO to confirm
+        :return: True if correctly confirmed False if error occurs
+        """
+        try:
+            result = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'action_confirm',
+                [[mo_id]]
+            )
+        except Exception as e:
+            print(f"Error while confirming MO {mo_id}: {e}")
+            return False
+        print(f"MO {mo_id} confirmed!")
+        return True
+    
