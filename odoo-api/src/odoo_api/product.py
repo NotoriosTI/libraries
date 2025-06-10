@@ -7,8 +7,8 @@ import csv
 
 
 class OdooProduct(OdooAPI):
-    def __init__(self, database='productive'):
-        super().__init__(database=database)
+    def __init__(self, database='test', dotenv_path = None):
+        super().__init__(database=database, dotenv_path=dotenv_path)
 
 # CRUD
     def create_product(self, product_data):
@@ -92,7 +92,7 @@ class OdooProduct(OdooAPI):
             return product_name
         else:
             return f"No se encontró el producto con ID {product_id}."
-        
+    
     def read_all_products_in_dataframe(self, batch_size=100):
         offset = 0
         all_products = []
@@ -264,7 +264,7 @@ class OdooProduct(OdooAPI):
             return f"No se encontró el producto con código {sku}."
 
 # Other Functions
-    def product_exists(self, sku):
+    def product_exists(self, sku) -> bool:
         """Verifica si el producto ya existe en Odoo basándose en el SKU."""
         product_ids = self.models.execute_kw(self.db, self.uid, self.password, 'product.product', 'search', [[['default_code', '=', str(sku).strip()]]])
         return bool(product_ids)
@@ -453,76 +453,118 @@ class OdooProduct(OdooAPI):
         except Exception as e:
             raise Exception(f"Error al procesar el archivo CSV o al validar el ajuste de inventario: {e}")
 
+# Este método debe reemplazar al existente en tu clase OdooProduct dentro de product.py
+
     def create_production_orders(self, df_production):
         """
-        Crear órdenes de producción en Odoo basándose en el DataFrame dado que contiene SKU y cantidades.
+        Crea órdenes de producción en Odoo basándose en el DataFrame dado.
+        El SKU en el DataFrame debe corresponder al product.product (variante o producto sin variantes).
+        Busca BOMs de forma flexible: primero por variante específica, luego por plantilla genérica.
         """
         output = ''
         for index, row in df_production.iterrows():
-            sku = row['SKU']
+            sku = str(row['SKU']).strip() # SKU del product.product
             quantity = row['TOTAL PRODUCCIÓN']
-            picking_quantity = row ['A PRODUCIR PICKING (1 MES)']
-            # Obtener el ID de la BOM para el SKU
-            bom_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.bom', 'search', [[['product_tmpl_id.default_code', '=', sku]]])
-            if not bom_id:
-                output += f"No se encontró una Lista de Materiales para el SKU {sku}. Se omite la creación de la orden de producción.\n"
+            picking_quantity = row['A PRODUCIR PICKING (1 MES)']
+
+            # 1. Obtener detalles del producto (product.product) y su plantilla asociada
+            #    El método read_product busca en product.product por default_code (SKU)
+            product_details_list = self.read_product(sku)
+
+            if isinstance(product_details_list, str) or not product_details_list:
+                output += f"SKU {sku}: Producto (variante) no encontrado o error al leer detalles ({product_details_list}). Se omite orden.\n"
                 continue
- 
-            # Obtener detalles del producto basándose en el SKU
-            product_data = self.read_product(sku)
-            if 'id' not in product_data[0]:
-                output += f"Error al leer los detalles del producto para el SKU {sku}. Se omite la creación de la orden de producción.\n"
+            
+            product_data = product_details_list[0] # Tomamos el primer resultado
+
+            if 'id' not in product_data or 'product_tmpl_id' not in product_data:
+                output += f"SKU {sku}: No se pudieron obtener ID de producto o ID de plantilla. Detalles: {product_data}. Se omite orden.\n"
                 continue
 
-            product_id = product_data[0]['id']
+            product_variant_id = product_data['id'] # ID del product.product (variante)
+            product_template_info = product_data.get('product_tmpl_id') # Es una tupla [id, nombre_display]
+            product_template_id = product_template_info[0] if product_template_info else None
 
-            ordenes_anteriores = self.search_production_orders(sku)
-            if ordenes_anteriores == False:
-                # Crear orden de producción
-                production_order_vals = {
-                    'product_id': product_id,
-                    'product_qty': quantity,
-                    'bom_id': bom_id[0],
-                    'location_dest_id': 8, #Stock Total Juan Sabaj
-                }
+            # 2. Lógica mejorada para buscar la BOM activa
+            bom_id_to_use = None
+            bom_search_result_ids = []
 
+            # 2a. Intentar buscar BOM activa por product.product (variante específica)
+            if product_variant_id:
+                # print(f"DEBUG: Buscando BOM para SKU {sku} por product_id (variante): {product_variant_id}") # Para depuración
+                bom_search_result_ids = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'mrp.bom', 'search',
+                    [[('product_id', '=', product_variant_id), ('active', '=', True)]],
+                    {'limit': 1} 
+                )
+            
+            if bom_search_result_ids:
+                bom_id_to_use = bom_search_result_ids[0]
+                # print(f"DEBUG: BOM encontrada por variante para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
+            else:
+                # 2b. Si no se encontró por variante, intentar por product.template (plantilla)
+                #     Asegurándose de que sea una BOM genérica de plantilla (product_id = False) y activa.
+                if product_template_id:
+                    # print(f"DEBUG: Buscando BOM para SKU {sku} por product_tmpl_id (plantilla): {product_template_id}") # Para depuración
+                    bom_search_result_ids = self.models.execute_kw(
+                        self.db, self.uid, self.password,
+                        'mrp.bom', 'search',
+                        [[('product_tmpl_id', '=', product_template_id),
+                          ('product_id', '=', False), 
+                          ('active', '=', True)]],
+                        {'limit': 1}
+                    )
+                
+                if bom_search_result_ids:
+                    bom_id_to_use = bom_search_result_ids[0]
+                    # print(f"DEBUG: BOM encontrada por plantilla para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
+
+            if not bom_id_to_use:
+                output += f"SKU {sku}: No se encontró una Lista de Materiales activa (ni por variante específica ni por plantilla genérica). Se omite creación de orden.\n"
+                continue
+            
+            # 4. Crear la orden de producción para la variante específica
+            production_order_vals = {
+                'product_id': product_variant_id, # MUY IMPORTANTE: la orden es para el product.product (variante)
+                'product_qty': quantity,
+                'bom_id': bom_id_to_use,
+                'location_dest_id': 8, # Ubicación destino hardcodeada (Stock Total Juan Sabaj)
+                # Considerar añadir 'company_id' si es un entorno multi-compañía
+            }
+
+            try:
                 production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
+                output += f"SKU {sku}: Orden de producción creada con ID: {production_order_id} para la variante ID: {product_variant_id}.\n"
 
-                output += f"Orden de producción creada para el SKU {sku}. ID: {production_order_id}\n"
-                #Crea transferencia de productos de Tienda hacia picking 
-                stock_picking = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'search', [[]], {'limit': 1})
-                source_location_id = 8  #Stock total Juan Sabaj
-                destination_location_id = 29  #Stock ubicación picking
-                try:
-                    picking_vals = {
-                        'location_id': source_location_id, 
-                        'location_dest_id': destination_location_id, 
-                        'picking_type_id': 5, #transferencia-interna
-                    }
+                # 5. Crear transferencia interna de picking (lógica existente)
+                source_location_id = 8
+                destination_location_id = 29
+                picking_type_id_internal = 5 # ID para 'transferencia-interna'
+                
+                picking_vals = {
+                    'location_id': source_location_id,
+                    'location_dest_id': destination_location_id,
+                    'picking_type_id': picking_type_id_internal,
+                }
+                picking_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'create', [picking_vals])
 
-                    picking_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'create', [picking_vals])
+                move_vals = {
+                    'product_id': product_variant_id, # El movimiento es para la variante
+                    'product_uom_qty': picking_quantity,
+                    'name': f'Picking para OP del SKU {sku}',
+                    'picking_id': picking_id,
+                    'location_id': source_location_id,
+                    'location_dest_id': destination_location_id,
+                }
+                self.models.execute_kw(self.db, self.uid, self.password, 'stock.move', 'create', [move_vals])
+                output += f"SKU {sku}: Transferencia interna (ID: {picking_id}) para picking creada.\n"
 
-
-
-                    move_vals = {
-                        'product_id': product_id,
-                        'product_uom_qty': picking_quantity,
-                        'name': 'Producción Picking',
-                        'picking_id': picking_id,
-                        'location_id': source_location_id,
-                        'location_dest_id': destination_location_id, 
-                    }
-
-                    self.models.execute_kw(self.db, self.uid, self.password, 'stock.move', 'create', [move_vals])
-                    output += f"Transferencia interna para el SKU {sku} creada con éxito.\n"
-
-                except Exception as e:
-                    output += f"Error creando transferencia para el SKU {sku}: {e}\n"
-            if ordenes_anteriores == True:
-                output += f"Ya existen órdenes de producción para el SKU {sku}. Favor finalizar órdenes anteriores antes de comenzar una nueva.\n"
-
+            except Exception as e_create:
+                output += f"SKU {sku}: Error al crear orden de producción o picking: {str(e_create)}\n"
+            
         return output
-
+    
     def search_production_orders(self, sku):
             # Use the read_product function to get the product ID
             product_data = self.read_product(sku)
@@ -613,3 +655,75 @@ class OdooProduct(OdooAPI):
         else:
             return None
     
+    def get_skus_by_name_flexible(self, partial_name) -> list[dict]:
+        """
+        Devuelve una lista de diccionarios {id:str, default_code(sku): str, name:str} de productos cuyo nombre contenga el texto dado (insensible a mayúsculas/minúsculas).
+        :param partial_name: Texto parcial del nombre del producto
+        :return: Lista de diccionarios {"id", "default_code": str, "name": str}
+        """
+        model = 'product.product'
+        domain = [('name', 'ilike', partial_name)]
+        fields = ['id', 'default_code', 'name']
+
+        db_check, uid_check, pass_check = self.db, self.uid, self.password
+        products = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+        return products
+        
+    
+    def get_variant_attributes_by_sku(self, sku: str) -> list:
+        """
+        Obtiene los nombres de los atributos de variante de un producto específico
+        a partir de su SKU.
+
+        Args:
+            sku (str): El SKU (default_code) del producto.
+
+        Returns:
+            list: Una lista de nombres de atributos de la variante.
+                  Devuelve una lista vacía si el producto no se encuentra,
+                  no tiene atributos, o si ocurre un error.
+        """
+        if not sku:
+            print("SKU no proporcionado.")
+            return []
+
+        try:
+            # 1. Buscar el producto por SKU para obtener su ID y los IDs de sus atributos de variante.
+            #    El campo 'default_code' usualmente almacena el SKU.
+            #    El campo 'product_template_attribute_value_ids' contiene los IDs de los valores de atributos de la variante.
+            product_info_list = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search_read',
+                [[['default_code', '=', sku]]],
+                {'fields': ['id', 'name', 'product_template_attribute_value_ids'], 'limit': 1}
+            )
+
+            if not product_info_list:
+                print(f"Producto con SKU '{sku}' no encontrado.")
+                return []
+
+            product_data = product_info_list[0]
+            attribute_value_ids = product_data.get('product_template_attribute_value_ids')
+
+            if not attribute_value_ids:
+                # Esto puede significar que el producto no tiene variantes definidas por atributos
+                # o que es un producto sin atributos específicos de variante.
+                print(f"Producto con SKU '{sku}' (Nombre: {product_data.get('name')}) no tiene 'product_template_attribute_value_ids' o no es una variante con atributos.")
+                return []
+
+            # 2. Obtener los nombres de los atributos de la variante.
+            #    Esta es la misma lógica que se usa en read_stock_by_location.
+            attribute_names = []
+            if attribute_value_ids:
+                attribute_value_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'product.template.attribute.value', 'read',
+                    [attribute_value_ids], {'fields': ['name']}
+                ) #
+                attribute_names = [attr['name'] for attr in attribute_value_data if 'name' in attr]
+            
+            return attribute_names
+
+        except Exception as e:
+            print(f"Error al obtener los atributos para el SKU '{sku}': {str(e)}")
+            return []
