@@ -1,0 +1,6 @@
+// my_project/.vscode/settings.json
+{
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "python.analysis.extraPaths": ["./src"], // If you use a 'src' directory
+    "python.terminal.activateEnvironment": true // Ensures integrated terminal activates env
+}
