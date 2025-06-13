@@ -33,4 +33,4 @@ optional = ["SQLAlchemy (>=1.4,<3)", "aiodns (>1.0)", "aiohttp (>=3.7.3,<4)", "b
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "18b149feaee8b3f62cbb4dedfa4c2f6fbdb097dc31cb7e79749171fa8d4a0601"
+content-hash = "06bee0ad0daf9733509d5cbc2056d4c8794866eb42bfd87ff53dda0c7c7169ff"
