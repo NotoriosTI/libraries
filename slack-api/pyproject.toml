@@ -1,6 +1,6 @@
 [project]
 name = "slack_api"
-version = "0.1.5"
+version = "0.1.6"
 description = ""
 authors = [
     {name = "NotoriosTI",email = "ti@notorios.cl"}
@@ -9,7 +9,8 @@ readme = "README.md"
 requires-python = ">=3.12,<4.0"
 dependencies = [
     "python-dotenv (>=1.1.0,<2.0.0)",
-    "slack-sdk (>=3.35.0,<4.0.0)"
+    "slack-sdk (>=3.35.0,<4.0.0)",
+    "slack-bolt (>=1.23.0,<2.0.0)"
 ]
 
 [tool.poetry]
