@@ -1,6 +1,6 @@
 [project]
 name = "slack_api"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = [
     {name = "NotoriosTI",email = "ti@notorios.cl"}
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "slack", from = "src"}]
+packages = [{include = "slack_api", from = "src"}]
 
 
 [tool.pyright]
