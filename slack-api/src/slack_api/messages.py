@@ -13,110 +13,54 @@ class SlackMessages:
         
         # Check required scopes
         try:
-            self.required_scopes = {
-                'conversations': {
-                    'public_channel': 'channels:read',
-                    'private_channel': 'groups:read',
-                    'im': 'im:read',
-                    'mpim': 'mpim:read'
-                },
-                'messages': {
-                    'read_history': ['channels:history', 'groups:history'],
-                    'write': 'chat:write',
-                    'update': 'chat:write',
-                    'delete': 'chat:write'
-                },
-                'basic': {
-                    'channel_info': 'channels:read'
-                }
-            }
+            # Lista simple de todos los scopes que la biblioteca necesita
+            self.required_scopes = [
+                "channels:read",      # Para listar y leer canales públicos
+                "groups:read",        # Para listar y leer canales privados  
+                "im:read",            # Para listar mensajes directos
+                "mpim:read",          # Para listar conversaciones grupales
+                "channels:history",   # Para leer historial de canales públicos
+                "groups:history",     # Para leer historial de canales privados
+                "chat:write"          # Para escribir, actualizar y eliminar mensajes
+            ]
             
             token_info = self.client.auth_test()
             current_scopes = token_info.get("scope", "").split(",")
-            current_scopes = [scope.strip() for scope in current_scopes if scope.strip()]
+            self.current_scopes = [scope.strip() for scope in current_scopes if scope.strip()]
             
-            # Validar scopes requeridos
-            all_required = self._get_all_required_scopes()
-            missing_scopes = [scope for scope in all_required if scope not in current_scopes]
+            # Verificar que todos los scopes necesarios estén presentes
+            missing_scopes = [scope for scope in self.required_scopes if scope not in self.current_scopes]
             
             if missing_scopes:
-                print(f"⚠️  Advertencia: El token no tiene los siguientes scopes requeridos:")
+                print(f"⚠️  Advertencia: Faltan los siguientes scopes:")
                 for scope in missing_scopes:
                     print(f"   - {scope}")
-                print("Algunas funcionalidades pueden no funcionar correctamente.")
+                print("\n🔧 Agrega estos scopes en tu Slack App para usar todas las funcionalidades.")
+                self.has_all_scopes = False
             else:
                 print("✅ Todos los scopes requeridos están presentes.")
+                self.has_all_scopes = True
                 
-            # Guardar scopes para referencia
-            self.current_scopes = current_scopes
-            
         except SlackApiError as e:
             print(f"Error checking authentication: {e.response['error']}")
             self.current_scopes = []
+            self.has_all_scopes = False
 
-    def _get_all_required_scopes(self) -> list:
+    def _check_scopes(self) -> bool:
         """
-        Extrae todos los scopes requeridos de la estructura self.required_scopes
+        Verifica si tenemos todos los scopes necesarios
         
         Returns:
-            list: Lista única de todos los scopes requeridos
+            bool: True si tenemos todos los scopes, False si faltan algunos
         """
-        all_scopes = set()
+        if not hasattr(self, 'has_all_scopes'):
+            return False
         
-        def extract_scopes(obj):
-            if isinstance(obj, str):
-                all_scopes.add(obj)
-            elif isinstance(obj, list):
-                all_scopes.update(obj)
-            elif isinstance(obj, dict):
-                for value in obj.values():
-                    extract_scopes(value)
-        
-        extract_scopes(self.required_scopes)
-        return list(all_scopes)
-
-    def _check_required_scopes(self, functionality: str, sub_functionality: str = None) -> tuple[bool, list]:
-        """
-        Verifica si los scopes requeridos para una funcionalidad están presentes
-        
-        Args:
-            functionality (str): Categoría principal (ej: 'conversations', 'messages')
-            sub_functionality (str): Subcategoría específica (ej: 'public_channel', 'write')
+        if not self.has_all_scopes:
+            print("⚠️  Operación no disponible. Faltan scopes requeridos.")
+            print("Ejecuta el objeto para ver qué scopes necesitas agregar.")
             
-        Returns:
-            tuple: (tiene_scopes, scopes_faltantes)
-        """
-        current_scopes = getattr(self, 'current_scopes', [])
-        
-        if functionality not in self.required_scopes:
-            return True, []
-        
-        func_scopes = self.required_scopes[functionality]
-        
-        if sub_functionality:
-            if sub_functionality not in func_scopes:
-                return True, []
-            required = func_scopes[sub_functionality]
-        else:
-            required = func_scopes
-        
-        # Normalizar required a lista
-        if isinstance(required, str):
-            required = [required]
-        elif isinstance(required, dict):
-            required = list(required.values())
-        
-        # Aplanar lista si contiene sublistas
-        flattened_required = []
-        for item in required:
-            if isinstance(item, list):
-                flattened_required.extend(item)
-            else:
-                flattened_required.append(item)
-        
-        missing = [scope for scope in flattened_required if scope not in current_scopes]
-        
-        return len(missing) == 0, missing
+        return self.has_all_scopes
 
     # CREATE operations
     def create_channel_message(self, channel: str, text: str) -> dict:
@@ -131,9 +75,8 @@ class SlackMessages:
             dict: Información del mensaje incluyendo ts (timestamp que sirve como ID del mensaje)
         """
         # Verificar scope requerido
-        has_scope, missing = self._check_required_scopes('messages', 'write')
-        if not has_scope:
-            print(f"⚠️  Falta scope para escribir mensajes: {', '.join(missing)}")
+        if not self._check_scopes():
+            return None
         
         try:
             response = self.client.chat_postMessage(
@@ -166,9 +109,8 @@ class SlackMessages:
             dict: Información del mensaje enviado
         """
         # Verificar scope requerido
-        has_scope, missing = self._check_required_scopes('messages', 'write')
-        if not has_scope:
-            print(f"⚠️  Falta scope para escribir mensajes en hilos: {', '.join(missing)}")
+        if not self._check_scopes():
+            return None
         
         try:
             response = self.client.chat_postMessage(
@@ -204,17 +146,8 @@ class SlackMessages:
         Returns:
             list: Lista de conversaciones con información detallada
         """
-        # Verificar scopes requeridos según el tipo de conversación
-        requested_types = [t.strip() for t in types.split(',')]
-        missing_scopes = []
-        
-        for req_type in requested_types:
-            has_scope, missing = self._check_required_scopes('conversations', req_type)
-            if not has_scope:
-                missing_scopes.extend(missing)
-        
-        if missing_scopes:
-            print(f"⚠️  Faltan scopes para obtener {types}: {', '.join(set(missing_scopes))}")
+        if not self._check_scopes():
+            return []
         
         try:
             conversations = []
@@ -239,12 +172,7 @@ class SlackMessages:
             error_code = e.response['error']
             if error_code == "missing_scope":
                 print(f"Error de scope: El bot no tiene permisos para listar conversaciones de tipo '{types}'")
-                # Usar información centralizada para mostrar scopes necesarios
-                needed_scopes = []
-                for req_type in requested_types:
-                    _, missing = self._check_required_scopes('conversations', req_type)
-                    needed_scopes.extend(missing)
-                print("Scopes necesarios:", ', '.join(set(needed_scopes)))
+                print("Revisa que tengas todos los scopes requeridos en tu Slack App.")
             else:
                 print(f"Error obteniendo conversaciones: {error_code}")
             return []
@@ -296,6 +224,9 @@ class SlackMessages:
         Returns:
             list: Lista de mensajes
         """
+        if not self._check_scopes():
+            return []
+        
         try:
             response = self.client.conversations_history(
                 channel=channel,
@@ -317,6 +248,9 @@ class SlackMessages:
         Returns:
             list: Lista de mensajes del hilo
         """
+        if not self._check_scopes():
+            return []
+        
         try:
             response = self.client.conversations_replies(
                 channel=channel,
@@ -343,6 +277,9 @@ class SlackMessages:
         Returns:
             dict: Información del mensaje
         """
+        if not self._check_scopes():
+            return None
+        
         try:
             # Obtenemos el mensaje específico usando conversations_history con latest y limit=1
             response = self.client.conversations_history(
@@ -369,6 +306,9 @@ class SlackMessages:
         Returns:
             dict: Información del mensaje actualizado
         """
+        if not self._check_scopes():
+            return None
+        
         try:
             response = self.client.chat_update(
                 channel=channel,
@@ -395,6 +335,9 @@ class SlackMessages:
         Returns:
             bool: True si se eliminó correctamente, False en caso contrario
         """
+        if not self._check_scopes():
+            return False
+        
         try:
             response = self.client.chat_delete(
                 channel=channel,
