@@ -1,67 +1,54 @@
 import os
-from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-
+from dotenv import load_dotenv
+import threading
+from queue import Queue
 
 class SlackBot:
-    def __init__(self, dotenv_path=None):
+    def __init__(self, message_queue: Queue, dotenv_path: str = None):
         """
-        Inicializa el bot de Slack con la configuración necesaria.
+        Inicializa el Slack bot.
+
+        Args:
+            message_queue (Queue): La cola compartida para enviar mensajes al agente consumidor.
+            dotenv_path (str, optional): Ruta al archivo .env.
         """
         if not dotenv_path:
             dotenv_path = '/Users/bastianibanez/work/libraries/.env'
-        load_dotenv(dotenv_path=dotenv_path)
-        
-        # Initializes your app with your bot token
-        # The "App" class handles all the event processing
+        load_dotenv(dotenv_path)
+
         self.app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
-        
-        # Register event handlers
+        self.socket_token = os.environ.get("SLACK_APP_TOKEN")
+        self.message_queue = message_queue
         self._register_events()
-    
+
     def _register_events(self):
         """
-        Registra todos los manejadores de eventos del bot.
+        Registra los manejadores de eventos para el bot.
         """
         @self.app.event("message")
-        def message_echo(message, say):
-            """
-            This function is called when a message is posted.
+        def handle_message_events(message, say):
+            # Ignorar mensajes de bots o subtipos de mensajes (ej. uniones a canal)
+            if 'bot_id' in message or 'subtype' in message:
+                return
+
+            user_id = message.get('user')
+            text = message.get('text')
             
-            'message': A dictionary containing the event's full payload.
-            'say': A utility function to send a message back to the same channel.
-            """
-            self.handle_message(message, say)
-    
-    def handle_message(self, message, say):
-        """
-        Maneja los mensajes recibidos en el canal.
-        
-        Args:
-            message: Diccionario con el payload completo del evento.
-            say: Función utilitaria para enviar un mensaje de vuelta al mismo canal.
-        """
-        if not message.get("bot_id") and not message.get("subtype"):
-            user_message = message.get("text")
-            say(
-                text=f"<@{message['user']}>: {user_message}",
-            )
-    
+            if user_id and text:
+                # Empaquetar la información relevante y ponerla en la cola
+                self.message_queue.put({
+                    'user_id': user_id,
+                    'text': text,
+                    'say': say  # La función para responder en el canal correcto
+                })
+
     def start(self):
         """
-        Inicia el bot en modo Socket Mode.
+        Inicia el bot en un hilo separado para no bloquear la ejecución principal.
         """
-        print("🤖 Bolt app is starting in Socket Mode...")
-        # The SocketModeHandler connects your App to Slack's Socket Mode endpoints
-        # It uses the SLACK_APP_TOKEN for the connection
-        handler = SocketModeHandler(self.app, os.environ["SLACK_APP_TOKEN"])
-        
-        # This starts the handler and waits for events
-        handler.start()
-
-
-# This is the main entry point of the application
-if __name__ == "__main__":
-    bot = SlackBot()
-    bot.start()
+        handler = SocketModeHandler(self.app, self.socket_token)
+        thread = threading.Thread(target=handler.start)
+        thread.daemon = True
+        thread.start()
