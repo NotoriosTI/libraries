@@ -1,0 +1,9 @@
+ODOO_URL=https://spacionatural.odoo.com
+ODOO_DB=spacionatural-master-12753293
+ODOO_USERNAME=snparada@spacionatural.cl
+ODOO_PASSWORD=SamTenis112.
+
+ODOO_TEST_URL=https://spacionatural-staging-19515252.dev.odoo.com/
+ODOO_TEST_DB=spacionatural-staging-19515252
+ODOO_TEST_USERNAME=snparada@spacionatural.cl
+ODOO_TEST_PASSWORD=SamTenis112.
