@@ -1,6 +1,6 @@
 [project]
 name = "slack_api"
-version = "0.1.12"
+version = "0.2.0"
 description = ""
 authors = [
     {name = "NotoriosTI",email = "ti@notorios.cl"}
