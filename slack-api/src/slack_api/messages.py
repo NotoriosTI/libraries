@@ -83,6 +83,123 @@ class SlackMessages:
             return None
 
     # READ operations
+    def get_bot_conversations(self, types: str = "public_channel,private_channel,mpim,im") -> list:
+        """
+        Obtiene todas las conversaciones donde el bot tiene acceso
+        
+        Args:
+            types (str): Tipos de conversaciones a obtener:
+                - public_channel: Canales públicos
+                - private_channel: Canales privados  
+                - mpim: Conversaciones grupales
+                - im: Mensajes directos
+                
+        Returns:
+            list: Lista de conversaciones con información detallada
+        """
+        try:
+            conversations = []
+            cursor = None
+            
+            while True:
+                response = self.client.conversations_list(
+                    types=types,
+                    limit=200,
+                    cursor=cursor
+                )
+                
+                conversations.extend(response['channels'])
+                
+                cursor = response.get('response_metadata', {}).get('next_cursor')
+                if not cursor:
+                    break
+                    
+            return conversations
+            
+        except SlackApiError as e:
+            print(f"Error obteniendo conversaciones: {e.response['error']}")
+            return []
+
+    def get_public_channels(self) -> list:
+        """
+        Obtiene solo los canales públicos donde el bot tiene acceso
+        
+        Returns:
+            list: Lista de canales públicos
+        """
+        return self.get_bot_conversations(types="public_channel")
+
+    def get_private_channels(self) -> list:
+        """
+        Obtiene solo los canales privados donde el bot tiene acceso
+        
+        Returns:
+            list: Lista de canales privados
+        """
+        return self.get_bot_conversations(types="private_channel")
+
+    def get_direct_messages(self) -> list:
+        """
+        Obtiene las conversaciones de mensajes directos del bot
+        
+        Returns:
+            list: Lista de conversaciones directas
+        """
+        return self.get_bot_conversations(types="im")
+
+    def get_group_messages(self) -> list:
+        """
+        Obtiene las conversaciones grupales donde el bot participa
+        
+        Returns:
+            list: Lista de conversaciones grupales
+        """
+        return self.get_bot_conversations(types="mpim")
+
+    def get_conversations_summary(self) -> dict:
+        """
+        Obtiene un resumen organizado de todas las conversaciones del bot
+        
+        Returns:
+            dict: Resumen organizado por tipo de conversación
+        """
+        try:
+            all_conversations = self.get_bot_conversations()
+            
+            summary = {
+                'public_channels': [],
+                'private_channels': [],
+                'direct_messages': [],
+                'group_messages': [],
+                'total_count': len(all_conversations)
+            }
+            
+            for conv in all_conversations:
+                conv_info = {
+                    'id': conv.get('id'),
+                    'name': conv.get('name', 'Sin nombre'),
+                    'is_member': conv.get('is_member', False),
+                    'is_archived': conv.get('is_archived', False),
+                    'member_count': conv.get('num_members', 0)
+                }
+                
+                if conv.get('is_channel') and not conv.get('is_private'):
+                    summary['public_channels'].append(conv_info)
+                elif conv.get('is_group') or (conv.get('is_private') and conv.get('is_channel')):
+                    summary['private_channels'].append(conv_info)
+                elif conv.get('is_im'):
+                    # Para DMs, obtener info del usuario
+                    conv_info['user_id'] = conv.get('user')
+                    summary['direct_messages'].append(conv_info)
+                elif conv.get('is_mpim'):
+                    summary['group_messages'].append(conv_info)
+                    
+            return summary
+            
+        except SlackApiError as e:
+            print(f"Error obteniendo resumen de conversaciones: {e.response['error']}")
+            return {}
+
     def read_channel_messages(self, channel: str, limit: int = 100) -> list:
         """
         Lee los mensajes de un canal
