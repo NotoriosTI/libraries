@@ -16,6 +16,21 @@ files = [
 cli = ["click (>=5.0)"]
 
 [[package]]
+name = "slack-bolt"
+version = "1.23.0"
+description = "The Bolt Framework for Python"
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "slack_bolt-1.23.0-py2.py3-none-any.whl", hash = "sha256:6d6ae39d80c964c362505ae4e587eed2b26dbc3a9f0cb76af1150c30fb670488"},
+    {file = "slack_bolt-1.23.0.tar.gz", hash = "sha256:3d2c3eb13131407a94f925eb22b180d352c2d97b808303ef92b7a46d6508c843"},
+]
+
+[package.dependencies]
+slack_sdk = ">=3.35.0,<4"
+
+[[package]]
 name = "slack-sdk"
 version = "3.35.0"
 description = "The Slack API Platform SDK for Python"
@@ -33,4 +48,4 @@ optional = ["SQLAlchemy (>=1.4,<3)", "aiodns (>1.0)", "aiohttp (>=3.7.3,<4)", "b
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "06bee0ad0daf9733509d5cbc2056d4c8794866eb42bfd87ff53dda0c7c7169ff"
+content-hash = "9467a5dd7e8a69f99f587392f4dc9838168c86e78263e8699cbce454be765500"

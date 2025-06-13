@@ -1,1 +1,1 @@
-from .messages import SlackMessages
+from .messages import SlackBot

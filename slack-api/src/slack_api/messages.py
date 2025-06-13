@@ -1,206 +1,73 @@
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
-from dotenv import load_dotenv
 import os
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+from dotenv import load_dotenv
+import threading
+from queue import Queue
+import logging
 
-class SlackMessages:
-    def __init__(self, dotenv_path:str = None):
-        # Cargar variables de entorno
-        dotenv_path = dotenv_path or '/home/snparada/Spacionatural/Libraries/slack_lib/.env'
-        load_dotenv()
-
-        # Inicializar el cliente de Slack
-        self.client = WebClient(token=os.getenv('SLACK_BOT_TOKEN'))
-        
-        # Check required scopes
-        try:
-            required_scopes = {
-                'read': [
-                    "channels:history",  # For reading messages and threads
-                    "groups:history",    # For reading in private channels
-                    "channels:read"      # For basic channel info
-                ],
-                'write': [
-                    "chat:write"        # For sending messages
-                ]
-            }
-            
-            token_info = self.client.auth_test()
-            print(token_info)
-            current_scopes = token_info.get("scope", "").split(",")
-            print(required_scopes)
-            
-        except SlackApiError as e:
-            print(f"Error checking authentication: {e.response['error']}")
-
-    # CREATE operations
-    def create_channel_message(self, channel: str, text: str) -> dict:
+class SlackBot:
+    def __init__(self, message_queue: Queue, dotenv_path: str = None):
         """
-        Crea un nuevo mensaje en un canal
-        
+        Inicializa el Slack bot.
+
         Args:
-            channel (str): ID o nombre del canal
-            text (str): Texto del mensaje
-            
-        Returns:
-            dict: Información del mensaje incluyendo ts (timestamp que sirve como ID del mensaje)
+            message_queue (Queue): La cola compartida para enviar mensajes al agente consumidor.
+            dotenv_path (str, optional): Ruta al archivo .env.
         """
-        try:
-            response = self.client.chat_postMessage(
-                channel=channel,
-                text=text
-            )
-            return {
-                'message_id': response['ts'],
-                'channel': response['channel']
-            }
-        except SlackApiError as e:
-            print(f"Error creando mensaje: {e.response['error']}")
-            return None
+        # Si no se proporciona una ruta, se puede mantener un valor predeterminado o manejarlo como un error.
+        if not dotenv_path:
+            # Es mejor evitar rutas absolutas hardcoded si es posible,
+            # pero se mantiene la logica provista.
+            dotenv_path = '/Users/bastianibanez/work/libraries/.env'
+        load_dotenv(dotenv_path)
 
-    def create_thread_message(self, channel: str, thread_ts: str, text: str) -> dict:
-        """
-        Crea un nuevo mensaje en un hilo específico
-        
-        Args:
-            channel (str): ID o nombre del canal
-            thread_ts (str): ID del mensaje padre del hilo
-            text (str): Texto de la respuesta
-            
-        Returns:
-            dict: Información del mensaje enviado
-        """
-        try:
-            response = self.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text=text
-            )
-            return {
-                'message_id': response['ts'],
-                'channel': response['channel']
-            }
-        except SlackApiError as e:
-            print(f"Error creando mensaje en hilo: {e.response['error']}")
-            return None
+        self.app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
+        self.socket_token = os.environ.get("SLACK_APP_TOKEN")
+        self.message_queue = message_queue
+        self._register_events()
 
-    # READ operations
-    def read_channel_messages(self, channel: str, limit: int = 100) -> list:
+    def _register_events(self):
         """
-        Lee los mensajes de un canal
-        
-        Args:
-            channel (str): ID o nombre del canal
-            limit (int): Número máximo de mensajes a recuperar
-            
-        Returns:
-            list: Lista de mensajes
+        Registra los manejadores de eventos para el bot.
         """
-        try:
-            response = self.client.conversations_history(
-                channel=channel,
-                limit=limit
-            )
-            return response['messages']
-        except SlackApiError as e:
-            print(f"Error leyendo mensajes: {e.response['error']}")
-            return []
+        @self.app.event("message")
+        def handle_message_events(message, say):
+            # Ignorar mensajes de bots o subtipos de mensajes (ej. uniones a canal)
+            if 'bot_id' in message or 'subtype' in message:
+                return
 
-    def read_thread_messages(self, channel: str, thread_ts: str) -> list:
-        """
-        Lee los mensajes de un hilo específico
-        
-        Args:
-            channel (str): ID o nombre del canal
-            thread_ts (str): ID del mensaje padre del hilo
-            
-        Returns:
-            list: Lista de mensajes del hilo
-        """
-        try:
-            response = self.client.conversations_replies(
-                channel=channel,
-                ts=thread_ts
-            )
-            return response['messages']
-        except SlackApiError as e:
-            error = e.response['error']
-            if error == "missing_scope":
-                print("Error: Bot token missing required scopes for reading threads.")
-                print("Please add 'channels:history' scope in your Slack App configuration")
-            else:
-                print(f"Error leyendo hilo: {error}")
-            return []
+            if message.get('text') == "clear_screen":
+                for _ in range(30):
+                    say(text="-")
+                return
 
-    def read_message(self, channel: str, message_ts: str) -> dict:
-        """
-        Lee un mensaje específico por su ID
-        
-        Args:
-            channel (str): ID o nombre del canal
-            message_ts (str): ID del mensaje
-            
-        Returns:
-            dict: Información del mensaje
-        """
-        try:
-            # Obtenemos el mensaje específico usando conversations_history con latest y limit=1
-            response = self.client.conversations_history(
-                channel=channel,
-                latest=message_ts,
-                limit=1,
-                inclusive=True
-            )
-            return response['messages'][0] if response['messages'] else None
-        except SlackApiError as e:
-            print(f"Error leyendo mensaje: {e.response['error']}")
-            return None
+            # --- INICIO DE LA MODIFICACION ---
+            # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
+            # Esto mejora la experiencia del usuario al darle feedback instantaneo.
+            try:
+                say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
+            except Exception as e:
+                logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
+            # --- FIN DE LA MODIFICACION ---
 
-    # UPDATE operations
-    def update_message(self, channel: str, message_ts: str, new_text: str) -> dict:
-        """
-        Actualiza el texto de un mensaje existente
-        
-        Args:
-            channel (str): ID o nombre del canal
-            message_ts (str): ID del mensaje a actualizar
-            new_text (str): Nuevo texto para el mensaje
+            user_id = message.get('user')
+            text = message.get('text')
             
-        Returns:
-            dict: Información del mensaje actualizado
-        """
-        try:
-            response = self.client.chat_update(
-                channel=channel,
-                ts=message_ts,
-                text=new_text
-            )
-            return {
-                'message_id': response['ts'],
-                'channel': response['channel']
-            }
-        except SlackApiError as e:
-            print(f"Error actualizando mensaje: {e.response['error']}")
-            return None
+            if user_id and text:
+                # Empaquetar la informacion relevante y ponerla en la cola
+                # para que el proceso principal la consuma.
+                self.message_queue.put({
+                    'user_id': user_id,
+                    'text': text,
+                    'say': say  # La funcion para responder en el canal correcto
+                })
 
-    # DELETE operations
-    def delete_message(self, channel: str, message_ts: str) -> bool:
+    def start(self):
         """
-        Elimina un mensaje específico
-        
-        Args:
-            channel (str): ID o nombre del canal
-            message_ts (str): ID del mensaje a eliminar
-            
-        Returns:
-            bool: True si se eliminó correctamente, False en caso contrario
+        Inicia el bot en un hilo separado para no bloquear la ejecucion principal.
         """
-        try:
-            response = self.client.chat_delete(
-                channel=channel,
-                ts=message_ts
-            )
-            return response['ok']
-        except SlackApiError as e:
-            print(f"Error eliminando mensaje: {e.response['error']}")
-            return False
+        handler = SocketModeHandler(self.app, self.socket_token)
+        thread = threading.Thread(target=handler.start)
+        thread.daemon = True
+        thread.start()
