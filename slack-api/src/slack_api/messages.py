@@ -5,12 +5,13 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 
 class SlackBot:
-    def __init__(self):
+    def __init__(self, dotenv_path=None):
         """
         Inicializa el bot de Slack con la configuración necesaria.
         """
-        # Load environment variables from .env file
-        load_dotenv()
+        if not dotenv_path:
+            dotenv_path = '/Users/bastianibanez/work/libraries/.env'
+        load_dotenv(dotenv_path=dotenv_path)
         
         # Initializes your app with your bot token
         # The "App" class handles all the event processing
