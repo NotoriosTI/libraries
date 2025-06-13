@@ -37,6 +37,11 @@ class SlackBot:
             if 'bot_id' in message or 'subtype' in message:
                 return
 
+            if message.get('text') == "clear_screen":
+                for _ in range(30):
+                    say(text="-")
+                return
+
             # --- INICIO DE LA MODIFICACION ---
             # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
             # Esto mejora la experiencia del usuario al darle feedback instantaneo.
