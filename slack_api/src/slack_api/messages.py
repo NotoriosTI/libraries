@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 import os
 
 class SlackMessages:
-    def __init__(self):
+    def __init__(self, dotenv_path):
         # Cargar variables de entorno
-        load_dotenv('/home/snparada/Spacionatural/Libraries/slack_lib/.env')
+        load_dotenv(dotenv_path)
         
         # Inicializar el cliente de Slack
         self.client = WebClient(token=os.getenv('SLACK_BOT_TOKEN'))
