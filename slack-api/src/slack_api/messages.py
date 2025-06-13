@@ -13,23 +13,110 @@ class SlackMessages:
         
         # Check required scopes
         try:
-            required_scopes = {
-                'read': [
-                    "channels:history",  # For reading messages and threads
-                    "groups:history",    # For reading in private channels
-                    "channels:read"      # For basic channel info
-                ],
-                'write': [
-                    "chat:write"        # For sending messages
-                ]
+            self.required_scopes = {
+                'conversations': {
+                    'public_channel': 'channels:read',
+                    'private_channel': 'groups:read',
+                    'im': 'im:read',
+                    'mpim': 'mpim:read'
+                },
+                'messages': {
+                    'read_history': ['channels:history', 'groups:history'],
+                    'write': 'chat:write',
+                    'update': 'chat:write',
+                    'delete': 'chat:write'
+                },
+                'basic': {
+                    'channel_info': 'channels:read'
+                }
             }
             
             token_info = self.client.auth_test()
             current_scopes = token_info.get("scope", "").split(",")
-            print(current_scopes)
+            current_scopes = [scope.strip() for scope in current_scopes if scope.strip()]
+            
+            # Validar scopes requeridos
+            all_required = self._get_all_required_scopes()
+            missing_scopes = [scope for scope in all_required if scope not in current_scopes]
+            
+            if missing_scopes:
+                print(f"⚠️  Advertencia: El token no tiene los siguientes scopes requeridos:")
+                for scope in missing_scopes:
+                    print(f"   - {scope}")
+                print("Algunas funcionalidades pueden no funcionar correctamente.")
+            else:
+                print("✅ Todos los scopes requeridos están presentes.")
+                
+            # Guardar scopes para referencia
+            self.current_scopes = current_scopes
             
         except SlackApiError as e:
             print(f"Error checking authentication: {e.response['error']}")
+            self.current_scopes = []
+
+    def _get_all_required_scopes(self) -> list:
+        """
+        Extrae todos los scopes requeridos de la estructura self.required_scopes
+        
+        Returns:
+            list: Lista única de todos los scopes requeridos
+        """
+        all_scopes = set()
+        
+        def extract_scopes(obj):
+            if isinstance(obj, str):
+                all_scopes.add(obj)
+            elif isinstance(obj, list):
+                all_scopes.update(obj)
+            elif isinstance(obj, dict):
+                for value in obj.values():
+                    extract_scopes(value)
+        
+        extract_scopes(self.required_scopes)
+        return list(all_scopes)
+
+    def _check_required_scopes(self, functionality: str, sub_functionality: str = None) -> tuple[bool, list]:
+        """
+        Verifica si los scopes requeridos para una funcionalidad están presentes
+        
+        Args:
+            functionality (str): Categoría principal (ej: 'conversations', 'messages')
+            sub_functionality (str): Subcategoría específica (ej: 'public_channel', 'write')
+            
+        Returns:
+            tuple: (tiene_scopes, scopes_faltantes)
+        """
+        current_scopes = getattr(self, 'current_scopes', [])
+        
+        if functionality not in self.required_scopes:
+            return True, []
+        
+        func_scopes = self.required_scopes[functionality]
+        
+        if sub_functionality:
+            if sub_functionality not in func_scopes:
+                return True, []
+            required = func_scopes[sub_functionality]
+        else:
+            required = func_scopes
+        
+        # Normalizar required a lista
+        if isinstance(required, str):
+            required = [required]
+        elif isinstance(required, dict):
+            required = list(required.values())
+        
+        # Aplanar lista si contiene sublistas
+        flattened_required = []
+        for item in required:
+            if isinstance(item, list):
+                flattened_required.extend(item)
+            else:
+                flattened_required.append(item)
+        
+        missing = [scope for scope in flattened_required if scope not in current_scopes]
+        
+        return len(missing) == 0, missing
 
     # CREATE operations
     def create_channel_message(self, channel: str, text: str) -> dict:
@@ -43,6 +130,11 @@ class SlackMessages:
         Returns:
             dict: Información del mensaje incluyendo ts (timestamp que sirve como ID del mensaje)
         """
+        # Verificar scope requerido
+        has_scope, missing = self._check_required_scopes('messages', 'write')
+        if not has_scope:
+            print(f"⚠️  Falta scope para escribir mensajes: {', '.join(missing)}")
+        
         try:
             response = self.client.chat_postMessage(
                 channel=channel,
@@ -53,7 +145,12 @@ class SlackMessages:
                 'channel': response['channel']
             }
         except SlackApiError as e:
-            print(f"Error creando mensaje: {e.response['error']}")
+            error_code = e.response['error']
+            if error_code == "missing_scope":
+                print("Error de scope: El bot no tiene permisos para escribir mensajes.")
+                print("Scope necesario: chat:write")
+            else:
+                print(f"Error creando mensaje: {error_code}")
             return None
 
     def create_thread_message(self, channel: str, thread_ts: str, text: str) -> dict:
@@ -68,6 +165,11 @@ class SlackMessages:
         Returns:
             dict: Información del mensaje enviado
         """
+        # Verificar scope requerido
+        has_scope, missing = self._check_required_scopes('messages', 'write')
+        if not has_scope:
+            print(f"⚠️  Falta scope para escribir mensajes en hilos: {', '.join(missing)}")
+        
         try:
             response = self.client.chat_postMessage(
                 channel=channel,
@@ -79,7 +181,12 @@ class SlackMessages:
                 'channel': response['channel']
             }
         except SlackApiError as e:
-            print(f"Error creando mensaje en hilo: {e.response['error']}")
+            error_code = e.response['error']
+            if error_code == "missing_scope":
+                print("Error de scope: El bot no tiene permisos para escribir mensajes.")
+                print("Scope necesario: chat:write")
+            else:
+                print(f"Error creando mensaje en hilo: {error_code}")
             return None
 
     # READ operations
@@ -97,6 +204,18 @@ class SlackMessages:
         Returns:
             list: Lista de conversaciones con información detallada
         """
+        # Verificar scopes requeridos según el tipo de conversación
+        requested_types = [t.strip() for t in types.split(',')]
+        missing_scopes = []
+        
+        for req_type in requested_types:
+            has_scope, missing = self._check_required_scopes('conversations', req_type)
+            if not has_scope:
+                missing_scopes.extend(missing)
+        
+        if missing_scopes:
+            print(f"⚠️  Faltan scopes para obtener {types}: {', '.join(set(missing_scopes))}")
+        
         try:
             conversations = []
             cursor = None
@@ -117,7 +236,17 @@ class SlackMessages:
             return conversations
             
         except SlackApiError as e:
-            print(f"Error obteniendo conversaciones: {e.response['error']}")
+            error_code = e.response['error']
+            if error_code == "missing_scope":
+                print(f"Error de scope: El bot no tiene permisos para listar conversaciones de tipo '{types}'")
+                # Usar información centralizada para mostrar scopes necesarios
+                needed_scopes = []
+                for req_type in requested_types:
+                    _, missing = self._check_required_scopes('conversations', req_type)
+                    needed_scopes.extend(missing)
+                print("Scopes necesarios:", ', '.join(set(needed_scopes)))
+            else:
+                print(f"Error obteniendo conversaciones: {error_code}")
             return []
 
     def get_public_channels(self) -> list:
@@ -155,50 +284,6 @@ class SlackMessages:
             list: Lista de conversaciones grupales
         """
         return self.get_bot_conversations(types="mpim")
-
-    def get_conversations_summary(self) -> dict:
-        """
-        Obtiene un resumen organizado de todas las conversaciones del bot
-        
-        Returns:
-            dict: Resumen organizado por tipo de conversación
-        """
-        try:
-            all_conversations = self.get_bot_conversations()
-            
-            summary = {
-                'public_channels': [],
-                'private_channels': [],
-                'direct_messages': [],
-                'group_messages': [],
-                'total_count': len(all_conversations)
-            }
-            
-            for conv in all_conversations:
-                conv_info = {
-                    'id': conv.get('id'),
-                    'name': conv.get('name', 'Sin nombre'),
-                    'is_member': conv.get('is_member', False),
-                    'is_archived': conv.get('is_archived', False),
-                    'member_count': conv.get('num_members', 0)
-                }
-                
-                if conv.get('is_channel') and not conv.get('is_private'):
-                    summary['public_channels'].append(conv_info)
-                elif conv.get('is_group') or (conv.get('is_private') and conv.get('is_channel')):
-                    summary['private_channels'].append(conv_info)
-                elif conv.get('is_im'):
-                    # Para DMs, obtener info del usuario
-                    conv_info['user_id'] = conv.get('user')
-                    summary['direct_messages'].append(conv_info)
-                elif conv.get('is_mpim'):
-                    summary['group_messages'].append(conv_info)
-                    
-            return summary
-            
-        except SlackApiError as e:
-            print(f"Error obteniendo resumen de conversaciones: {e.response['error']}")
-            return {}
 
     def read_channel_messages(self, channel: str, limit: int = 100) -> list:
         """
