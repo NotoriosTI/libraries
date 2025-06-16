@@ -783,4 +783,72 @@ class OdooProduct(OdooAPI):
             return False
         print(f"MO {mo_id} confirmed!")
         return True
-    
+
+    # Methods for stock analyzer
+    def get_stock_movements_outbound(self, product_id, start_date, end_date):
+        """
+        Obtiene los movimientos de stock de salida para un producto en un rango de fechas.
+        
+        :param product_id: ID del producto en Odoo
+        :param start_date: datetime.date o string fecha de inicio (YYYY-MM-DD)
+        :param end_date: datetime.date o string fecha de fin (YYYY-MM-DD)
+        :return: Lista de movimientos de stock con cantidades consumidas
+        """
+        try:
+            from datetime import datetime
+            
+            # Convertir fechas si son strings
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            
+            # Crear rango de fechas
+            start = datetime.combine(start_date, datetime.min.time())
+            end = datetime.combine(end_date, datetime.max.time())
+            
+            # Dominio para búsqueda de movimientos de salida
+            domain = [
+                ('product_id', '=', product_id),
+                ('state', '=', 'done'),  # Solo movimientos completados
+                ('date', '>=', start.strftime('%Y-%m-%d %H:%M:%S')),
+                ('date', '<=', end.strftime('%Y-%m-%d %H:%M:%S')),
+                ('location_id.usage', '=', 'internal'),  # Desde ubicación interna
+                ('location_dest_id.usage', '!=', 'internal'),  # Hacia ubicación no interna (salida)
+            ]
+            
+            # Campos a obtener
+            fields = [
+                'id',
+                'name', 
+                'product_id',
+                'product_uom_qty',
+                'quantity_done',
+                'date',
+                'location_id',
+                'location_dest_id',
+                'picking_id',
+                'origin'
+            ]
+            
+            # Buscar movimientos de stock
+            movements = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'stock.move', 'search_read',
+                [domain],
+                {'fields': fields}
+            )
+            
+            # Calcular total consumido
+            total_consumed = sum(movement['quantity_done'] or movement['product_uom_qty'] for movement in movements)
+            
+            return {
+                'movements': movements,
+                'total_consumed': total_consumed,
+                'period_start': start_date.strftime('%Y-%m-%d'),
+                'period_end': end_date.strftime('%Y-%m-%d')
+            }
+            
+        except Exception as e:
+            return f"Error al obtener movimientos de stock: {str(e)}"
+        
