@@ -766,7 +766,7 @@ class OdooProduct(OdooAPI):
             "product_qty": product_qty
         }
     
-    def confirm_mo(self, mo_id: int):
+    def confirm_mo(self, mo_id: int) -> bool:
         """
         Confirms a draft Manufacturing order(MO) using it's id
         :param mo_id: ID of the MO to confirm
@@ -785,7 +785,7 @@ class OdooProduct(OdooAPI):
         return True
 
     # Methods for stock analyzer
-    def get_stock_movements_outbound(self, product_id, start_date, end_date):
+    def get_stock_movements_outbound(self, product_id, start_date, end_date) -> dict:
         """
         Obtiene los movimientos de stock de salida para un producto en un rango de fechas.
         
