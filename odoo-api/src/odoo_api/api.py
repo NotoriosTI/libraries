@@ -1,30 +1,28 @@
 import xmlrpc.client as xc
 import pandas as pd
-from decouple import Config, RepositoryEnv
-import os
 
 class OdooAPI:
-    def __init__(self, database='test', dotenv_path=None):
-        # Validate database parameter
-        if database not in ['productive', 'test']:
-            raise ValueError("Error: La base de datos debe ser 'productive' o 'test'")
+    def __init__(
+            self,
+            db=None,
+            url=None,
+            username=None,
+            password=None,
+    ):
+        # Validate parameters
+        if not url:
+            raise ValueError("Error: url es requerido")
+        if not username:
+            raise ValueError("Error: username es requerido")
+        if not password:
+            raise ValueError("Error: password es requerido")
+        if not db:
+            raise ValueError("Error: db es requerido")
         
-        if dotenv_path is None:
-            base_path = '/home/admin_/langgraph_projects/spacio_natural/juan/'
-            env_path = base_path + '.env'
-        else:
-            env_path = dotenv_path
-            base_path = os.path.dirname(env_path)
-        
-        config = Config(RepositoryEnv(env_path))
-        
-        # Use different environment variable names depending on database type
-        prefix = '' if database == 'productive' else 'TEST_'
-        
-        self.url = config(f'ODOO_{prefix}URL')
-        self.db = config(f'ODOO_{prefix}DB')
-        self.username = config(f'ODOO_{prefix}USERNAME')
-        self.password = config(f'ODOO_{prefix}PASSWORD')
+        self.url = url
+        self.db = db
+        self.username = username
+        self.password = password
         self.common = None
         self.uid = None
         self.models = None
