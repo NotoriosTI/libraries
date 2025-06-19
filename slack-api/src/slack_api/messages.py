@@ -1,4 +1,3 @@
-import os
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
@@ -7,7 +6,12 @@ from queue import Queue
 import logging
 
 class SlackBot:
-    def __init__(self, message_queue: Queue, dotenv_path: str = None):
+    def __init__(
+            self,
+            message_queue: Queue,
+            bot_token: str,
+            app_token: str,
+            ):
         """
         Inicializa el Slack bot.
 
@@ -22,8 +26,8 @@ class SlackBot:
             dotenv_path = '/Users/bastianibanez/work/libraries/.env'
         load_dotenv(dotenv_path)
 
-        self.app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
-        self.socket_token = os.environ.get("SLACK_APP_TOKEN")
+        self.app = App(token=bot_token)
+        self.socket_token = app_token
         self.message_queue = message_queue
         self._register_events()
 
