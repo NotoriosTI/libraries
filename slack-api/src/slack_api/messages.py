@@ -17,14 +17,9 @@ class SlackBot:
 
         Args:
             message_queue (Queue): La cola compartida para enviar mensajes al agente consumidor.
-            dotenv_path (str, optional): Ruta al archivo .env.
+            bot_token (str): El token del bot de Slack.
+            app_token (str): El token de la aplicación de Slack.
         """
-        # Si no se proporciona una ruta, se puede mantener un valor predeterminado o manejarlo como un error.
-        if not dotenv_path:
-            # Es mejor evitar rutas absolutas hardcoded si es posible,
-            # pero se mantiene la logica provista.
-            dotenv_path = '/Users/bastianibanez/work/libraries/.env'
-        load_dotenv(dotenv_path)
 
         self.app = App(token=bot_token)
         self.socket_token = app_token
