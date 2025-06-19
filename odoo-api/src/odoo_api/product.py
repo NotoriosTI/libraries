@@ -7,8 +7,8 @@ import csv
 
 
 class OdooProduct(OdooAPI):
-    def __init__(self, db=None):
-        super().__init__(db=db)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
 # CRUD
     def create_product(self, product_data):
