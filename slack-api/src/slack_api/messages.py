@@ -11,6 +11,7 @@ class SlackBot:
             message_queue: Queue,
             bot_token: str,
             app_token: str,
+            debug: bool = False,
             ):
         """
         Inicializa el Slack bot.
@@ -25,6 +26,7 @@ class SlackBot:
         self.socket_token = app_token
         self.message_queue = message_queue
         self._register_events()
+        self.debug = debug
 
     def _register_events(self):
         """
@@ -44,10 +46,11 @@ class SlackBot:
             # --- INICIO DE LA MODIFICACION ---
             # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
             # Esto mejora la experiencia del usuario al darle feedback instantaneo.
-            try:
-                say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
-            except Exception as e:
-                logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
+            if self.debug:
+                try:
+                    say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
+                except Exception as e:
+                    logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
             # --- FIN DE LA MODIFICACION ---
 
             user_id = message.get('user')
