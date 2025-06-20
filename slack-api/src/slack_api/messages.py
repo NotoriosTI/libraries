@@ -1,4 +1,3 @@
-import os
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from dotenv import load_dotenv
@@ -7,25 +6,27 @@ from queue import Queue
 import logging
 
 class SlackBot:
-    def __init__(self, message_queue: Queue, dotenv_path: str = None):
+    def __init__(
+            self,
+            message_queue: Queue,
+            bot_token: str,
+            app_token: str,
+            debug: bool = False,
+            ):
         """
         Inicializa el Slack bot.
 
         Args:
             message_queue (Queue): La cola compartida para enviar mensajes al agente consumidor.
-            dotenv_path (str, optional): Ruta al archivo .env.
+            bot_token (str): El token del bot de Slack.
+            app_token (str): El token de la aplicación de Slack.
         """
-        # Si no se proporciona una ruta, se puede mantener un valor predeterminado o manejarlo como un error.
-        if not dotenv_path:
-            # Es mejor evitar rutas absolutas hardcoded si es posible,
-            # pero se mantiene la logica provista.
-            dotenv_path = '/Users/bastianibanez/work/libraries/.env'
-        load_dotenv(dotenv_path)
 
-        self.app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
-        self.socket_token = os.environ.get("SLACK_APP_TOKEN")
+        self.app = App(token=bot_token)
+        self.socket_token = app_token
         self.message_queue = message_queue
         self._register_events()
+        self.debug = debug
 
     def _register_events(self):
         """
@@ -45,10 +46,11 @@ class SlackBot:
             # --- INICIO DE LA MODIFICACION ---
             # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
             # Esto mejora la experiencia del usuario al darle feedback instantaneo.
-            try:
-                say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
-            except Exception as e:
-                logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
+            if self.debug:
+                try:
+                    say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
+                except Exception as e:
+                    logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
             # --- FIN DE LA MODIFICACION ---
 
             user_id = message.get('user')
