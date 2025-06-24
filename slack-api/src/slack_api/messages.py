@@ -92,6 +92,9 @@ class SlackBot:
             user_id (str): ID del usuario que envió el archivo.
             say (function): Función para responder en Slack.
         """
+        if self.debug:
+            logging.info(f"🎧 _process_audio_file llamado para archivo: {file.get('name')}")
+        
         if not self.openai_client:
             logging.warning("No se puede procesar audio: OpenAI API key no configurada")
             if self.debug:
@@ -102,33 +105,65 @@ class SlackBot:
             file_id = file.get("id")
             file_private_download_url = file.get("url_private_download")
             
+            if self.debug:
+                logging.info(f"Datos del archivo - ID: {file_id}, URL: {file_private_download_url}")
+            
             logging.info(f"Procesando archivo de audio '{file.get('name')}' del usuario {user_id}.")
             
             if self.debug:
                 say(text="🎧 Procesando archivo de audio...", thread_ts=None)
             
+            # Verificar si tenemos ID del archivo
+            if not file_id:
+                raise ValueError("No se encontró ID del archivo")
+            
             # Obtener información del archivo desde la API de Slack
+            if self.debug:
+                logging.info(f"Obteniendo información del archivo con ID: {file_id}")
+            
             file_info_response = self.app.client.files_info(file=file_id)
             file_info = file_info_response['file']
             download_url = file_info.get('url_private_download', file_private_download_url)
             
+            if self.debug:
+                logging.info(f"URL de descarga obtenida: {download_url}")
+            
+            # Verificar que tenemos URL de descarga
+            if not download_url:
+                raise ValueError("No se pudo obtener URL de descarga del archivo")
+            
             # Descargar el archivo
+            if self.debug:
+                logging.info("Descargando archivo...")
+            
             file_content = self._download_file(download_url)
+            
+            if self.debug:
+                logging.info(f"Archivo descargado - tamaño: {len(file_content)} bytes")
             
             # Detectar formato actual y preparar para OpenAI
             actual_format = self._detect_audio_format(file_content, file.get("filetype"), download_url)
             original_name = file.get("name", "audio_file")
             base_name = original_name.split('.')[0] if '.' in original_name else original_name
             
+            if self.debug:
+                logging.info(f"Formato detectado: {actual_format}, nombre base: {base_name}")
+            
             audio_file_data = BytesIO(file_content)
             audio_file_data.name = f"{base_name}.{actual_format}"
             audio_file_data.seek(0)
             
             # Transcribir con OpenAI Whisper
+            if self.debug:
+                logging.info("Iniciando transcripción con OpenAI...")
+            
             transcript_data = self.openai_client.audio.transcriptions.create(
                 file=audio_file_data,
                 model="whisper-1"
             )
+            
+            if self.debug:
+                logging.info(f"Transcripción completada: {transcript_data.text[:100]}...")
             
             # Agregar la transcripción a la cola como si fuera un mensaje de texto
             self.message_queue.put({
@@ -139,12 +174,17 @@ class SlackBot:
             })
             
             if self.debug:
+                say(f"🎧 Audio transcrito exitosamente: {transcript_data.text}")
+            else:
                 say(f"🎧 Audio transcrito exitosamente")
                 
         except Exception as e:
             logging.error(f"Error procesando archivo de audio: {e}")
             if self.debug:
+                logging.error(f"Error detallado: {str(e)}", exc_info=True)
                 say(f"❌ No pude transcribir el archivo de audio: {str(e)}")
+            else:
+                say(f"❌ No pude transcribir el archivo de audio")
 
     def _register_events(self):
         """
@@ -152,8 +192,14 @@ class SlackBot:
         """
         @self.app.event("message")
         def handle_message_events(message, say):
+            # DEBUG: Imprimir mensaje completo para debugging
+            if self.debug:
+                logging.info(f"Mensaje recibido: {message}")
+            
             # Ignorar mensajes de bots o subtipos de mensajes (ej. uniones a canal)
             if 'bot_id' in message or 'subtype' in message:
+                if self.debug:
+                    logging.info(f"Mensaje ignorado - bot_id: {'bot_id' in message}, subtype: {message.get('subtype')}")
                 return
 
             if message.get('text') == "clear_screen":
@@ -163,26 +209,52 @@ class SlackBot:
 
             user_id = message.get('user')
             
+            # DEBUG: Verificar si el mensaje contiene archivos
+            if self.debug:
+                logging.info(f"Verificando archivos en mensaje. 'files' presente: {'files' in message}")
+                if 'files' in message:
+                    logging.info(f"Archivos encontrados: {len(message['files'])}")
+                    for i, file in enumerate(message['files']):
+                        logging.info(f"Archivo {i}: tipo='{file.get('filetype')}', nombre='{file.get('name')}'")
+            
             # Verificar si el mensaje contiene archivos
             if "files" in message:
                 # Tipos de archivos de audio que Slack reconoce
                 audio_filetypes = {"m4a", "mp3", "mp4", "ogg", "wav"}
                 
+                audio_files_found = False
                 for file in message["files"]:
                     filetype = file.get("filetype")
                     
+                    if self.debug:
+                        logging.info(f"Procesando archivo: {file.get('name')} - tipo: {filetype}")
+                    
                     # Verificar si es un archivo de audio
                     if filetype in audio_filetypes:
+                        audio_files_found = True
+                        if self.debug:
+                            logging.info(f"¡Archivo de audio detectado! Procesando: {file.get('name')}")
                         self._process_audio_file(file, user_id, say)
+                    else:
+                        if self.debug:
+                            logging.info(f"Archivo no es de audio: {filetype}")
+                
+                if self.debug:
+                    logging.info(f"Archivos de audio encontrados: {audio_files_found}")
                 
                 # Si solo había archivos de audio, no procesar como mensaje de texto
                 audio_files_only = all(file.get("filetype") in audio_filetypes for file in message["files"])
                 if audio_files_only:
+                    if self.debug:
+                        logging.info("Solo archivos de audio encontrados, terminando procesamiento")
                     return
 
             # Procesar mensaje de texto
             text = message.get('text')
             if user_id and text:
+                if self.debug:
+                    logging.info(f"Procesando mensaje de texto: '{text}' del usuario: {user_id}")
+                
                 # --- INICIO DE LA MODIFICACION ---
                 # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
                 # Esto mejora la experiencia del usuario al darle feedback instantaneo.
@@ -201,6 +273,40 @@ class SlackBot:
                     'say': say,  # La funcion para responder en el canal correcto
                     'audio_file': False  # Flag para identificar que es texto normal
                 })
+            else:
+                if self.debug:
+                    logging.info(f"Mensaje sin texto válido - user_id: {user_id}, text: {text}")
+
+        # Agregar también event handler para file_shared si los archivos llegan por separado
+        @self.app.event("file_shared")
+        def handle_file_shared(event, say):
+            if self.debug:
+                logging.info(f"Evento file_shared recibido: {event}")
+            
+            file_id = event.get("file_id")
+            user_id = event.get("user_id")
+            
+            if file_id and user_id:
+                try:
+                    # Obtener información del archivo
+                    file_info_response = self.app.client.files_info(file=file_id)
+                    file_info = file_info_response['file']
+                    
+                    filetype = file_info.get('filetype')
+                    audio_filetypes = {"m4a", "mp3", "mp4", "ogg", "wav"}
+                    
+                    if self.debug:
+                        logging.info(f"Archivo compartido: {file_info.get('name')} - tipo: {filetype}")
+                    
+                    if filetype in audio_filetypes:
+                        if self.debug:
+                            logging.info(f"Procesando archivo de audio compartido: {file_info.get('name')}")
+                        self._process_audio_file(file_info, user_id, say)
+                
+                except Exception as e:
+                    logging.error(f"Error procesando archivo compartido: {e}")
+                    if self.debug:
+                        say(f"❌ Error procesando archivo compartido: {str(e)}")
 
     def start(self):
         """
