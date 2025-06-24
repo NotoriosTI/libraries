@@ -191,39 +191,42 @@ class SlackBot:
         Registra los manejadores de eventos para el bot.
         """
         @self.app.event("message")
-        def handle_message_events(message, say):
+        def handle_message_events(event, say, logger=None):
+            # IMPORTANTE: Usar 'event' en lugar de 'message' como en slack_audio.py
+            message = event  # Para mantener compatibilidad con código existente
+            
             # DEBUG: Imprimir mensaje completo para debugging
             if self.debug:
-                logging.info(f"Mensaje recibido: {message}")
+                logging.info(f"Evento recibido: {event}")
             
             # Ignorar mensajes de bots o subtipos de mensajes (ej. uniones a canal)
-            if 'bot_id' in message or 'subtype' in message:
+            if 'bot_id' in event or 'subtype' in event:
                 if self.debug:
-                    logging.info(f"Mensaje ignorado - bot_id: {'bot_id' in message}, subtype: {message.get('subtype')}")
+                    logging.info(f"Mensaje ignorado - bot_id: {'bot_id' in event}, subtype: {event.get('subtype')}")
                 return
 
-            if message.get('text') == "clear_screen":
+            if event.get('text') == "clear_screen":
                 for _ in range(30):
                     say(text="-")
                 return
 
-            user_id = message.get('user')
+            user_id = event.get('user')
             
             # DEBUG: Verificar si el mensaje contiene archivos
             if self.debug:
-                logging.info(f"Verificando archivos en mensaje. 'files' presente: {'files' in message}")
-                if 'files' in message:
-                    logging.info(f"Archivos encontrados: {len(message['files'])}")
-                    for i, file in enumerate(message['files']):
+                logging.info(f"Verificando archivos en evento. 'files' presente: {'files' in event}")
+                if 'files' in event:
+                    logging.info(f"Archivos encontrados: {len(event['files'])}")
+                    for i, file in enumerate(event['files']):
                         logging.info(f"Archivo {i}: tipo='{file.get('filetype')}', nombre='{file.get('name')}'")
             
             # Verificar si el mensaje contiene archivos
-            if "files" in message:
+            if "files" in event:
                 # Tipos de archivos de audio que Slack reconoce
                 audio_filetypes = {"m4a", "mp3", "mp4", "ogg", "wav"}
                 
                 audio_files_found = False
-                for file in message["files"]:
+                for file in event["files"]:
                     filetype = file.get("filetype")
                     
                     if self.debug:
@@ -243,14 +246,14 @@ class SlackBot:
                     logging.info(f"Archivos de audio encontrados: {audio_files_found}")
                 
                 # Si solo había archivos de audio, no procesar como mensaje de texto
-                audio_files_only = all(file.get("filetype") in audio_filetypes for file in message["files"])
+                audio_files_only = all(file.get("filetype") in audio_filetypes for file in event["files"])
                 if audio_files_only:
                     if self.debug:
                         logging.info("Solo archivos de audio encontrados, terminando procesamiento")
                     return
 
             # Procesar mensaje de texto
-            text = message.get('text')
+            text = event.get('text')
             if user_id and text:
                 if self.debug:
                     logging.info(f"Procesando mensaje de texto: '{text}' del usuario: {user_id}")
@@ -260,7 +263,7 @@ class SlackBot:
                 # Esto mejora la experiencia del usuario al darle feedback instantaneo.
                 if self.debug:
                     try:
-                        say(text="Procesando tu solicitud...", thread_ts=message.get("ts"))
+                        say(text="Procesando tu solicitud...", thread_ts=event.get("ts"))
                     except Exception as e:
                         logging.error(f"No se pudo enviar el mensaje de acuse de recibo: {e}")
                 # --- FIN DE LA MODIFICACION ---
