@@ -175,16 +175,12 @@ class SlackBot:
             
             if self.debug:
                 say(f"🎧 Audio transcrito exitosamente: {transcript_data.text}")
-            else:
-                say(f"🎧 Audio transcrito exitosamente")
                 
         except Exception as e:
             logging.error(f"Error procesando archivo de audio: {e}")
             if self.debug:
                 logging.error(f"Error detallado: {str(e)}", exc_info=True)
                 say(f"❌ No pude transcribir el archivo de audio: {str(e)}")
-            else:
-                say(f"❌ No pude transcribir el archivo de audio")
 
     def _register_events(self):
         """
