@@ -199,10 +199,22 @@ class SlackBot:
             if self.debug:
                 logging.info(f"Evento recibido: {event}")
             
-            # Ignorar mensajes de bots o subtipos de mensajes (ej. uniones a canal)
-            if 'bot_id' in event or 'subtype' in event:
+            # Ignorar mensajes de bots o ciertos subtipos específicos (NO file_share)
+            if 'bot_id' in event:
                 if self.debug:
-                    logging.info(f"Mensaje ignorado - bot_id: {'bot_id' in event}, subtype: {event.get('subtype')}")
+                    logging.info(f"Mensaje ignorado - es de bot")
+                return
+            
+            # Solo ignorar subtipos específicos que no queremos procesar, pero PERMITIR file_share
+            unwanted_subtypes = {
+                'bot_add', 'bot_remove', 'channel_join', 'channel_leave', 
+                'channel_topic', 'channel_purpose', 'channel_name',
+                'group_join', 'group_leave', 'channel_archive', 'channel_unarchive'
+            }
+            
+            if 'subtype' in event and event.get('subtype') in unwanted_subtypes:
+                if self.debug:
+                    logging.info(f"Mensaje ignorado - subtype no deseado: {event.get('subtype')}")
                 return
 
             if event.get('text') == "clear_screen":
