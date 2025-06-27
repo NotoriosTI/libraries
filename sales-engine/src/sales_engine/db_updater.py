@@ -38,7 +38,7 @@ from google.api_core import exceptions as gcp_exceptions
 import structlog
 
 # Local imports
-from .sales_integration import read_sales_by_date_range
+from .sales_integration import read_sales_by_date_range, cleanup_sales_provider
 from .secret_manager import SecretManagerClient
 
 # Configure structured logging for production
