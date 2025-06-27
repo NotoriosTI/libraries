@@ -1,0 +1,54 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for PRODUCTION SIMULATION
+# -----------------------------------------------------------------------------
+# This file is designed to mimic a production environment.
+#
+# Key Features:
+#   - Uses the pre-built production Docker image.
+#   - Passes environment variables directly (no .env file).
+#   - Connects only to the Cloud SQL Auth Proxy.
+#
+# Usage:
+#   This file is typically used by deployment scripts or CI/CD pipelines.
+#   To run manually:
+#   docker-compose -f deployment/docker-compose.prod.yml up
+#
+version: '3.8'
+
+services:
+  # The main application service, using the production-ready image
+  sales-engine:
+    # Use an image from a container registry (e.g., GCR)
+    # Replace with your actual image path
+    image: gcr.io/your-project-id/sales-engine:latest
+    container_name: sales-engine-prod
+    restart: unless-stopped
+    # In production, environment variables are passed directly by the orchestrator
+    environment:
+      - ENVIRONMENT=production
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - DB_HOST=127.0.0.1 # The host is the proxy service
+      - DB_PORT=5432
+      # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
+    # Depends on the Cloud SQL proxy to be running
+    depends_on:
+      - cloud-sql-proxy
+
+  # Cloud SQL Auth Proxy service
+  # This is the only way the application connects to the database in production
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: cloud-sql-proxy-prod
+    restart: unless-stopped
+    # The command to start the proxy.
+    # The instance connection name should be passed as an environment variable.
+    command: /cloud_sql_proxy -instances=${INSTANCE_CONNECTION_NAME}=tcp:0.0.0.0:5432
+    # In a real production environment (like GCE or GKE), the proxy would
+    # use the attached service account and this volume mount would not be needed.
+    # This is included for simulation purposes.
+    volumes:
+      - ./credentials.json:/config/credentials.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
+    ports:
+      - "5432:5432"
