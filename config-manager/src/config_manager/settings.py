@@ -101,13 +101,6 @@ class Settings:
             # Slack
             self.SLACK_BOT_TOKEN = config('SLACK_BOT_TOKEN')
             self.SLACK_APP_TOKEN = config('SLACK_APP_TOKEN')
-
-            # Database
-            self.DB_HOST = config('DB_HOST')
-            self.DB_PORT = config('DB_PORT')
-            self.DB_NAME = config('DB_NAME')
-            self.DB_USER = config('DB_USER')
-            self.DB_PASSWORD = config('DB_PASSWORD')
         
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -130,6 +123,34 @@ class Settings:
 
         print(f"✅ Fetched secret '{secret_id}' successfully.")
         return value
+    
+    def get_odoo_config(self, use_test: bool = False) -> dict:
+        """Get Odoo configuration for sales-engine compatibility."""
+        if use_test:
+            return {
+                'url': self.ODOO_TEST_URL,
+                'db': self.ODOO_TEST_DB,
+                'username': self.ODOO_TEST_USERNAME,
+                'password': self.ODOO_TEST_PASSWORD
+            }
+        else:
+            return {
+                'url': self.ODOO_PROD_URL,
+                'db': self.ODOO_PROD_DB,
+                'username': self.ODOO_PROD_USERNAME,
+                'password': self.ODOO_PROD_PASSWORD
+            }
+
+    def get_database_config(self) -> dict:
+        """Get database configuration for sales-engine."""
+        return {
+            'project_id': getattr(self, 'GCP_PROJECT_ID', None),
+            'host': self.DB_HOST,
+            'port': self.DB_PORT,
+            'database': self.DB_NAME,
+            'user': self.DB_USER,
+            'password': self.DB_PASSWORD
+        }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
 secrets = Settings()
