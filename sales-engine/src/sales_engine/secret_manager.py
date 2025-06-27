@@ -19,7 +19,9 @@ from google.api_core import exceptions as gcp_exceptions
 import structlog
 
 # Local imports
-from .db_updater import SecretManagerError
+class SecretManagerError(Exception):
+    """Raised when Secret Manager operations fail."""
+    pass
 
 class SecretManagerClient:
     """

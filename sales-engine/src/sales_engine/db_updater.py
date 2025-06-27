@@ -38,12 +38,7 @@ from google.api_core import exceptions as gcp_exceptions
 import structlog
 
 # Local imports
-try: 
-    import sales
-except ImportError as e: 
-    print(f"Warning: sales.py module not found. Ensure it's in the Python path. Error: {e}") 
-    sales = None
-
+from .sales_integration import read_sales_by_date_range
 from .secret_manager import SecretManagerClient
 
 # Configure structured logging for production
@@ -67,9 +62,6 @@ class DatabaseConnectionError(DatabaseUpdaterError):
     pass
 class DataValidationError(DatabaseUpdaterError):
     """Raised when data validation fails."""
-    pass
-class SecretManagerError(DatabaseUpdaterError):
-    """Raised when Secret Manager operations fail."""
     pass
 
 @dataclass
@@ -566,10 +558,7 @@ class DatabaseUpdater:
             
             # Step 3: Call sales.py to get new data
             try:
-                if sales is None:
-                    raise DatabaseUpdaterError("sales.py module not found. Ensure it's in the Python path.")
-                
-                sales_data = sales.read_sales_by_date_range(start_date, end_date)
+                sales_data = read_sales_by_date_range(start_date, end_date)
                 if isinstance(sales_data, tuple) and len(sales_data) == 2:
                     orders_df, lines_df = sales_data
                 else:

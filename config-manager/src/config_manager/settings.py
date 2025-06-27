@@ -101,6 +101,13 @@ class Settings:
             # Slack
             self.SLACK_BOT_TOKEN = config('SLACK_BOT_TOKEN')
             self.SLACK_APP_TOKEN = config('SLACK_APP_TOKEN')
+
+            # Database
+            self.DB_HOST = config('DB_HOST')
+            self.DB_PORT = config('DB_PORT')
+            self.DB_NAME = config('DB_NAME')
+            self.DB_USER = config('DB_USER')
+            self.DB_PASSWORD = config('DB_PASSWORD')
         
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")

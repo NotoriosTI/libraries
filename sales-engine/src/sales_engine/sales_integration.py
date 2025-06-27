@@ -7,7 +7,7 @@ from datetime import date
 from typing import Optional, Tuple
 
 # Third-party imports
-from odoo_api import OdooSales
+from odoo_api.sales import OdooSales
 import pandas as pd
 # Local imports
 from .config import get_odoo_config
