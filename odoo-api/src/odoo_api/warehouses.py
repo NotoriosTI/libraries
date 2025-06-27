@@ -3,8 +3,8 @@ import pandas as pd
 from pprint import pprint
 
 class OdooWarehouse(OdooAPI):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
     def read_stock_by_location(self):
         # Obtener todas las ubicaciones que son del tipo 'Ubicación interna' en una sola llamada
@@ -98,11 +98,8 @@ import pandas as pd
 from pprint import pprint
 
 class OdooWarehouse(OdooAPI):
-    def __init__(self, database='productive', dotenv_path=None): # Permitir pasar database y dotenv_path
-        # Asegúrate de que el constructor de OdooAPI se llama correctamente.
-        # Si OdooAPI no acepta dotenv_path directamente en __init__ y lo maneja de otra forma,
-        # ajusta esta llamada. Basado en OdooProduct, OdooAPI debería aceptarlo.
-        super().__init__(database=database, dotenv_path=dotenv_path)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
     def read_stock_by_location(self):
         # Obtener todas las ubicaciones que son del tipo 'Ubicación interna' en una sola llamada
