@@ -7,12 +7,12 @@ In production, secrets are fetched from Google Cloud Secret Manager. In local en
 variables are loaded using python-decouple from either a Docker env_file or a local .env file.
 
 Usage:
-    from config_manager.settings import Settings
-    settings = Settings()
+    from config_manager.settings import secrets
+    db_host = secrets.DB_HOST
 """
 
 import os
-from decouple import config, Csv
+from decouple import config
 
 # --- The main Settings Class ---
 # It will decide how to load variables based on the ENVIRONMENT.
@@ -32,7 +32,7 @@ class Settings:
             print("✅ Running in 'production' mode. Fetching secrets from GCP.")
             # We import this library only when needed for production
             from google.cloud import secretmanager
-            
+
             # This project ID must be available as an environment variable in production
             self.GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID')
             if not self.GCP_PROJECT_ID:
@@ -67,7 +67,7 @@ class Settings:
 
             # Database
             self.DB_HOST = self._fetch_gcp_secret('DB_HOST', gcp_client)
-            self.DB_PORT = self._fetch_gcp_secret('DB_PORT', gcp_client)  
+            self.DB_PORT = self._fetch_gcp_secret('DB_PORT', gcp_client)
             self.DB_NAME = self._fetch_gcp_secret('DB_NAME', gcp_client)
             self.DB_USER = self._fetch_gcp_secret('DB_USER', gcp_client)
             self.DB_PASSWORD = self._fetch_gcp_secret('DB_PASSWORD', gcp_client)
@@ -80,72 +80,70 @@ class Settings:
                 print("✅ Running in 'local_machine' mode. Loading settings from .env file directly.")
 
             # Odoo Production
-            self.ODOO_PROD_URL = config('ODOO_PROD_URL')
-            self.ODOO_PROD_DB = config('ODOO_PROD_DB')
-            self.ODOO_PROD_USERNAME = config('ODOO_PROD_USERNAME')
-            self.ODOO_PROD_PASSWORD = config('ODOO_PROD_PASSWORD')
+            self.ODOO_PROD_URL = config('ODOO_PROD_URL', default='')
+            self.ODOO_PROD_DB = config('ODOO_PROD_DB', default='')
+            self.ODOO_PROD_USERNAME = config('ODOO_PROD_USERNAME', default='')
+            self.ODOO_PROD_PASSWORD = config('ODOO_PROD_PASSWORD', default='')
 
             # Odoo Test
-            self.ODOO_TEST_URL = config('ODOO_TEST_URL')
-            self.ODOO_TEST_DB = config('ODOO_TEST_DB')
-            self.ODOO_TEST_USERNAME = config('ODOO_TEST_USERNAME')
-            self.ODOO_TEST_PASSWORD = config('ODOO_TEST_PASSWORD')
+            self.ODOO_TEST_URL = config('ODOO_TEST_URL', default='')
+            self.ODOO_TEST_DB = config('ODOO_TEST_DB', default='')
+            self.ODOO_TEST_USERNAME = config('ODOO_TEST_USERNAME', default='')
+            self.ODOO_TEST_PASSWORD = config('ODOO_TEST_PASSWORD', default='')
 
             # Langsmith
-            self.LANGSMITH_API_KEY = config('LANGSMITH_API_KEY')
-            self.LANGSMITH_PROJECT = config('LANGSMITH_PROJECT')
+            self.LANGSMITH_API_KEY = config('LANGSMITH_API_KEY', default='')
+            self.LANGSMITH_PROJECT = config('LANGSMITH_PROJECT', default='')
 
             # OpenAI
-            self.OPENAI_API_KEY = config('OPENAI_API_KEY')
+            self.OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
 
             # Slack
-            self.SLACK_BOT_TOKEN = config('SLACK_BOT_TOKEN')
-            self.SLACK_APP_TOKEN = config('SLACK_APP_TOKEN')
+            self.SLACK_BOT_TOKEN = config('SLACK_BOT_TOKEN', default='')
+            self.SLACK_APP_TOKEN = config('SLACK_APP_TOKEN', default='')
 
-            # Database
-            self.DB_HOST = config('DB_HOST')
-            self.DB_PORT = config('DB_PORT')
-            self.DB_NAME = config('DB_NAME')
-            self.DB_USER = config('DB_USER')
-            self.DB_PASSWORD = config('DB_PASSWORD')
-        
+            # Database (FIXED: Added default values for local development)
+            self.DB_HOST = config('DB_HOST', default='127.0.0.1')
+            self.DB_PORT = config('DB_PORT', default='5432')
+            self.DB_NAME = config('DB_NAME', default='sales_db')
+            self.DB_USER = config('DB_USER', default='postgres')
+            self.DB_PASSWORD = config('DB_PASSWORD', default='password')
+
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
-        
-        os.environ["LANGSMITH_TRACING"] = "true"
-        os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
-        os.environ["LANGSMITH_API_KEY"] = self.LANGSMITH_API_KEY
-        os.environ["LANGSMITH_PROJECT"] = self.LANGSMITH_PROJECT
 
-    def _fetch_gcp_secret(self, secret_id: str, client, cast_to=str):
+        # Configure LangSmith tracing if the key is present
+        if hasattr(self, 'LANGSMITH_API_KEY') and self.LANGSMITH_API_KEY:
+            os.environ["LANGSMITH_TRACING"] = "true"
+            os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+            os.environ["LANGSMITH_API_KEY"] = self.LANGSMITH_API_KEY
+            if hasattr(self, 'LANGSMITH_PROJECT') and self.LANGSMITH_PROJECT:
+                os.environ["LANGSMITH_PROJECT"] = self.LANGSMITH_PROJECT
+
+    def _fetch_gcp_secret(self, secret_id: str, client) -> str:
         """Helper function to fetch a single secret from GCP Secret Manager."""
         try:
             name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_id}/versions/latest"
             response = client.access_secret_version(request={"name": name})
             value = response.payload.data.decode("UTF-8")
-            
         except Exception as e:
             print(f"❌ Failed to fetch secret '{secret_id}'. Error: {e}")
             raise e
 
         print(f"✅ Fetched secret '{secret_id}' successfully.")
         return value
-    
+
     def get_odoo_config(self, use_test: bool = False) -> dict:
         """Get Odoo configuration for sales-engine compatibility."""
         if use_test:
             return {
-                'url': self.ODOO_TEST_URL,
-                'db': self.ODOO_TEST_DB,
-                'username': self.ODOO_TEST_USERNAME,
-                'password': self.ODOO_TEST_PASSWORD
+                'url': self.ODOO_TEST_URL, 'db': self.ODOO_TEST_DB,
+                'username': self.ODOO_TEST_USERNAME, 'password': self.ODOO_TEST_PASSWORD
             }
         else:
             return {
-                'url': self.ODOO_PROD_URL,
-                'db': self.ODOO_PROD_DB,
-                'username': self.ODOO_PROD_USERNAME,
-                'password': self.ODOO_PROD_PASSWORD
+                'url': self.ODOO_PROD_URL, 'db': self.ODOO_PROD_DB,
+                'username': self.ODOO_PROD_USERNAME, 'password': self.ODOO_PROD_PASSWORD
             }
 
     def get_database_config(self) -> dict:
