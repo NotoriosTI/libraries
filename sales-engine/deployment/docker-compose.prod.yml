@@ -20,15 +20,16 @@ services:
   sales-engine:
     # Use an image from a container registry (e.g., GCR)
     # Replace with your actual image path
-    image: gcr.io/your-project-id/sales-engine:latest
+    image: gcr.io/${PROJECT_ID}/sales-engine:latest
     container_name: sales-engine-prod
     restart: unless-stopped
     # In production, environment variables are passed directly by the orchestrator
     environment:
       - ENVIRONMENT=production
-      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_PROJECT_ID=${PROJECT_ID}
       - DB_HOST=127.0.0.1 # The host is the proxy service
       - DB_PORT=5432
+      - USE_TEST_ODOO=false  # Ensures we use odoo_prod
       # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
     # Depends on the Cloud SQL proxy to be running
     depends_on:
@@ -42,13 +43,12 @@ services:
     restart: unless-stopped
     # The command to start the proxy.
     # The instance connection name should be passed as an environment variable.
-    command: /cloud_sql_proxy -instances=${INSTANCE_CONNECTION_NAME}=tcp:0.0.0.0:5432
-    # In a real production environment (like GCE or GKE), the proxy would
-    # use the attached service account and this volume mount would not be needed.
-    # This is included for simulation purposes.
-    volumes:
-      - ./credentials.json:/config/credentials.json:ro
+    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}=tcp:0.0.0.0:5432
+    # In production environment on GCE, the proxy uses the attached service account
+    # and this volume mount is not needed. We use it for compatibility.
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
+    volumes:
+      - /opt/sales-engine/credentials.json:/config/credentials.json:ro
     ports:
       - "5432:5432"

@@ -295,10 +295,19 @@ class OdooSales(OdooAPI):
                 axis=1
             )
         
-        # Añadir campos vacíos
-        df['term_name'] = None
-        df['warehouse_name'] = None
-        df['doctype_name'] = None
+        # Mapear términos de pago y almacén
+        if 'payment_term_id' in df.columns:
+            df['term_name'] = df['payment_term_id'].apply(lambda x: x[1] if isinstance(x, (list, tuple)) and len(x) > 1 else None)
+        else:
+            df['term_name'] = None
+            
+        if 'warehouse_id' in df.columns:
+            df['warehouse_name'] = df['warehouse_id'].apply(lambda x: x[1] if isinstance(x, (list, tuple)) and len(x) > 1 else None)
+        else:
+            df['warehouse_name'] = None
+            
+        # Asignar tipo de documento
+        df['doctype_name'] = 'Factura'
         
         # Asignar fecha de emisión
         df['issuedDate'] = df['date_order']
@@ -308,7 +317,7 @@ class OdooSales(OdooAPI):
         df['docnumber'] = df['name']
         
         # Limpiar columnas innecesarias
-        df = df.drop(['order_line', 'user_id', 'team_id', 'partner_id', 'date_order', 'name', 'id'], axis=1, errors='ignore')
+        df = df.drop(['order_line', 'user_id', 'team_id', 'partner_id', 'date_order', 'name', 'id', 'payment_term_id', 'warehouse_id'], axis=1, errors='ignore')
         
         return df
     
@@ -373,7 +382,8 @@ class OdooSales(OdooAPI):
         # Campos mínimos necesarios
         sales_fields = [
             'name', 'date_order', 'partner_id', 'amount_total',
-            'state', 'user_id', 'team_id', 'order_line'
+            'state', 'user_id', 'team_id', 'order_line',
+            'payment_term_id', 'warehouse_id'  # Agregados para term_name y warehouse_name
         ]
         
         return self.models.execute_kw(
@@ -573,7 +583,8 @@ class OdooSales(OdooAPI):
         # Campos optimizados (solo lo esencial)
         sales_fields = [
             'name', 'date_order', 'partner_id', 'amount_total', 
-            'state', 'user_id', 'team_id', 'order_line'
+            'state', 'user_id', 'team_id', 'order_line',
+            'payment_term_id', 'warehouse_id'  # Agregados para term_name y warehouse_name
         ]
         
         params = {'fields': sales_fields, 'order': 'date_order DESC'}

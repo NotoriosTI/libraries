@@ -1,7 +1,7 @@
 """
 Configuration adapter for sales-engine using shared config-manager.
 """
-from typing import Dict, str
+from typing import Dict
 from config_manager import secrets
 
 def get_odoo_config(use_test: bool = False) -> Dict[str, str]:

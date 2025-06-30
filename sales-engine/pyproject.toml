@@ -6,14 +6,15 @@ authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "pandas>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "google-cloud-secret-manager>=2.16.0",
     "python-decouple>=3.8",
+    "structlog>=24.0.0",
     "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@sales-engine#subdirectory=odoo-api",
-    "config-manager" @ git+https://github.com/NotoriosTI/libraries.git@sales-engine#subdirectory=config-manager",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@sales-engine#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
