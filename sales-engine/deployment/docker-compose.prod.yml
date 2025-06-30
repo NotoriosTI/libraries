@@ -27,7 +27,7 @@ services:
     environment:
       - ENVIRONMENT=production
       - GCP_PROJECT_ID=${PROJECT_ID}
-      - DB_HOST=127.0.0.1 # The host is the proxy service
+      - DB_HOST=cloud-sql-proxy # The host is the proxy service
       - DB_PORT=5432
       - USE_TEST_ODOO=false  # Ensures we use odoo_prod
       # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
