@@ -41,8 +41,8 @@ services:
     image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
     container_name: cloud-sql-proxy-prod
     restart: unless-stopped
-    # The command to start the proxy with stable v1 syntax
-    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}=tcp:0.0.0.0:5432
+    # The command to start the proxy with stable v1 syntax and SSL tolerance
+    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}=tcp:0.0.0.0:5432 -skip_failed_instance_config
     # In production environment on GCE, the proxy uses the attached service account
     # No credentials file needed when running on GCE with proper service account
     ports:
