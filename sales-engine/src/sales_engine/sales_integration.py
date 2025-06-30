@@ -122,11 +122,6 @@ class SalesDataProvider:
         elif 'salesInvoiceId' in df.columns:
             df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
 
-        # Debug: Print column types before processing
-        if 'salesInvoiceId' in df.columns:
-            print(f"🔍 Orders salesInvoiceId type: {df['salesInvoiceId'].dtype}")
-            print(f"🔍 Orders salesInvoiceId sample: {df['salesInvoiceId'].head(3).tolist()}")
-
         required_columns = {
             'doctype_name': 'Factura', 'docnumber': df.get('salesInvoiceId', ''),
             'customer_customerid': 0, 'customer_name': '', 'customer_vatid': '',
@@ -154,11 +149,6 @@ class SalesDataProvider:
         # Fix: Ensure salesInvoiceId is string type
         if 'salesInvoiceId' in df.columns:
             df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
-        
-        # Debug: Print column types before processing
-        if 'salesInvoiceId' in df.columns:
-            print(f"🔍 Lines salesInvoiceId type: {df['salesInvoiceId'].dtype}")
-            print(f"🔍 Lines salesInvoiceId sample: {df['salesInvoiceId'].head(3).tolist()}")
         
         required_columns = {
             'items_product_description': '', 'items_product_sku': '',
