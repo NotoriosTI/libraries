@@ -184,7 +184,25 @@ class DatabaseUpdater:
             db_config = self.config.get_database_config()
             # Ensure port is an integer
             db_config['port'] = int(db_config['port'])
-            return db_config
+            
+            # Filter to only include valid PostgreSQL connection parameters
+            valid_params = {
+                'host', 'port', 'database', 'user', 'password', 'dbname',
+                'connect_timeout', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert',
+                'sslcrl', 'application_name', 'fallback_application_name',
+                'keepalives', 'keepalives_idle', 'keepalives_interval', 
+                'keepalives_count', 'target_session_attrs', 'options'
+            }
+            
+            # Only include parameters that are valid for psycopg2
+            filtered_config = {k: v for k, v in db_config.items() if k in valid_params}
+            
+            self.logger.debug("Database connection parameters", 
+                            host=filtered_config.get('host'), 
+                            database=filtered_config.get('database'),
+                            filtered_params=list(filtered_config.keys()))
+            
+            return filtered_config
         except (AttributeError, KeyError) as e:
             self.logger.error("Database configuration is missing or incomplete.", error=str(e))
             raise DatabaseConnectionError("Database configuration is incomplete.") from e
