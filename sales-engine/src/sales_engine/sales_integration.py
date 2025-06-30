@@ -116,6 +116,12 @@ class SalesDataProvider:
         }
         df = df.rename(columns=column_mapping, errors='ignore')
 
+        # Fix: Ensure salesInvoiceId is string type (use name, not id)
+        if 'salesInvoiceId' not in df.columns and 'name' in df.columns:
+            df['salesInvoiceId'] = df['name'].astype(str)
+        elif 'salesInvoiceId' in df.columns:
+            df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
+
         # Debug: Print column types before processing
         if 'salesInvoiceId' in df.columns:
             print(f"🔍 Orders salesInvoiceId type: {df['salesInvoiceId'].dtype}")
@@ -144,6 +150,10 @@ class SalesDataProvider:
             'price_unit': 'items_unitPrice',
         }
         df = df.rename(columns=column_mapping, errors='ignore')
+        
+        # Fix: Ensure salesInvoiceId is string type
+        if 'salesInvoiceId' in df.columns:
+            df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
         
         # Debug: Print column types before processing
         if 'salesInvoiceId' in df.columns:
