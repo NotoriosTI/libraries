@@ -82,10 +82,19 @@ setup_vm_credentials() {
         echo "Note: In production, credentials should be managed through VM service accounts"
         echo "For now, ensure the VM has the necessary service account attached"
         
-        # Create directory structure on VM
+        # Create directory structure on VM and setup Docker permissions
         gcloud compute ssh $VM_NAME --zone=$ZONE --command="
             sudo mkdir -p /opt/sales-engine
             sudo chown \$(whoami):\$(whoami) /opt/sales-engine
+            
+            # Add current user to docker group if not already
+            if ! groups \$(whoami) | grep -q docker; then
+                echo 'Adding user to docker group...'
+                sudo usermod -aG docker \$(whoami)
+                echo 'User added to docker group. Note: Changes take effect on next login.'
+            else
+                echo 'User already in docker group.'
+            fi
         "
     fi
 }
@@ -94,8 +103,8 @@ setup_vm_credentials() {
 check_prerequisites
 
 # Build and push Docker image
-echo "🐳 Building Docker image..."
-docker build -f deployment/Dockerfile -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest .
+echo "🐳 Building Docker image for linux/amd64..."
+docker build --platform linux/amd64 -f deployment/Dockerfile -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest .
 
 echo "📤 Pushing to Container Registry..."
 # Configure Docker to use gcloud as credential helper
@@ -111,45 +120,56 @@ setup_vm_credentials
 echo "🚚 Deploying to VM..."
 gcloud compute scp deployment/docker-compose.prod.yml $VM_NAME:/opt/sales-engine/ --zone=$ZONE
 
-# SSH into VM and deploy
+# SSH into VM and deploy  
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     cd /opt/sales-engine
     
-    # Set environment variables for docker-compose
-    export PROJECT_ID=$PROJECT_ID
-    export REGION=$REGION
-    export INSTANCE=$INSTANCE_NAME
+    # Configure Docker to use gcloud credentials on VM
+    echo '🔐 Configuring Docker authentication for GCR...'
+    gcloud auth configure-docker gcr.io --quiet
     
-    # Verify we can connect to Odoo (this should be done in a separate health check)
+    # Also authenticate sudo docker
+    sudo gcloud auth configure-docker gcr.io --quiet
+    
+    # Create environment file for docker-compose
+    cat > .env << EOF
+PROJECT_ID=$PROJECT_ID
+REGION=$REGION
+INSTANCE=$INSTANCE_NAME
+USE_TEST_ODOO=false
+EOF
+    
+    # Verify deployment environment
     echo '🔍 Deployment environment:'
-    echo 'PROJECT_ID: $PROJECT_ID'
-    echo 'REGION: $REGION'
-    echo 'INSTANCE: $INSTANCE'
+    echo \"PROJECT_ID: $PROJECT_ID\"
+    echo \"REGION: $REGION\"
+    echo \"INSTANCE: $INSTANCE_NAME\"
     echo 'USE_TEST_ODOO: false (uses odoo_prod)'
     
-    # Pull latest image
-    docker pull $IMAGE_NAME:latest
+    # Pull latest image (use sudo in case user group changes haven't taken effect)
+    echo \"🐳 Pulling image: $PROJECT_ID/sales-engine:latest\"
+    sudo docker pull gcr.io/$PROJECT_ID/sales-engine:latest
     
     # Stop existing containers gracefully
-    docker-compose -f docker-compose.prod.yml down --timeout 30 || true
+    sudo docker-compose -f docker-compose.prod.yml down --timeout 30 || true
     
     # Remove any orphaned containers
-    docker system prune -f
+    sudo docker system prune -f
     
-    # Start services
-    docker-compose -f docker-compose.prod.yml up -d
+    # Start services with environment file
+    sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
     
     # Wait for services to be ready
     echo '⏳ Waiting for services to start...'
     sleep 10
     
     # Check if services are running
-    if docker-compose -f docker-compose.prod.yml ps | grep -q 'Up'; then
+    if sudo docker-compose --env-file .env -f docker-compose.prod.yml ps | grep -q 'Up'; then
         echo '✅ Services are running'
-        docker-compose -f docker-compose.prod.yml ps
+        sudo docker-compose --env-file .env -f docker-compose.prod.yml ps
     else
         echo '❌ Services failed to start'
-        docker-compose -f docker-compose.prod.yml logs
+        sudo docker-compose --env-file .env -f docker-compose.prod.yml logs
         exit 1
     fi
 "
@@ -170,7 +190,7 @@ WorkingDirectory=/opt/sales-engine
 Environment=PROJECT_ID=$PROJECT_ID
 Environment=REGION=$REGION
 Environment=INSTANCE=$INSTANCE_NAME
-ExecStart=/usr/local/bin/docker-compose -f docker-compose.prod.yml run --rm sales-engine
+ExecStart=/usr/bin/sudo /usr/local/bin/docker-compose --env-file .env -f docker-compose.prod.yml run --rm sales-engine
 
 [Install]
 WantedBy=multi-user.target
@@ -214,7 +234,7 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     echo ''
     
     # Run the sales engine and capture the output
-    if docker-compose -f docker-compose.prod.yml run --rm sales-engine; then
+    if sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm sales-engine; then
         echo ''
         echo '✅ Test execution completed successfully!'
         echo '📈 Sales data synchronization is working correctly'
@@ -235,9 +255,9 @@ echo ""
 echo "✅ Deployment completed successfully!"
 echo ""
 echo "🔍 Useful commands:"
-echo "View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml logs -f'"
-echo "Check status: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml ps'"
-echo "Manual run: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml run --rm sales-engine'"
+echo "View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml logs -f'"
+echo "Check status: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml ps'"
+echo "Manual run: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm sales-engine'"
 echo "Check timer: gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo systemctl status sales-engine.timer'"
 echo ""
 echo "📋 Important notes:"

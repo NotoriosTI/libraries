@@ -149,7 +149,6 @@ class Settings:
     def get_database_config(self) -> dict:
         """Get database configuration for sales-engine."""
         return {
-            'project_id': getattr(self, 'GCP_PROJECT_ID', None),
             'host': self.DB_HOST,
             'port': self.DB_PORT,
             'database': self.DB_NAME,

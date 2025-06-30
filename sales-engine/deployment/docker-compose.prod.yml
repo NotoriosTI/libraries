@@ -45,10 +45,6 @@ services:
     # The instance connection name should be passed as an environment variable.
     command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}=tcp:0.0.0.0:5432
     # In production environment on GCE, the proxy uses the attached service account
-    # and this volume mount is not needed. We use it for compatibility.
-    environment:
-      - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
-    volumes:
-      - /opt/sales-engine/credentials.json:/config/credentials.json:ro
+    # No credentials file needed when running on GCE with proper service account
     ports:
       - "5432:5432"

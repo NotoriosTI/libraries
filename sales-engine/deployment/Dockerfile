@@ -7,7 +7,7 @@
 
 # --- Stage 1: Builder ---
 # This stage installs Poetry and project dependencies into a virtual environment.
-FROM python:3.11-slim as builder
+FROM python:3.13-slim as builder
 
 # Set working directory
 WORKDIR /app
@@ -37,14 +37,14 @@ COPY ./pyproject.toml ./poetry.lock ./
 
 # Install dependencies from pyproject.toml.
 # Poetry will fetch 'odoo-api' and 'config-manager' from their Git URLs.
-# --no-dev excludes development dependencies like pytest.
-RUN poetry install --no-dev
+# Only install dependencies, not the project itself (--no-root).
+RUN poetry install --only main --no-root
 
 
 # --- Stage 2: Final Production Image ---
 # This stage creates the final, lightweight image by copying only the necessary
 # application code and the virtual environment from the builder stage.
-FROM python:3.11-slim as final
+FROM python:3.13-slim as final
 
 # Set working directory
 WORKDIR /app
@@ -74,6 +74,7 @@ ENV PATH="/app/.venv/bin:${PATH}"
 # Set environment variables for the application
 ENV ENVIRONMENT=production
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appuser /app
@@ -82,5 +83,5 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 # Set the default command to run the database updater
-# This uses the script defined in pyproject.toml ("run-updater")
-CMD ["run-updater"]
+# Since we use --no-root, run the module directly
+CMD ["python", "-m", "sales_engine.db_updater"]
