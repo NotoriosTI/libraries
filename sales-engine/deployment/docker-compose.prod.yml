@@ -38,11 +38,11 @@ services:
   # Cloud SQL Auth Proxy service
   # This is the only way the application connects to the database in production
   cloud-sql-proxy:
-    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
     container_name: cloud-sql-proxy-prod
     restart: unless-stopped
-    # The command to start the proxy with newer syntax and better SSL handling
-    command: /cloud-sql-proxy ${PROJECT_ID}:${REGION}:${INSTANCE} --address 0.0.0.0 --port 5432
+    # The command to start the proxy with stable v1 syntax
+    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}=tcp:0.0.0.0:5432
     # In production environment on GCE, the proxy uses the attached service account
     # No credentials file needed when running on GCE with proper service account
     ports:
