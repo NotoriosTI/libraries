@@ -42,7 +42,7 @@ services:
     container_name: cloud-sql-proxy-prod
     restart: unless-stopped
     # The command to start the proxy with newer syntax and better SSL handling
-    command: /cloud-sql-proxy --address 0.0.0.0 --port 5432 ${PROJECT_ID}:${REGION}:${INSTANCE}
+    command: /cloud-sql-proxy --address 0.0.0.0 --port 5432 --private-ip ${PROJECT_ID}:${REGION}:${INSTANCE}
     # In production environment on GCE, the proxy uses the attached service account
     # No credentials file needed when running on GCE with proper service account
     ports:
