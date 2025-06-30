@@ -313,7 +313,7 @@ class OdooSales(OdooAPI):
         df['issuedDate'] = df['date_order']
         
         # Asignar salesInvoiceId y docnumber
-        df['salesInvoiceId'] = df['id']
+        df['salesInvoiceId'] = df['name']
         df['docnumber'] = df['name']
         
         # Limpiar columnas innecesarias
