@@ -112,7 +112,7 @@ class SalesDataProvider:
             'partner_vat': 'customer_vatid', 'salesperson_name': 'salesman_name',
             'payment_term_name': 'term_name', 'warehouse_name': 'warehouse_name',
             'amount_untaxed': 'totals_net', 'amount_tax': 'totals_vat',
-            'amount_total': 'total_total', 'sales_channel': 'sales_channel',
+            'sales_channel': 'sales_channel',
         }
         df = df.rename(columns=column_mapping, errors='ignore')
 
@@ -130,7 +130,7 @@ class SalesDataProvider:
             'order_id': 0, 'doctype_name': 'Factura', 'docnumber': df.get('salesInvoiceId', ''),
             'customer_customerid': 0, 'customer_name': '', 'customer_vatid': '',
             'salesman_name': '', 'term_name': '', 'warehouse_name': '',
-            'totals_net': 0.0, 'totals_vat': 0.0,
+            'totals_net': 0.0, 'totals_vat': 0.0, 'total_total': 0.0,
             'issuedDate': None, 'sales_channel': ''
         }
         for col, default in required_columns.items():
