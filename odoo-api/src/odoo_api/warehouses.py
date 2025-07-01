@@ -6,6 +6,65 @@ class OdooWarehouse(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
         super().__init__(db=db, url=url, username=username, password=password)
 
+    def get_stock_by_sku(self, sku):
+        """
+        Obtiene información de stock para un producto específico por SKU.
+        
+        Args:
+            sku (str): SKU del producto a consultar
+            
+        Returns:
+            dict: Información de stock consolidada
+                {
+                    "qty_available": float,
+                    "virtual_available": float,
+                    "locations": [
+                        {"location": str, "quantity": float},
+                        ...
+                    ],
+                    "product_name": str,
+                    "sku": str
+                }
+        """
+        # Obtener inventario completo
+        df_inventory = self.read_stock_by_location()
+        
+        # Filtrar por SKU específico
+        product_stock = df_inventory[df_inventory['internal_reference'] == sku]
+        
+        if product_stock.empty:
+            return {
+                "qty_available": 0,
+                "virtual_available": 0,
+                "locations": [],
+                "product_name": None,
+                "sku": sku,
+                "found": False
+            }
+        
+        # Consolidar información
+        total_qty = product_stock['quantity'].sum()
+        product_name = product_stock['product_id'].iloc[0] if not product_stock.empty else None
+        
+        # Crear lista de ubicaciones con stock
+        locations = []
+        for _, row in product_stock.iterrows():
+            if row['quantity'] > 0:  # Solo mostrar ubicaciones con stock positivo
+                locations.append({
+                    "location": row['location'],
+                    "warehouse": row['warehouse'],
+                    "quantity": row['quantity']
+                })
+        
+        return {
+            "qty_available": total_qty,
+            "virtual_available": total_qty,  # Por ahora igual que disponible
+            "locations": locations,
+            "product_name": product_name,
+            "sku": sku,
+            "found": True
+        }
+
     def read_stock_by_location(self):
         # Obtener todas las ubicaciones que son del tipo 'Ubicación interna' en una sola llamada
         locations = self.models.execute_kw(self.db, self.uid, self.password,
