@@ -342,7 +342,7 @@ class DatabaseUpdater:
                 self.logger.info("No new sales data found in the specified date range.")
                 return UpdateResult(0, 0, run_start_time, datetime.now(), [])
 
-            combined_df = pd.merge(orders_df, lines_df, on='salesInvoiceId', how='inner')
+            combined_df = pd.merge(orders_df, lines_df, on='order_id', how='inner')
             
             if latest_date and latest_date >= start_date:
                 combined_df = self.filter_duplicate_records(combined_df, existing_pairs)

@@ -107,7 +107,7 @@ class SalesDataProvider:
             return df
 
         column_mapping = {
-            'name': 'salesInvoiceId', 'date_order': 'issuedDate',
+            'id': 'order_id', 'name': 'salesInvoiceId', 'date_order': 'issuedDate',
             'partner_name': 'customer_name', 'partner_id': 'customer_customerid',
             'partner_vat': 'customer_vatid', 'salesperson_name': 'salesman_name',
             'payment_term_name': 'term_name', 'warehouse_name': 'warehouse_name',
@@ -140,7 +140,8 @@ class SalesDataProvider:
             return df
 
         column_mapping = {
-            'sale_order': 'salesInvoiceId', 'product_sku': 'items_product_sku',
+            'order_id': 'order_id', 'sale_order': 'sale_order_name', 
+            'product_sku': 'items_product_sku',
             'product_name': 'items_product_description', 'qty': 'items_quantity',
             'price_unit': 'items_unitPrice',
         }
