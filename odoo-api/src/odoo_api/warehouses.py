@@ -58,16 +58,25 @@ class OdooWarehouse(OdooAPI):
                 [product_id], {'fields': ['name', 'default_code', 'product_template_attribute_value_ids']}
             )
             
-            product_name = product_data['name']
+            print(f"[DEBUG] Product data: {product_data}")
+            print(f"[DEBUG] Product data type: {type(product_data)}")
+            
+            # Manejar el caso donde product_data es una lista
+            if isinstance(product_data, list) and len(product_data) > 0:
+                product_info = product_data[0]
+            else:
+                product_info = product_data
+            
+            product_name = product_info['name']
             print(f"[DEBUG] Product name: {product_name}")
             
             # 3. Obtener atributos de variante si existen
             attribute_values = []
-            if product_data['product_template_attribute_value_ids']:
+            if product_info['product_template_attribute_value_ids']:
                 attribute_value_data = self.models.execute_kw(
                     self.db, self.uid, self.password,
                     'product.template.attribute.value', 'read',
-                    [product_data['product_template_attribute_value_ids']], {'fields': ['name']}
+                    [product_info['product_template_attribute_value_ids']], {'fields': ['name']}
                 )
                 attribute_values = [attr['name'] for attr in attribute_value_data]
             
