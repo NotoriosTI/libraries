@@ -29,7 +29,6 @@ class OdooWarehouse(OdooAPI):
                 }
         """
         try:
-            print(f"[DEBUG] Buscando producto con SKU: {sku}")
             # 1. Buscar el producto por SKU para obtener su ID
             product_ids = self.models.execute_kw(
                 self.db, self.uid, self.password,
@@ -37,7 +36,6 @@ class OdooWarehouse(OdooAPI):
                 [[['default_code', '=', sku]]]
             )
             
-            print(f"[DEBUG] Product IDs encontrados: {product_ids}")
             if not product_ids:
                 return {
                     "qty_available": 0,
@@ -49,7 +47,6 @@ class OdooWarehouse(OdooAPI):
                 }
             
             product_id = product_ids[0]
-            print(f"[DEBUG] Using Product ID: {product_id}")
             
             # 2. Obtener información del producto
             product_data = self.models.execute_kw(
@@ -58,9 +55,6 @@ class OdooWarehouse(OdooAPI):
                 [product_id], {'fields': ['name', 'default_code', 'product_template_attribute_value_ids']}
             )
             
-            print(f"[DEBUG] Product data: {product_data}")
-            print(f"[DEBUG] Product data type: {type(product_data)}")
-            
             # Manejar el caso donde product_data es una lista
             if isinstance(product_data, list) and len(product_data) > 0:
                 product_info = product_data[0]
@@ -68,7 +62,6 @@ class OdooWarehouse(OdooAPI):
                 product_info = product_data
             
             product_name = product_info['name']
-            print(f"[DEBUG] Product name: {product_name}")
             
             # 3. Obtener atributos de variante si existen
             attribute_values = []
@@ -94,8 +87,6 @@ class OdooWarehouse(OdooAPI):
                 {'fields': ['quantity', 'location_id', 'reserved_quantity']}
             )
             
-            print(f"[DEBUG] Stock quants encontrados: {len(stock_quants)}")
-            
             if not stock_quants:
                 return {
                     "qty_available": 0,
@@ -116,8 +107,6 @@ class OdooWarehouse(OdooAPI):
                 [[['id', 'in', location_ids]]],
                 {'fields': ['id', 'name', 'usage', 'location_id']}
             )
-            
-            print(f"[DEBUG] Ubicaciones encontradas: {len(all_locations)}")
             
             if not all_locations:
                 return {
@@ -189,9 +178,6 @@ class OdooWarehouse(OdooAPI):
                 # Para virtual, incluir todas las ubicaciones (positivas y negativas)
                 total_qty_virtual += quantity
             
-            print(f"[DEBUG] Total disponible calculado: {total_qty_available}")
-            print(f"[DEBUG] Ubicaciones con stock: {len(locations_with_stock)}")
-            
             return {
                 "qty_available": total_qty_available,
                 "virtual_available": total_qty_virtual,
@@ -202,7 +188,6 @@ class OdooWarehouse(OdooAPI):
             }
             
         except Exception as e:
-            print(f"[ERROR] Error en get_stock_by_sku: {str(e)}")
             return {
                 "qty_available": 0,
                 "virtual_available": 0,
