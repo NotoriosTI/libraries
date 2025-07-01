@@ -248,7 +248,7 @@ class DatabaseUpdater:
     def get_latest_date_records(self) -> Tuple[Optional[date], set]:
         """Get the most recent date and existing records for anti-duplication."""
         with self.get_connection() as conn, conn.cursor() as cursor:
-            cursor.execute("SELECT MAX(issuedDate) FROM sales_items WHERE issuedDate IS NOT NULL")
+            cursor.execute("SELECT MAX(issueddate) FROM sales_items WHERE issueddate IS NOT NULL")
             latest_date = (result := cursor.fetchone()) and result[0]
 
             if not latest_date:
@@ -256,7 +256,7 @@ class DatabaseUpdater:
                 return None, set()
 
             cursor.execute(
-                "SELECT salesInvoiceId, items_product_sku FROM sales_items WHERE issuedDate = %s",
+                "SELECT salesinvoiceid, items_product_sku FROM sales_items WHERE issueddate = %s",
                 (latest_date,)
             )
             existing_pairs = set(cursor.fetchall())
@@ -274,7 +274,7 @@ class DatabaseUpdater:
             
         initial_count = len(df)
         # Use a more efficient method than apply/zip for creating composite keys
-        composite_key = df['salesInvoiceId'].astype(str) + '|' + df['items_product_sku'].astype(str)
+        composite_key = df['salesinvoiceid'].astype(str) + '|' + df['items_product_sku'].astype(str)
         mask = ~composite_key.isin({f"{inv}|{sku}" for inv, sku in existing_pairs})
         
         filtered_df = df[mask]
@@ -296,11 +296,11 @@ class DatabaseUpdater:
             return 0
 
         columns = [
-            'salesInvoiceId', 'doctype_name', 'docnumber', 'customer_customerid',
+            'salesinvoiceid', 'doctype_name', 'docnumber', 'customer_customerid',
             'customer_name', 'customer_vatid', 'salesman_name', 'term_name',
             'warehouse_name', 'totals_net', 'totals_vat', 'total_total',
             'items_product_description', 'items_product_sku', 'items_quantity',
-            'items_unitPrice', 'issuedDate', 'sales_channel'
+            'items_unitprice', 'issueddate', 'sales_channel'
         ]
         df_reordered = df.reindex(columns=columns)
 
@@ -343,6 +343,14 @@ class DatabaseUpdater:
                 return UpdateResult(0, 0, run_start_time, datetime.now(), [])
 
             combined_df = pd.merge(orders_df, lines_df, on='order_id', how='inner')
+            
+            # Map DataFrame columns to database table column names (PostgreSQL lowercase)
+            column_mapping = {
+                'salesInvoiceId': 'salesinvoiceid',
+                'items_unitPrice': 'items_unitprice', 
+                'issuedDate': 'issueddate'
+            }
+            combined_df = combined_df.rename(columns=column_mapping)
             
             if latest_date and latest_date >= start_date:
                 combined_df = self.filter_duplicate_records(combined_df, existing_pairs)
