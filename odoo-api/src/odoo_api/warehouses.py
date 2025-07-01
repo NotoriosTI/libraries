@@ -29,6 +29,7 @@ class OdooWarehouse(OdooAPI):
                 }
         """
         try:
+            print(f"[DEBUG] Buscando producto con SKU: {sku}")
             # 1. Buscar el producto por SKU para obtener su ID
             product_ids = self.models.execute_kw(
                 self.db, self.uid, self.password,
@@ -36,6 +37,7 @@ class OdooWarehouse(OdooAPI):
                 [[['default_code', '=', sku]]]
             )
             
+            print(f"[DEBUG] Product IDs encontrados: {product_ids}")
             if not product_ids:
                 return {
                     "qty_available": 0,
@@ -47,6 +49,7 @@ class OdooWarehouse(OdooAPI):
                 }
             
             product_id = product_ids[0]
+            print(f"[DEBUG] Using Product ID: {product_id}")
             
             # 2. Obtener información del producto
             product_data = self.models.execute_kw(
@@ -56,6 +59,7 @@ class OdooWarehouse(OdooAPI):
             )
             
             product_name = product_data['name']
+            print(f"[DEBUG] Product name: {product_name}")
             
             # 3. Obtener atributos de variante si existen
             attribute_values = []
@@ -73,13 +77,15 @@ class OdooWarehouse(OdooAPI):
             else:
                 product_name_with_attributes = product_name
             
-            # 4. Obtener quants (stock) directamente para este producto en ubicaciones internas
+            # 4. Obtener quants (stock) directamente para este producto
             stock_quants = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.quant', 'search_read',
-                [[['product_id', '=', product_id], ['quantity', '>', 0]]],
-                {'fields': ['quantity', 'location_id']}
+                [[['product_id', '=', product_id]]],
+                {'fields': ['quantity', 'location_id', 'reserved_quantity']}
             )
+            
+            print(f"[DEBUG] Stock quants encontrados: {len(stock_quants)}")
             
             if not stock_quants:
                 return {
@@ -91,18 +97,20 @@ class OdooWarehouse(OdooAPI):
                     "found": True
                 }
             
-            # 5. Obtener información de ubicaciones que tienen stock
+            # 5. Obtener información de ubicaciones que tienen quants
             location_ids = [quant['location_id'][0] for quant in stock_quants]
             
-            # Filtrar solo ubicaciones internas
-            locations = self.models.execute_kw(
+            # Obtener todas las ubicaciones (para posteriormente filtrar por tipo)
+            all_locations = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.location', 'search_read',
-                [[['id', 'in', location_ids], ['usage', '=', 'internal']]],
-                {'fields': ['id', 'name', 'location_id']}
+                [[['id', 'in', location_ids]]],
+                {'fields': ['id', 'name', 'usage', 'location_id']}
             )
             
-            if not locations:
+            print(f"[DEBUG] Ubicaciones encontradas: {len(all_locations)}")
+            
+            if not all_locations:
                 return {
                     "qty_available": 0,
                     "virtual_available": 0,
@@ -125,19 +133,25 @@ class OdooWarehouse(OdooAPI):
             
             # Crear diccionario para mapear ubicaciones a bodegas
             warehouse_dict = {warehouse['lot_stock_id'][0]: warehouse['name'] for warehouse in warehouses}
-            location_dict = {loc['id']: loc for loc in locations}
+            location_dict = {loc['id']: loc for loc in all_locations}
             
-            # 7. Procesar stock por ubicación
+            # 7. Calcular stock disponible (como lo hace Odoo: quantity - reserved_quantity en ubicaciones internas)
             locations_with_stock = []
-            total_qty = 0
+            total_qty_available = 0
+            total_qty_virtual = 0
             
             for quant in stock_quants:
                 location_id = quant['location_id'][0]
                 quantity = quant['quantity']
+                reserved_quantity = quant['reserved_quantity']
+                available_quantity = quantity - reserved_quantity
                 
-                # Solo procesar si la ubicación está en nuestro filtro de ubicaciones internas
-                if location_id in location_dict:
-                    location_data = location_dict[location_id]
+                location_data = location_dict.get(location_id)
+                if not location_data:
+                    continue
+                    
+                # Solo considerar ubicaciones internas para stock disponible (como hace Odoo)
+                if location_data['usage'] == 'internal' and quantity > 0:
                     location_name = location_data['name']
                     
                     # Determinar bodega
@@ -156,14 +170,22 @@ class OdooWarehouse(OdooAPI):
                     locations_with_stock.append({
                         "location": full_location_name,
                         "warehouse": warehouse_name,
-                        "quantity": quantity
+                        "quantity": quantity,
+                        "reserved": reserved_quantity,
+                        "available": available_quantity
                     })
                     
-                    total_qty += quantity
+                    total_qty_available += available_quantity
+                
+                # Para virtual, incluir todas las ubicaciones (positivas y negativas)
+                total_qty_virtual += quantity
+            
+            print(f"[DEBUG] Total disponible calculado: {total_qty_available}")
+            print(f"[DEBUG] Ubicaciones con stock: {len(locations_with_stock)}")
             
             return {
-                "qty_available": total_qty,
-                "virtual_available": total_qty,
+                "qty_available": total_qty_available,
+                "virtual_available": total_qty_virtual,
                 "locations": locations_with_stock,
                 "product_name": product_name_with_attributes,
                 "sku": sku,
@@ -171,6 +193,7 @@ class OdooWarehouse(OdooAPI):
             }
             
         except Exception as e:
+            print(f"[ERROR] Error en get_stock_by_sku: {str(e)}")
             return {
                 "qty_available": 0,
                 "virtual_available": 0,
