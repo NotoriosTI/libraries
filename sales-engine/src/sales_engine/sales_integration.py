@@ -116,6 +116,10 @@ class SalesDataProvider:
         }
         df = df.rename(columns=column_mapping, errors='ignore')
 
+        # Ensure order_id and salesInvoiceId are consistent types
+        if 'order_id' in df.columns:
+            df['order_id'] = df['order_id'].astype(int)
+        
         # Fix: Ensure salesInvoiceId is string type (use name, not id)
         if 'salesInvoiceId' not in df.columns and 'name' in df.columns:
             df['salesInvoiceId'] = df['name'].astype(str)
@@ -123,7 +127,7 @@ class SalesDataProvider:
             df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
 
         required_columns = {
-            'doctype_name': 'Factura', 'docnumber': df.get('salesInvoiceId', ''),
+            'order_id': 0, 'doctype_name': 'Factura', 'docnumber': df.get('salesInvoiceId', ''),
             'customer_customerid': 0, 'customer_name': '', 'customer_vatid': '',
             'salesman_name': '', 'term_name': '', 'warehouse_name': '',
             'totals_net': 0.0, 'totals_vat': 0.0, 'total_total': 0.0,
@@ -140,19 +144,21 @@ class SalesDataProvider:
             return df
 
         column_mapping = {
-            'order_id': 'order_id', 'sale_order': 'sale_order_name', 
+            'order_id': 'order_id', 'sale_order': 'salesInvoiceId', 
             'product_sku': 'items_product_sku',
             'product_name': 'items_product_description', 'qty': 'items_quantity',
             'price_unit': 'items_unitPrice',
         }
         df = df.rename(columns=column_mapping, errors='ignore')
         
-        # Fix: Ensure salesInvoiceId is string type
+        # Ensure order_id and salesInvoiceId are consistent types
+        if 'order_id' in df.columns:
+            df['order_id'] = df['order_id'].astype(int)
         if 'salesInvoiceId' in df.columns:
             df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
         
         required_columns = {
-            'items_product_description': '', 'items_product_sku': '',
+            'order_id': 0, 'items_product_description': '', 'items_product_sku': '',
             'items_quantity': 0.0, 'items_unitPrice': 0.0
         }
         for col, default in required_columns.items():
