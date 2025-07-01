@@ -582,7 +582,7 @@ class OdooSales(OdooAPI):
         
         # Campos optimizados (solo lo esencial)
         sales_fields = [
-            'name', 'date_order', 'partner_id', 'amount_total', 
+            'id', 'name', 'date_order', 'partner_id', 'amount_total', 
             'state', 'user_id', 'team_id', 'order_line',
             'payment_term_id', 'warehouse_id'  # Agregados para term_name y warehouse_name
         ]
@@ -615,7 +615,7 @@ class OdooSales(OdooAPI):
             
             # Campos optimizados para POS
             pos_fields = [
-                'name', 'date_order', 'partner_id', 'amount_total',
+                'id', 'name', 'date_order', 'partner_id', 'amount_total',
                 'state', 'user_id', 'lines'
             ]
             
@@ -725,6 +725,7 @@ class OdooSales(OdooAPI):
                             
                             line_data = {
                                 'sale_order': order_info.get('order_name', ''),
+                                'order_id': line['order_id'][0] if line['order_id'] else None,
                                 'items_product_sku': product_info.get('default_code', ''),
                                 'items_product_description': product_info.get('name', ''),
                                 'items_quantity': line['product_uom_qty'],
@@ -807,6 +808,7 @@ class OdooSales(OdooAPI):
                             
                             line_data = {
                                 'sale_order': order_info.get('order_name', ''),
+                                'order_id': order_info.get('order_id', None),
                                 'items_product_sku': product_info.get('default_code', ''),
                                 'items_product_description': product_info.get('name', ''),
                                 'items_quantity': line['qty'],
