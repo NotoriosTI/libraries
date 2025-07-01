@@ -130,7 +130,7 @@ class SalesDataProvider:
             'order_id': 0, 'doctype_name': 'Factura', 'docnumber': df.get('salesInvoiceId', ''),
             'customer_customerid': 0, 'customer_name': '', 'customer_vatid': '',
             'salesman_name': '', 'term_name': '', 'warehouse_name': '',
-            'totals_net': 0.0, 'totals_vat': 0.0, 'total_total': 0.0,
+            'totals_net': 0.0, 'totals_vat': 0.0,
             'issuedDate': None, 'sales_channel': ''
         }
         for col, default in required_columns.items():
@@ -144,18 +144,16 @@ class SalesDataProvider:
             return df
 
         column_mapping = {
-            'order_id': 'order_id', 'sale_order': 'salesInvoiceId', 
+            'order_id': 'order_id',
             'product_sku': 'items_product_sku',
             'product_name': 'items_product_description', 'qty': 'items_quantity',
             'price_unit': 'items_unitPrice',
         }
         df = df.rename(columns=column_mapping, errors='ignore')
         
-        # Ensure order_id and salesInvoiceId are consistent types
+        # Ensure order_id is consistent type
         if 'order_id' in df.columns:
             df['order_id'] = df['order_id'].astype(int)
-        if 'salesInvoiceId' in df.columns:
-            df['salesInvoiceId'] = df['salesInvoiceId'].astype(str)
         
         required_columns = {
             'order_id': 0, 'items_product_description': '', 'items_product_sku': '',
