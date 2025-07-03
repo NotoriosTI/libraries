@@ -265,8 +265,17 @@ class OdooProduct(OdooAPI):
 
 # Other Functions
     def product_exists(self, sku) -> bool:
-        """Verifica si el producto ya existe en Odoo basándose en el SKU."""
-        product_ids = self.models.execute_kw(self.db, self.uid, self.password, 'product.product', 'search', [[['default_code', '=', str(sku).strip()]]])
+        """
+        Verifica si el producto ya existe en Odoo basándose en el SKU y que el producto esté habilitado para la venta (sale_ok=True).
+        """
+        product_ids = self.models.execute_kw(
+            self.db, self.uid, self.password,
+            'product.product', 'search',
+            [[
+                ['default_code', '=', str(sku).strip()],
+                ['sale_ok', '=', True]
+            ]]
+        )
         return bool(product_ids)
 
     def process_field_value(self, value, command_type='add'):
