@@ -1,0 +1,86 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for Product Engine
+# -----------------------------------------------------------------------------
+# This file provides both development and production configurations for the
+# product-engine service that synchronizes product catalogs from Odoo to 
+# PostgreSQL with OpenAI embeddings.
+
+version: '3.8'
+
+services:
+  # The main product engine service
+  product-engine:
+    build:
+      context: ..
+      dockerfile: ./deployment/Dockerfile
+    container_name: product-engine
+    restart: unless-stopped
+    
+    # Environment variables for production
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - USE_TEST_ODOO=${USE_TEST_ODOO:-false}
+      - FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}
+      - TEST_CONNECTIONS_ONLY=${TEST_CONNECTIONS_ONLY:-false}
+    
+    # For local development, mount source code
+    volumes:
+      - ../src:/app/src:ro  # Read-only mount for production safety
+    
+    # Depends on Cloud SQL proxy for database access
+    depends_on:
+      - cloud-sql-proxy
+    
+    # Use a custom command for one-time execution
+    # Override this in production with proper orchestration
+    command: python -m product_engine.main
+
+  # Cloud SQL Auth Proxy service for secure database connection
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: product-cloud-sql-proxy
+    restart: unless-stopped
+    
+    # The command to start the proxy
+    # Replace with your actual Cloud SQL instance connection name
+    command: /cloud_sql_proxy -instances=${GCP_PROJECT_ID}:${REGION:-us-central1}:${INSTANCE_NAME}=tcp:0.0.0.0:5432
+    
+    # In production on GCE, uses the attached service account
+    # For local development, mount credentials file
+    volumes:
+      - ../credentials.json:/config/credentials.json:ro
+    
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
+    
+    ports:
+      - "5432:5432"
+    
+    # Health check for the proxy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Local PostgreSQL for development (optional)
+  postgres-dev:
+    image: postgres:14-alpine
+    container_name: product-postgres-dev
+    environment:
+      POSTGRES_DB: products_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      # Initialize with pgvector extension
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    profiles:
+      - dev
+
+volumes:
+  postgres_dev_data:
+    driver: local 
