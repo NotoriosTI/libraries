@@ -793,3 +793,225 @@ class OdooProduct(OdooAPI):
         print(f"MO {mo_id} confirmed!")
         return True
     
+    def get_active_skus(self) -> set[str]:
+        """
+        Get a set of all active product SKUs (default_code).
+        
+        Returns:
+            Set of active product SKUs (default_code values)
+        """
+        try:
+            # Domain to filter only active products with default_code
+            domain = [
+                ('active', '=', True),
+                ('default_code', '!=', False)  # Exclude products without SKU
+            ]
+            
+            # Search and read only the default_code field
+            products = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search_read',
+                [domain],
+                {'fields': ['default_code']}
+            )
+            
+            # Extract SKUs and filter out None values
+            skus = {
+                product['default_code'] 
+                for product in products 
+                if product.get('default_code')
+            }
+            
+            return skus
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to retrieve active SKUs: {str(e)}") from e
+
+    def read_products_for_embeddings(self, domain: list = None) -> pd.DataFrame:
+        """
+        Read products from Odoo with text preparation for embeddings.
+        
+        Args:
+            domain: Odoo domain filter for products search. If None, fetches all products.
+        
+        Returns:
+            DataFrame containing product data with text_for_embedding column
+        """
+        try:
+            # Default domain if none provided
+            if domain is None:
+                domain = []
+            
+            # Fields to extract from product.product
+            fields = [
+                'id',
+                'default_code',  # SKU
+                'name',          # Product name
+                'description',   # Product description
+                'categ_id',      # Category
+                'active',        # Active status
+                '__last_update', # Last modification date
+                'list_price',    # Sale price
+                'standard_price', # Cost price
+                'product_tmpl_id', # Template ID
+                'barcode',       # Barcode
+                'weight',        # Weight
+                'volume',        # Volume
+                'sale_ok',       # Can be sold
+                'purchase_ok',   # Can be purchased
+                'type',          # Product type
+                'detailed_type', # Detailed product type
+                'uom_id',        # Unit of measure
+                'uom_po_id',     # Purchase unit of measure
+                'product_tag_ids', # Product tags
+                'company_id',    # Company
+                'create_date',   # Creation date
+                'write_date',    # Last write date
+            ]
+            
+            # Search products with the domain
+            product_ids = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search',
+                [domain]
+            )
+            
+            if not product_ids:
+                return pd.DataFrame()
+            
+            # Read product data in batches to handle large datasets
+            batch_size = 100
+            all_products = []
+            
+            for i in range(0, len(product_ids), batch_size):
+                batch_ids = product_ids[i:i + batch_size]
+                batch_products = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'product.product', 'read',
+                    [batch_ids],
+                    {'fields': fields}
+                )
+                all_products.extend(batch_products)
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(all_products)
+            
+            if df.empty:
+                return df
+            
+            # Process and clean the data
+            df = self._process_product_data_for_embeddings(df)
+            
+            # Create text_for_embedding column
+            df = self._create_text_for_embedding(df)
+            
+            return df
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to read products from Odoo: {str(e)}") from e
+
+    def _process_product_data_for_embeddings(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Process and clean product data for embedding generation.
+        
+        Args:
+            df: Raw product DataFrame
+            
+        Returns:
+            Processed DataFrame
+        """
+        # Handle Many2one fields (convert tuple to ID and name)
+        many2one_fields = ['categ_id', 'product_tmpl_id', 'uom_id', 'uom_po_id', 'company_id']
+        
+        for field in many2one_fields:
+            if field in df.columns:
+                df[f'{field}_id'] = df[field].apply(
+                    lambda x: x[0] if isinstance(x, (list, tuple)) and len(x) > 0 else None
+                )
+                df[f'{field}_name'] = df[field].apply(
+                    lambda x: x[1] if isinstance(x, (list, tuple)) and len(x) > 1 else None
+                )
+        
+        # Handle Many2many fields (product_tag_ids)
+        if 'product_tag_ids' in df.columns:
+            df['product_tag_ids_list'] = df['product_tag_ids'].apply(
+                lambda x: x if isinstance(x, list) else []
+            )
+        
+        # Clean text fields
+        text_fields = ['name', 'description', 'default_code', 'barcode']
+        for field in text_fields:
+            if field in df.columns:
+                df[field] = df[field].astype(str).replace('False', '').replace('None', '')
+        
+        # Convert dates
+        date_fields = ['create_date', 'write_date', '__last_update']
+        for field in date_fields:
+            if field in df.columns:
+                df[field] = pd.to_datetime(df[field], errors='coerce')
+        
+        # Ensure numeric fields are properly typed
+        numeric_fields = ['list_price', 'standard_price', 'weight', 'volume']
+        for field in numeric_fields:
+            if field in df.columns:
+                df[field] = pd.to_numeric(df[field], errors='coerce').fillna(0.0)
+        
+        return df
+
+    def _create_text_for_embedding(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create a unified text column for embedding generation.
+        
+        Concatenates the most relevant text fields for each product.
+        
+        Args:
+            df: Product DataFrame
+            
+        Returns:
+            DataFrame with text_for_embedding column added
+        """
+        def create_text(row):
+            """Create concatenated text for a single product row."""
+            text_parts = []
+            
+            # SKU
+            if row.get('default_code') and str(row['default_code']).strip():
+                text_parts.append(f"SKU: {row['default_code']}")
+            
+            # Product name
+            if row.get('name') and str(row['name']).strip():
+                text_parts.append(f"Name: {row['name']}")
+            
+            # Description
+            if row.get('description') and str(row['description']).strip() and str(row['description']) != 'False':
+                # Clean description text
+                desc = str(row['description']).replace('\n', ' ').replace('\r', ' ')
+                desc = ' '.join(desc.split())  # Normalize whitespace
+                if len(desc) > 10:  # Only include meaningful descriptions
+                    text_parts.append(f"Description: {desc}")
+            
+            # Category
+            if row.get('categ_id_name') and str(row['categ_id_name']).strip():
+                text_parts.append(f"Category: {row['categ_id_name']}")
+            
+            # Product type
+            if row.get('detailed_type') and str(row['detailed_type']).strip():
+                product_type = str(row['detailed_type']).replace('_', ' ').title()
+                text_parts.append(f"Type: {product_type}")
+            
+            # Barcode
+            if row.get('barcode') and str(row['barcode']).strip() and str(row['barcode']) != 'False':
+                text_parts.append(f"Barcode: {row['barcode']}")
+            
+            # Unit of measure
+            if row.get('uom_id_name') and str(row['uom_id_name']).strip():
+                text_parts.append(f"Unit: {row['uom_id_name']}")
+            
+            # Join all parts
+            return '. '.join(text_parts) if text_parts else f"Product ID: {row.get('id', 'Unknown')}"
+        
+        # Apply the function to create text_for_embedding
+        df['text_for_embedding'] = df.apply(create_text, axis=1)
+        
+        return df
+    
