@@ -4,8 +4,8 @@ import pandas as pd
 
 class OdooAccountability(OdooAPI):
     
-    def __init__(self, database='productive'):
-        super().__init__(database=database)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
     def read_account_balance(self, account_number):
         """
