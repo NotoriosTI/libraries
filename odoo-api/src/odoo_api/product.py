@@ -850,7 +850,6 @@ class OdooProduct(OdooAPI):
                 'description',   # Product description
                 'categ_id',      # Category
                 'active',        # Active status
-                '__last_update', # Last modification date
                 'list_price',    # Sale price
                 'standard_price', # Cost price
                 'product_tmpl_id', # Template ID
@@ -945,7 +944,7 @@ class OdooProduct(OdooAPI):
                 df[field] = df[field].astype(str).replace('False', '').replace('None', '')
         
         # Convert dates
-        date_fields = ['create_date', 'write_date', '__last_update']
+        date_fields = ['create_date', 'write_date']
         for field in date_fields:
             if field in df.columns:
                 df[field] = pd.to_datetime(df[field], errors='coerce')
