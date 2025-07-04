@@ -144,6 +144,9 @@ class ProductUpdater:
         
         try:
             with database.get_cursor() as cursor:
+                # Drop table if it exists from previous operations
+                cursor.execute("DROP TABLE IF EXISTS temp_products;")
+                
                 # Create temporary table
                 cursor.execute("""
                     CREATE TEMP TABLE temp_products (
@@ -185,7 +188,15 @@ class ProductUpdater:
                     for col in columns:
                         value = row.get(col)
                         # Handle NaN and None values
-                        if pd.isna(value) or value is None:
+                        if value is None:
+                            tuple_data.append(None)
+                        elif isinstance(value, (list, tuple)):
+                            # For arrays/lists, check if empty or contains only NaN
+                            if not value or all(pd.isna(item) for item in value):
+                                tuple_data.append(None)
+                            else:
+                                tuple_data.append(value)
+                        elif pd.isna(value):
                             tuple_data.append(None)
                         else:
                             tuple_data.append(value)
@@ -240,7 +251,7 @@ class ProductUpdater:
                 """
                 
                 cursor.execute(upsert_sql)
-                affected_skus = [row[0] for row in cursor.fetchall()]
+                affected_skus = [row['sku'] for row in cursor.fetchall()]
                 
                 self.logger.info(f"Upsert completed, {len(affected_skus)} products affected")
                 return affected_skus

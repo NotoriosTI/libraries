@@ -128,7 +128,7 @@ class SyncManager:
             # Step 4: Build Odoo domain for incremental sync
             domain = []
             if last_sync_date and not force_full_sync:
-                domain = [['__last_update', '>', last_sync_date]]
+                domain = [['write_date', '>', last_sync_date]]
                 self.logger.info("Using incremental sync with domain", domain=domain)
             else:
                 self.logger.info("Using full sync (no domain filter)")
@@ -221,7 +221,7 @@ class SyncManager:
             'detailed_type': 'product_type',
             'uom_id_id': 'uom_id',
             'uom_id_name': 'uom_name',
-            '__last_update': 'last_update'
+            'write_date': 'last_update'
         }
         
         # Rename columns
