@@ -72,6 +72,13 @@ class Settings:
             self.DB_USER = self._fetch_gcp_secret('DB_USER', gcp_client)
             self.DB_PASSWORD = self._fetch_gcp_secret('DB_PASSWORD', gcp_client)
 
+            # Product Database (for product-engine)
+            self.PRODUCT_DB_HOST = self._fetch_gcp_secret('PRODUCT_DB_HOST', gcp_client)
+            self.PRODUCT_DB_PORT = self._fetch_gcp_secret('PRODUCT_DB_PORT', gcp_client)
+            self.PRODUCT_DB_NAME = self._fetch_gcp_secret('PRODUCT_DB_NAME', gcp_client)
+            self.PRODUCT_DB_USER = self._fetch_gcp_secret('PRODUCT_DB_USER', gcp_client)
+            self.PRODUCT_DB_PASSWORD = self._fetch_gcp_secret('PRODUCT_DB_PASSWORD', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -106,8 +113,15 @@ class Settings:
             self.DB_HOST = config('DB_HOST', default='127.0.0.1')
             self.DB_PORT = config('DB_PORT', default='5432')
             self.DB_NAME = config('DB_NAME', default='sales_db')
-            self.DB_USER = config('DB_USER', default='postgres')
+            self.DB_USER = config('DB_USER', default='automation_admin')
             self.DB_PASSWORD = config('DB_PASSWORD', default='password')
+
+            # Product Database (for product-engine)
+            self.PRODUCT_DB_HOST = config('PRODUCT_DB_HOST', default='127.0.0.1')
+            self.PRODUCT_DB_PORT = config('PRODUCT_DB_PORT', default='5432')
+            self.PRODUCT_DB_NAME = config('PRODUCT_DB_NAME', default='productdb')
+            self.PRODUCT_DB_USER = config('PRODUCT_DB_USER', default='automation_admin')
+            self.PRODUCT_DB_PASSWORD = config('PRODUCT_DB_PASSWORD', default='password')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -154,6 +168,16 @@ class Settings:
             'database': self.DB_NAME,
             'user': self.DB_USER,
             'password': self.DB_PASSWORD
+        }
+
+    def get_product_database_config(self) -> dict:
+        """Get product database configuration for product-engine."""
+        return {
+            'host': self.PRODUCT_DB_HOST,
+            'port': self.PRODUCT_DB_PORT,
+            'database': self.PRODUCT_DB_NAME,
+            'user': self.PRODUCT_DB_USER,
+            'password': self.PRODUCT_DB_PASSWORD
         }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
