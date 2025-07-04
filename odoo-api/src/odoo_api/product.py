@@ -960,9 +960,10 @@ class OdooProduct(OdooAPI):
 
     def _create_text_for_embedding(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Create a unified text column for embedding generation.
+        Create text for embedding generation based on product name/variant.
         
-        Concatenates the most relevant text fields for each product.
+        For products with variants: "product name + variant" (e.g., "aceite de coco 100ml")
+        For products without variants: just the product name
         
         Args:
             df: Product DataFrame
@@ -971,44 +972,23 @@ class OdooProduct(OdooAPI):
             DataFrame with text_for_embedding column added
         """
         def create_text(row):
-            """Create concatenated text for a single product row."""
-            text_parts = []
+            """Create text for embedding for a single product row."""
+            # Get product name (already includes variant information in Odoo)
+            product_name = row.get('name', '').strip()
             
-            # SKU
-            if row.get('default_code') and str(row['default_code']).strip():
-                text_parts.append(f"SKU: {row['default_code']}")
+            # Clean the product name
+            if product_name and product_name != 'False' and product_name != 'None':
+                # Clean whitespace and normalize
+                clean_name = ' '.join(product_name.split())
+                return clean_name
             
-            # Product name
-            if row.get('name') and str(row['name']).strip():
-                text_parts.append(f"Name: {row['name']}")
+            # Fallback: use SKU if name is not available
+            sku = row.get('default_code', '').strip()
+            if sku and sku != 'False' and sku != 'None':
+                return sku
             
-            # Description
-            if row.get('description') and str(row['description']).strip() and str(row['description']) != 'False':
-                # Clean description text
-                desc = str(row['description']).replace('\n', ' ').replace('\r', ' ')
-                desc = ' '.join(desc.split())  # Normalize whitespace
-                if len(desc) > 10:  # Only include meaningful descriptions
-                    text_parts.append(f"Description: {desc}")
-            
-            # Category
-            if row.get('categ_id_name') and str(row['categ_id_name']).strip():
-                text_parts.append(f"Category: {row['categ_id_name']}")
-            
-            # Product type
-            if row.get('detailed_type') and str(row['detailed_type']).strip():
-                product_type = str(row['detailed_type']).replace('_', ' ').title()
-                text_parts.append(f"Type: {product_type}")
-            
-            # Barcode
-            if row.get('barcode') and str(row['barcode']).strip() and str(row['barcode']) != 'False':
-                text_parts.append(f"Barcode: {row['barcode']}")
-            
-            # Unit of measure
-            if row.get('uom_id_name') and str(row['uom_id_name']).strip():
-                text_parts.append(f"Unit: {row['uom_id_name']}")
-            
-            # Join all parts
-            return '. '.join(text_parts) if text_parts else f"Product ID: {row.get('id', 'Unknown')}"
+            # Last resort: use product ID
+            return f"Product ID: {row.get('id', 'Unknown')}"
         
         # Apply the function to create text_for_embedding
         df['text_for_embedding'] = df.apply(create_text, axis=1)
