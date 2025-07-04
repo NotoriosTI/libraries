@@ -479,6 +479,184 @@ class ProductDBUpdater:
             self.logger.error("Failed to get products needing embeddings", error=str(e))
             return []
     
+    def search_products(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Search products using hybrid approach: exact SKU + semantic embedding search.
+        
+        Args:
+            query: Search query (can be SKU or product name/description)
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of product dictionaries ranked by relevance
+        """
+        self.logger.info(f"Searching products with query: '{query}'", limit=limit)
+        
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                    return self._hybrid_search(cursor, query.strip(), limit)
+                    
+        except Exception as e:
+            self.logger.error("Failed to search products", error=str(e), query=query)
+            return []
+    
+    def _hybrid_search(self, cursor, query: str, limit: int) -> List[Dict[str, Any]]:
+        """
+        Perform hybrid search combining exact SKU and semantic embedding search.
+        
+        Args:
+            cursor: Database cursor
+            query: Clean search query
+            limit: Maximum results
+            
+        Returns:
+            List of ranked product results
+        """
+        results = []
+        query_upper = query.upper()
+        
+        # STEP 1: Exact SKU search (highest priority)
+        exact_sku_result = self._search_exact_sku(cursor, query_upper)
+        if exact_sku_result:
+            results.append({
+                **exact_sku_result,
+                'search_type': 'exact_sku',
+                'relevance_score': 1.0
+            })
+            
+            # If exact SKU match found, return immediately with high confidence
+            self.logger.info("Found exact SKU match", sku=exact_sku_result['sku'])
+            return results
+        
+        # STEP 2: Semantic embedding search
+        remaining_limit = limit - len(results)
+        if remaining_limit > 0:
+            semantic_results = self._search_by_embedding(cursor, query, remaining_limit)
+            for result in semantic_results:
+                # Avoid duplicates (shouldn't happen but good to be safe)
+                if not any(r['sku'] == result['sku'] for r in results):
+                    results.append({
+                        **result,
+                        'search_type': 'semantic',
+                        'relevance_score': result.get('similarity_score', 0.5)
+                    })
+        
+        # STEP 3: Sort by relevance score (exact SKU first, then by similarity)
+        results.sort(key=lambda x: (
+            0 if x['search_type'] == 'exact_sku' else 1,  # SKU matches first
+            -x['relevance_score']  # Then by relevance score descending
+        ))
+        
+        self.logger.info(f"Hybrid search completed", 
+                        total_results=len(results),
+                        exact_sku_matches=sum(1 for r in results if r['search_type'] == 'exact_sku'),
+                        semantic_matches=sum(1 for r in results if r['search_type'] == 'semantic'))
+        
+        return results[:limit]
+    
+    def _search_exact_sku(self, cursor, sku: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for product by exact SKU match.
+        
+        Args:
+            cursor: Database cursor
+            sku: SKU to search for (should be uppercase)
+            
+        Returns:
+            Product dictionary if found, None otherwise
+        """
+        try:
+            cursor.execute("""
+                SELECT sku, name, description, category_name, is_active, 
+                       list_price, standard_price, product_type, barcode,
+                       text_for_embedding, created_at, updated_at
+                FROM products 
+                WHERE sku = %s AND is_active = true
+            """, (sku,))
+            
+            result = cursor.fetchone()
+            return dict(result) if result else None
+            
+        except Exception as e:
+            self.logger.error("Failed to search by exact SKU", error=str(e), sku=sku)
+            return None
+    
+    def _search_by_embedding(self, cursor, query: str, limit: int) -> List[Dict[str, Any]]:
+        """
+        Search products by semantic similarity using embeddings.
+        Only returns results with similarity score > 0.8 for high relevance.
+        
+        Args:
+            cursor: Database cursor
+            query: Search query
+            limit: Maximum number of results
+            
+        Returns:
+            List of product dictionaries with similarity scores > 0.8
+        """
+        try:
+            # First, generate embedding for the query
+            query_embedding = self._generate_query_embedding(query)
+            if not query_embedding:
+                self.logger.warning("Could not generate embedding for query", query=query)
+                return []
+            
+            # Search using vector similarity with threshold filter
+            cursor.execute("""
+                SELECT sku, name, description, category_name, is_active,
+                       list_price, standard_price, product_type, barcode,
+                       text_for_embedding, created_at, updated_at,
+                       (embedding <=> %s::vector) as distance,
+                       (1 - (embedding <=> %s::vector)) as similarity_score
+                FROM products 
+                WHERE embedding IS NOT NULL 
+                  AND is_active = true
+                  AND (1 - (embedding <=> %s::vector)) > 0.8
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+            """, (query_embedding, query_embedding, query_embedding, query_embedding, limit))
+            
+            results = []
+            for row in cursor.fetchall():
+                result = dict(row)
+                # Convert distance to a more intuitive similarity score (0-1)
+                result['similarity_score'] = max(0.0, min(1.0, result['similarity_score']))
+                results.append(result)
+            
+            self.logger.info(f"Found {len(results)} products with similarity > 0.8", query=query)
+            return results
+            
+        except Exception as e:
+            self.logger.error("Failed to search by embedding", error=str(e), query=query)
+            return []
+    
+    def _generate_query_embedding(self, query: str) -> Optional[List[float]]:
+        """
+        Generate embedding for search query using OpenAI API.
+        
+        Args:
+            query: Search query text
+            
+        Returns:
+            Embedding vector as list of floats, or None if failed
+        """
+        try:
+            # Import OpenAI here to avoid circular imports
+            from .embedding_generator import OpenAIEmbeddingGenerator
+            
+            generator = OpenAIEmbeddingGenerator()
+            embeddings = generator.generate([query])
+            
+            if embeddings and len(embeddings) > 0:
+                return embeddings[0]
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error("Failed to generate query embedding", error=str(e), query=query)
+            return None
+    
     def close(self):
         """Clean up database connections."""
         try:
