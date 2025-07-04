@@ -1,6 +1,6 @@
 [project]
 name = "product-engine"
-version = "0.1.1"
+version = "0.1.2"
 description = "Products catalog synchronization engine for Odoo to PostgreSQL with OpenAI embeddings"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
@@ -28,8 +28,7 @@ dev = [
 ]
 
 [project.scripts]
-run-products-sync = "product_engine.main:main"
-create-products-table = "product_engine.database_updater:create_table_main"
+run-products-sync = "db_manager.sync_manager:main"
 
 [tool.poetry]
 packages = [{include = "product_engine", from = "src"}]
