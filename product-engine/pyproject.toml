@@ -1,6 +1,6 @@
 [project]
 name = "product-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "Products catalog synchronization engine for Odoo to PostgreSQL with OpenAI embeddings"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
