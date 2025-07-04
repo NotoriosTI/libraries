@@ -336,7 +336,7 @@ dev = ["pytest (>=7.0.0)"]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
 reference = "product-db"
-resolved_reference = "f553935c50ffcc14d26a396d4157439de9dd3266"
+resolved_reference = "3e032ebcbac89f26dfe163a8dc9119aa991292a2"
 subdirectory = "config-manager"
 
 [[package]]
@@ -1149,7 +1149,7 @@ pytz = ">=2025.2,<2026.0"
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
 reference = "product-db"
-resolved_reference = "f553935c50ffcc14d26a396d4157439de9dd3266"
+resolved_reference = "3e032ebcbac89f26dfe163a8dc9119aa991292a2"
 subdirectory = "odoo-api"
 
 [[package]]
@@ -2125,14 +2125,14 @@ telegram = ["requests"]
 
 [[package]]
 name = "typing-extensions"
-version = "4.14.0"
+version = "4.14.1"
 description = "Backported and Experimental Type Hints for Python 3.9+"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "typing_extensions-4.14.0-py3-none-any.whl", hash = "sha256:a1514509136dd0b477638fc68d6a91497af5076466ad0fa6c338e44e359944af"},
-    {file = "typing_extensions-4.14.0.tar.gz", hash = "sha256:8676b788e32f02ab42d9e7c61324048ae4c6d844a399eebace3d4979d75ceef4"},
+    {file = "typing_extensions-4.14.1-py3-none-any.whl", hash = "sha256:d1e1e3b58374dc93031d6eda2420a48ea44a36c2b4766a4fdeb3710755731d76"},
+    {file = "typing_extensions-4.14.1.tar.gz", hash = "sha256:38b39f4aeeab64884ce9f74c94263ef78f3c22467c8724005483154c26648d36"},
 ]
 
 [[package]]
