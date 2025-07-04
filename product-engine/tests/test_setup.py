@@ -13,13 +13,16 @@ def test_database_connection():
     print("🔗 Probando conexión a base de datos...")
     
     try:
-        from product_engine.database_updater import ProductDBUpdater
+        from db_manager.product_updater import ProductUpdater
         
-        updater = ProductDBUpdater()
-        with updater.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT version();")
-                version = cursor.fetchone()[0]
+        updater = ProductUpdater()
+        
+        # Usar la conexión global de database
+        from common.database import database
+        with database.get_cursor(commit=False) as cursor:
+                cursor.execute("SELECT version() as version;")
+                result = cursor.fetchone()
+                version = result['version']
                 print(f"✅ Conexión exitosa a PostgreSQL: {version}")
                 
                 # Verificar extensión pgvector
@@ -34,14 +37,16 @@ def test_database_connection():
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
                         WHERE table_name = 'products'
-                    );
+                    ) as exists;
                 """)
-                if cursor.fetchone()[0]:
+                result = cursor.fetchone()
+                if result and result['exists']:
                     print("✅ Tabla products existe")
                     
                     # Contar productos existentes
-                    cursor.execute("SELECT COUNT(*) FROM products;")
-                    count = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) as count FROM products;")
+                    result = cursor.fetchone()
+                    count = result['count']
                     print(f"   📊 Productos en la tabla: {count}")
                 else:
                     print("❌ Tabla products NO existe")
@@ -58,7 +63,7 @@ def test_odoo_connection():
     
     try:
         from odoo_api.product import OdooProduct
-        from product_engine.config import config
+        from common.config import config
         
         odoo_config = config.get_odoo_config(use_test=False)
         print(f"   🔗 Conectando a: {odoo_config.get('url', 'URL no configurada')}")
@@ -82,9 +87,9 @@ def test_openai_connection():
     print("\n🔗 Probando conexión a OpenAI...")
     
     try:
-        from product_engine.embedding_generator import OpenAIEmbeddingGenerator
+        from common.embedding_generator import EmbeddingGenerator
         
-        generator = OpenAIEmbeddingGenerator()
+        generator = EmbeddingGenerator()
         
         # Generar embedding de prueba
         test_text = "aceite de coco orgánico"
@@ -109,7 +114,7 @@ def test_configuration():
     print("\n⚙️ Probando configuración...")
     
     try:
-        from product_engine.config import config
+        from common.config import config
         
         print(f"✅ Entorno: {config.environment}")
         print(f"✅ Es producción: {config.is_production}")
@@ -146,7 +151,7 @@ def main():
     if all([config_ok, db_ok, odoo_ok, openai_ok]):
         print("\n🎉 ¡Todas las pruebas pasaron! Configuración lista.")
         print("\n🚀 Siguiente paso: Ejecutar sincronización con:")
-        print("   python -m product_engine.main")
+        print("   python -m db_manager.sync_manager")
         return 0
     else:
         print("\n⚠️  Algunas pruebas fallaron. Revisa la configuración.")
