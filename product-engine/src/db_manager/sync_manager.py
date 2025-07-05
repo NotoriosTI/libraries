@@ -254,21 +254,111 @@ class SyncManager:
             if col not in df.columns:
                 df[col] = default_value
         
-        # Filter out rows without SKU
+        # Log initial count
         initial_count = len(df)
-        df = df[df['sku'].notna() & (df['sku'] != '') & (df['sku'] != 'False')]
+        self.logger.info(f"Processing {initial_count} products from Odoo")
+        
+        # Track invalid products for detailed logging
+        invalid_products = []
+        
+        # Filter products by different criteria
+        df, invalid_products = self._filter_invalid_skus(df, invalid_products)
+        df, invalid_products = self._filter_invalid_names(df, invalid_products)
+        df, invalid_products = self._filter_inactive_products(df, invalid_products)
+        
+        # Log detailed information about invalid products
+        self._log_invalid_products(invalid_products)
+        
         final_count = len(df)
         
         if final_count != initial_count:
             self.logger.warning(
-                f"Filtered out {initial_count - final_count} products without valid SKU"
+                f"Filtered out {initial_count - final_count} invalid products, keeping {final_count} valid products"
             )
+        else:
+            self.logger.info(f"All {final_count} products are valid")
         
         # Select only the columns we need for the database
         df = df[list(required_columns.keys())]
         
         self.logger.info(f"Mapped {len(df)} products for database insertion")
         return df
+    
+    def _filter_invalid_skus(self, df, invalid_products):
+        """Filter out products with invalid SKUs."""
+        invalid_sku_mask = df['sku'].isna() | (df['sku'] == '') | (df['sku'] == 'False') | (df['sku'] == 'None')
+        invalid_sku_products = df[invalid_sku_mask]
+        
+        for _, row in invalid_sku_products.iterrows():
+            invalid_products.append({
+                'reason': 'invalid_sku',
+                'sku': str(row.get('sku', 'NULL')),
+                'name': str(row.get('name', 'NULL')),
+                'id': str(row.get('id', 'NULL'))
+            })
+        
+        return df[~invalid_sku_mask], invalid_products
+    
+    def _filter_invalid_names(self, df, invalid_products):
+        """Filter out products with invalid names."""
+        invalid_name_mask = df['name'].isna() | (df['name'] == '') | (df['name'] == 'False') | (df['name'] == 'None')
+        invalid_name_products = df[invalid_name_mask]
+        
+        for _, row in invalid_name_products.iterrows():
+            invalid_products.append({
+                'reason': 'invalid_name',
+                'sku': str(row.get('sku', 'NULL')),
+                'name': str(row.get('name', 'NULL')),
+                'id': str(row.get('id', 'NULL'))
+            })
+        
+        return df[~invalid_name_mask], invalid_products
+    
+    def _filter_inactive_products(self, df, invalid_products):
+        """Filter out products that are not active in Odoo."""
+        inactive_products = df[~df['is_active']]
+        
+        for _, row in inactive_products.iterrows():
+            invalid_products.append({
+                'reason': 'inactive_in_odoo',
+                'sku': str(row.get('sku', 'NULL')),
+                'name': str(row.get('name', 'NULL')),
+                'id': str(row.get('id', 'NULL'))
+            })
+        
+        return df[df['is_active']], invalid_products
+    
+    def _log_invalid_products(self, invalid_products):
+        """Log detailed information about invalid products."""
+        if not invalid_products:
+            return
+        
+        self.logger.warning(f"Found {len(invalid_products)} invalid products that will be excluded:")
+        
+        # Group by reason
+        reasons = {}
+        for product in invalid_products:
+            reason = product['reason']
+            if reason not in reasons:
+                reasons[reason] = []
+            reasons[reason].append(product)
+        
+        # Log each reason with examples
+        for reason, products in reasons.items():
+            reason_descriptions = {
+                'invalid_sku': 'products without valid SKU',
+                'invalid_name': 'products without valid name',
+                'inactive_in_odoo': 'products marked as inactive in Odoo'
+            }
+            
+            self.logger.warning(f"  - {len(products)} {reason_descriptions.get(reason, reason)}")
+            
+            # Log first 3 examples for each reason
+            for product in products[:3]:
+                self.logger.warning(f"    Example: ID={product['id']}, SKU='{product['sku']}', Name='{product['name']}'")
+            
+            if len(products) > 3:
+                self.logger.warning(f"    ... and {len(products) - 3} more")
     
     def _generate_embeddings_for_skus(self, skus: List[str]) -> int:
         """
@@ -347,7 +437,7 @@ class SyncManager:
             self.logger.info("Testing Odoo connection...")
             odoo_product = OdooProduct(use_test=self.use_test_odoo)
             # Try to read one product to test connection
-            test_products = odoo_product.read_products(domain=[])
+            test_products = odoo_product.read_products_for_embeddings(domain=[])
             results["odoo"] = True
             self.logger.info("Odoo connection successful")
             

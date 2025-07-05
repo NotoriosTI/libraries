@@ -128,79 +128,112 @@ class ProductUpdater:
     
     def upsert_products(self, products_df: pd.DataFrame) -> List[str]:
         """
-        Upsert products using temporary table for efficient bulk operations.
+        Upsert products into the database using bulk operations.
         
         Args:
-            products_df: DataFrame containing product data
+            products_df: DataFrame with product data
             
         Returns:
-            List of SKUs that were affected (inserted or updated)
+            List of affected SKUs
         """
-        if products_df.empty:
-            self.logger.info("No products to upsert")
-            return []
-        
-        self.logger.info(f"Starting upsert for {len(products_df)} products")
-        
-        try:
-            with database.get_cursor() as cursor:
-                # Drop table if it exists from previous operations
-                cursor.execute("DROP TABLE IF EXISTS temp_products;")
-                
-                # Create temporary table
-                cursor.execute("""
+        with database.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Create temporary table for bulk operations
+                temp_table_sql = """
                     CREATE TEMP TABLE temp_products (
-                        sku VARCHAR(100),
-                        name VARCHAR(500),
+                        sku VARCHAR(100) PRIMARY KEY,
+                        name VARCHAR(255),
                         description TEXT,
                         category_id INTEGER,
                         category_name VARCHAR(255),
                         is_active BOOLEAN,
-                        list_price NUMERIC(15, 2),
-                        standard_price NUMERIC(15, 2),
-                        product_type VARCHAR(50),
+                        list_price DECIMAL(10,2),
+                        standard_price DECIMAL(10,2),
+                        product_type VARCHAR(100),
                         barcode VARCHAR(100),
-                        weight NUMERIC(10, 3),
-                        volume NUMERIC(10, 3),
+                        weight DECIMAL(10,2),
+                        volume DECIMAL(10,2),
                         sale_ok BOOLEAN,
                         purchase_ok BOOLEAN,
                         uom_id INTEGER,
                         uom_name VARCHAR(100),
                         company_id INTEGER,
                         text_for_embedding TEXT,
-                        last_update TIMESTAMP WITH TIME ZONE
-                    );
-                """)
+                        last_update TIMESTAMP
+                    ) ON COMMIT DROP;
+                """
                 
-                # Prepare data for insertion
+                cursor.execute(temp_table_sql)
+                
+                # Prepare data for bulk insert
                 columns = [
                     'sku', 'name', 'description', 'category_id', 'category_name',
                     'is_active', 'list_price', 'standard_price', 'product_type',
                     'barcode', 'weight', 'volume', 'sale_ok', 'purchase_ok',
-                    'uom_id', 'uom_name', 'company_id', 'text_for_embedding',
-                    'last_update'
+                    'uom_id', 'uom_name', 'company_id', 'text_for_embedding', 'last_update'
                 ]
                 
-                # Prepare data tuples
+                # Field length limits for validation
+                varchar_100_fields = {'sku', 'product_type', 'barcode', 'uom_name'}
+                varchar_255_fields = {'name', 'category_name'}
+                varchar_500_fields = {'description'}
+                many2one_fields = {'category_id', 'uom_id', 'company_id'}
+                
                 data_tuples = []
-                for _, row in products_df.iterrows():
-                    tuple_data = []
-                    for col in columns:
-                        value = row.get(col)
-                        # Handle NaN and None values
-                        if value is None:
-                            tuple_data.append(None)
-                        elif isinstance(value, (list, tuple)):
-                            # For arrays/lists, check if empty or contains only NaN
-                            if not value or all(pd.isna(item) for item in value):
-                                tuple_data.append(None)
-                            else:
-                                tuple_data.append(value)
-                        elif pd.isna(value):
-                            tuple_data.append(None)
-                        else:
-                            tuple_data.append(value)
-                    data_tuples.append(tuple(tuple_data))
+                seen_skus = set()
+                duplicate_skus = set()
+                filtered_products = []
+                
+                self.logger.info(f"Processing {len(products_df)} products for upsert...")
+                
+                for idx, row in products_df.iterrows():
+                    # Validate field lengths and log warnings
+                    for field in ['name', 'description', 'category_name']:
+                        if field in row and row[field]:
+                            value = str(row[field])
+                            if len(value) > 100:
+                                self.logger.warning(
+                                    f"Value too long for {field} (max 100 chars): {value[:50]}... (length: {len(value)})"
+                                )
+                    
+                    # Check for duplicate SKUs
+                    sku = row.get('sku', '')
+                    if sku in seen_skus:
+                        duplicate_skus.add(sku)
+                        filtered_products.append({
+                            'reason': 'duplicate_sku',
+                            'sku': sku,
+                            'name': str(row.get('name', 'NULL')),
+                            'row_index': idx
+                        })
+                        continue  # Skip duplicate SKUs
+                    seen_skus.add(sku)
+                    
+                    # Validate SKU format
+                    if not sku or sku == 'None' or sku == 'False':
+                        filtered_products.append({
+                            'reason': 'invalid_sku_format',
+                            'sku': str(sku),
+                            'name': str(row.get('name', 'NULL')),
+                            'row_index': idx
+                        })
+                        continue
+                    
+                    # Process row data
+                    tuple_data = self._process_row_data(row, columns, many2one_fields, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+                    if tuple_data is None:
+                        filtered_products.append({
+                            'reason': 'processing_error',
+                            'sku': sku,
+                            'name': str(row.get('name', 'NULL')),
+                            'row_index': idx
+                        })
+                        continue
+                    
+                    data_tuples.append(tuple_data)
+                
+                # Log detailed information about filtered products
+                self._log_filtered_products(filtered_products)
                 
                 # Bulk insert into temporary table
                 execute_values(
@@ -210,55 +243,187 @@ class ProductUpdater:
                     page_size=1000
                 )
                 
-                self.logger.info(f"Inserted {len(data_tuples)} records into temporary table")
+                # Log duplicate SKUs found
+                if duplicate_skus:
+                    self.logger.warning(f"Found {len(duplicate_skus)} duplicate SKUs: {list(duplicate_skus)[:10]}{'...' if len(duplicate_skus) > 10 else ''}")
+                
+                self.logger.info(f"Inserted {len(data_tuples)} records into temporary table (after filtering)")
                 
                 # Perform upsert from temporary table
-                upsert_sql = """
-                    INSERT INTO products (
-                        sku, name, description, category_id, category_name,
-                        is_active, list_price, standard_price, product_type,
-                        barcode, weight, volume, sale_ok, purchase_ok,
-                        uom_id, uom_name, company_id, text_for_embedding,
-                        last_update
-                    )
-                    SELECT 
-                        sku, name, description, category_id, category_name,
-                        is_active, list_price, standard_price, product_type,
-                        barcode, weight, volume, sale_ok, purchase_ok,
-                        uom_id, uom_name, company_id, text_for_embedding,
-                        last_update
-                    FROM temp_products
-                    ON CONFLICT (sku) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        description = EXCLUDED.description,
-                        category_id = EXCLUDED.category_id,
-                        category_name = EXCLUDED.category_name,
-                        is_active = EXCLUDED.is_active,
-                        list_price = EXCLUDED.list_price,
-                        standard_price = EXCLUDED.standard_price,
-                        product_type = EXCLUDED.product_type,
-                        barcode = EXCLUDED.barcode,
-                        weight = EXCLUDED.weight,
-                        volume = EXCLUDED.volume,
-                        sale_ok = EXCLUDED.sale_ok,
-                        purchase_ok = EXCLUDED.purchase_ok,
-                        uom_id = EXCLUDED.uom_id,
-                        uom_name = EXCLUDED.uom_name,
-                        company_id = EXCLUDED.company_id,
-                        text_for_embedding = EXCLUDED.text_for_embedding,
-                        last_update = EXCLUDED.last_update
-                    RETURNING sku;
-                """
-                
-                cursor.execute(upsert_sql)
-                affected_skus = [row['sku'] for row in cursor.fetchall()]
+                affected_skus = self._perform_upsert(cursor)
                 
                 self.logger.info(f"Upsert completed, {len(affected_skus)} products affected")
                 return affected_skus
-        
+    
+    def _process_row_data(self, row, columns, many2one_fields, varchar_100_fields, varchar_255_fields, varchar_500_fields):
+        """Process a single row and return tuple data for database insertion."""
+        try:
+            tuple_data = []
+            for col in columns:
+                value = row[col]
+                processed_value = self._process_field_value(value, col, many2one_fields, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+                tuple_data.append(processed_value)
+            return tuple(tuple_data)
         except Exception as e:
-            self.logger.error("Failed to upsert products", error=str(e))
-            raise RuntimeError("Product upsert failed") from e
+            self.logger.error(f"Error processing row data: {str(e)}")
+            return None
+    
+    def _process_field_value(self, value, col, many2one_fields, varchar_100_fields, varchar_255_fields, varchar_500_fields):
+        """Process a single field value with proper type handling."""
+        # Handle Many2one fields (extract ID from tuple/list)
+        if col in many2one_fields:
+            return self._process_many2one_value(value)
+        
+        # Handle pandas Series/DataFrame values
+        if hasattr(value, 'isna'):
+            return self._process_pandas_value(value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+        
+        # Handle list/tuple values
+        if isinstance(value, (list, tuple)):
+            return self._process_list_value(value)
+        
+        # Handle regular values
+        return self._process_regular_value(value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+    
+    def _process_many2one_value(self, value):
+        """Process Many2one field value (extract ID from tuple/list)."""
+        if isinstance(value, (list, tuple)) and len(value) > 0:
+            id_val = value[0]
+            return int(id_val) if isinstance(id_val, (int, float)) else None
+        elif isinstance(value, (int, float)):
+            return int(value)
+        return None
+    
+    def _process_pandas_value(self, value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields):
+        """Process pandas Series/DataFrame value."""
+        if hasattr(value, 'any'):
+            # DataFrame column
+            if value.isna().any():
+                return None
+            
+            try:
+                processed_value = value.item()
+            except ValueError:
+                if len(value) > 0:
+                    first_val = value.iloc[0]
+                    if hasattr(first_val, 'item'):
+                        try:
+                            processed_value = first_val.item()
+                        except ValueError:
+                            processed_value = str(first_val)
+                    else:
+                        processed_value = first_val
+                else:
+                    processed_value = None
+        else:
+            # Series value
+            if value.isna():
+                return None
+            
+            try:
+                processed_value = value.item()
+            except ValueError:
+                processed_value = str(value)
+        
+        return self._truncate_string_value(processed_value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+    
+    def _process_list_value(self, value):
+        """Process list/tuple value."""
+        if not value or all(hasattr(item, 'isna') and item.isna() for item in value):
+            return None
+        return value
+    
+    def _process_regular_value(self, value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields):
+        """Process regular value."""
+        return self._truncate_string_value(value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields)
+    
+    def _truncate_string_value(self, value, col, varchar_100_fields, varchar_255_fields, varchar_500_fields):
+        """Truncate string values according to database limits."""
+        if not isinstance(value, str):
+            return value
+        
+        if col in varchar_100_fields and len(value) > 100:
+            return value[:100]
+        elif col in varchar_255_fields and len(value) > 255:
+            return value[:255]
+        elif col in varchar_500_fields and len(value) > 500:
+            return value[:500]
+        
+        return value
+    
+    def _log_filtered_products(self, filtered_products):
+        """Log detailed information about filtered products."""
+        if not filtered_products:
+            return
+        
+        self.logger.warning(f"Filtered out {len(filtered_products)} products during upsert processing:")
+        
+        # Group by reason
+        reasons = {}
+        for product in filtered_products:
+            reason = product['reason']
+            if reason not in reasons:
+                reasons[reason] = []
+            reasons[reason].append(product)
+        
+        # Log each reason with examples
+        for reason, products in reasons.items():
+            reason_descriptions = {
+                'duplicate_sku': 'products with duplicate SKUs',
+                'invalid_sku_format': 'products with invalid SKU format',
+                'processing_error': 'products with processing errors'
+            }
+            
+            self.logger.warning(f"  - {len(products)} {reason_descriptions.get(reason, reason)}")
+            
+            # Log first 3 examples for each reason
+            for product in products[:3]:
+                self.logger.warning(f"    Example: SKU='{product['sku']}', Name='{product['name']}'")
+            
+            if len(products) > 3:
+                self.logger.warning(f"    ... and {len(products) - 3} more")
+    
+    def _perform_upsert(self, cursor):
+        """Perform upsert operation from temporary table."""
+        upsert_sql = """
+            INSERT INTO products (
+                sku, name, description, category_id, category_name,
+                is_active, list_price, standard_price, product_type,
+                barcode, weight, volume, sale_ok, purchase_ok,
+                uom_id, uom_name, company_id, text_for_embedding,
+                last_update
+            )
+            SELECT 
+                sku, name, description, category_id, category_name,
+                is_active, list_price, standard_price, product_type,
+                barcode, weight, volume, sale_ok, purchase_ok,
+                uom_id, uom_name, company_id, text_for_embedding,
+                last_update
+            FROM temp_products
+            ON CONFLICT (sku) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                category_id = EXCLUDED.category_id,
+                category_name = EXCLUDED.category_name,
+                is_active = EXCLUDED.is_active,
+                list_price = EXCLUDED.list_price,
+                standard_price = EXCLUDED.standard_price,
+                product_type = EXCLUDED.product_type,
+                barcode = EXCLUDED.barcode,
+                weight = EXCLUDED.weight,
+                volume = EXCLUDED.volume,
+                sale_ok = EXCLUDED.sale_ok,
+                purchase_ok = EXCLUDED.purchase_ok,
+                uom_id = EXCLUDED.uom_id,
+                uom_name = EXCLUDED.uom_name,
+                company_id = EXCLUDED.company_id,
+                text_for_embedding = EXCLUDED.text_for_embedding,
+                last_update = EXCLUDED.last_update
+            RETURNING sku;
+        """
+        
+        cursor.execute(upsert_sql)
+        return [row['sku'] for row in cursor.fetchall()]
     
     def deactivate_missing_products(self, active_skus: Set[str]) -> int:
         """
