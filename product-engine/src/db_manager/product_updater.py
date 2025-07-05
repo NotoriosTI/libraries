@@ -252,6 +252,9 @@ class ProductUpdater:
                 # Perform upsert from temporary table
                 affected_skus = self._perform_upsert(cursor)
                 
+                # Commit explícito para asegurar persistencia de los datos
+                conn.commit()
+                
                 self.logger.info(f"Upsert completed, {len(affected_skus)} products affected")
                 return affected_skus
     
