@@ -16,10 +16,12 @@ services:
     container_name: product-engine
     restart: unless-stopped
     
-    # Environment variables for production
+    # Environment variables for local development  
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-local_container}
       - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - PRODUCT_DB_HOST=cloud-sql-proxy
+      - PRODUCT_DB_PORT=5432
       - USE_TEST_ODOO=${USE_TEST_ODOO:-false}
       - FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}
       - TEST_CONNECTIONS_ONLY=${TEST_CONNECTIONS_ONLY:-false}
@@ -32,9 +34,8 @@ services:
     depends_on:
       - cloud-sql-proxy
     
-    # Use a custom command for one-time execution
-    # Override this in production with proper orchestration
-    command: python -m product_engine.main
+    # Use the correct sync manager command
+    command: python -m db_manager.sync_manager
 
   # Cloud SQL Auth Proxy service for secure database connection
   cloud-sql-proxy:
@@ -42,9 +43,8 @@ services:
     container_name: product-cloud-sql-proxy
     restart: unless-stopped
     
-    # The command to start the proxy
-    # Replace with your actual Cloud SQL instance connection name
-    command: /cloud_sql_proxy -instances=${GCP_PROJECT_ID}:${REGION:-us-central1}:${INSTANCE_NAME}=tcp:0.0.0.0:5432
+    # The command to start the proxy with correct instance name
+    command: /cloud_sql_proxy -instances=${GCP_PROJECT_ID}:${REGION:-us-central1}:app-temp=tcp:0.0.0.0:5432
     
     # In production on GCE, uses the attached service account
     # For local development, mount credentials file

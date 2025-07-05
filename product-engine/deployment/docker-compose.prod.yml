@@ -1,17 +1,19 @@
 # -----------------------------------------------------------------------------
-# Docker Compose for PRODUCTION SIMULATION
+# Docker Compose for PRODUCTION DEPLOYMENT (USING SHARED PROXY)
 # -----------------------------------------------------------------------------
-# This file is designed to mimic a production environment.
+# This file is designed for production environment deployment.
 #
 # Key Features:
 #   - Uses the pre-built production Docker image.
-#   - Passes environment variables directly (no .env file).
-#   - Connects only to the Cloud SQL Auth Proxy.
+#   - Connects to Cloud SQL via shared proxy using host networking.
+#   - Uses PRODUCT_DB_* environment variables for database configuration.
+#   - Depends on shared-cloud-sql-proxy service.
 #
 # Usage:
-#   This file is typically used by deployment scripts or CI/CD pipelines.
+#   This file is used by deployment scripts or CI/CD pipelines.
 #   To run manually:
-#   docker-compose -f deployment/docker-compose.prod.yml up
+#   docker-compose -f deployment/docker-compose.shared-proxy.yml up -d
+#   docker-compose -f deployment/docker-compose.prod.yml run --rm product-engine
 #
 version: '3.8'
 
@@ -27,25 +29,12 @@ services:
     environment:
       - ENVIRONMENT=production
       - GCP_PROJECT_ID=${PROJECT_ID}
-      - DB_HOST=cloud-sql-proxy # The host is the proxy service
-      - DB_PORT=5432
+      - PRODUCT_DB_HOST=127.0.0.1 # Connect to shared proxy
+      - PRODUCT_DB_PORT=5432
       - USE_TEST_ODOO=false  # Ensures we use odoo_prod
       - FORCE_FULL_SYNC=false  # Normal incremental sync
       - TEST_CONNECTIONS_ONLY=false  # Full sync operation
-      # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
-    # Depends on the Cloud SQL proxy to be running
-    depends_on:
-      - cloud-sql-proxy
-
-  # Cloud SQL Auth Proxy service
-  # This is the only way the application connects to the database in production
-  cloud-sql-proxy:
-    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
-    container_name: cloud-sql-proxy-prod
-    restart: unless-stopped
-    # The command to start the proxy with stable v1 syntax using temp instance
-    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:${INSTANCE}-temp=tcp:0.0.0.0:5432
-    # In production environment on GCE, the proxy uses the attached service account
-    # No credentials file needed when running on GCE with proper service account
-    ports:
-      - "5432:5432" 
+      # PRODUCT_DB_NAME, PRODUCT_DB_USER, PRODUCT_DB_PASSWORD will be fetched from Secret Manager
+    # Use host network for direct proxy access
+    network_mode: "host"
+    # No depends_on needed since we use host networking and shared proxy runs separately 

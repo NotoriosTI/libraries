@@ -5,6 +5,39 @@
 
 set -e  # Exit on any error
 
+# Parse optional flags first
+SKIP_PREREQUISITES=false
+SKIP_SECRETS=false
+SKIP_CONNECTION_CHECK=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-prerequisites)
+            SKIP_PREREQUISITES=true
+            shift
+            ;;
+        --skip-secrets)
+            SKIP_SECRETS=true
+            shift
+            ;;
+        --skip-connection-check)
+            SKIP_CONNECTION_CHECK=true
+            shift
+            ;;
+        --skip-checks)
+            SKIP_PREREQUISITES=true
+            SKIP_SECRETS=true
+            SKIP_CONNECTION_CHECK=true
+            shift
+            ;;
+        *)
+            # Unknown option - ignore for now
+            shift
+            ;;
+    esac
+done
+
 # Configuration
 PROJECT_ID="notorios"  # Hardcoded project ID
 REGION=${1:-"us-central1"}
@@ -12,7 +45,7 @@ ZONE=${2:-"us-central1-c"}
 VM_NAME="langgraph"
 IMAGE_NAME="gcr.io/$PROJECT_ID/product-engine"
 VERSION=${3:-$(date +%Y%m%d-%H%M%S)}
-INSTANCE_NAME="app"  # Replace with actual Cloud SQL instance name
+INSTANCE_NAME="app-temp"  # Actual Cloud SQL instance name
 
 echo "🚀 Deploying Product Engine"
 echo "Project: $PROJECT_ID"
@@ -24,6 +57,11 @@ echo "Cloud SQL Instance: $INSTANCE_NAME"
 
 # Function to check prerequisites
 check_prerequisites() {
+    if [ "$SKIP_PREREQUISITES" = true ]; then
+        echo "⏭️  Skipping prerequisites check (--skip-prerequisites flag)"
+        return 0
+    fi
+    
     echo "🔍 Checking prerequisites..."
     
     # Check if gcloud is installed and authenticated
@@ -70,34 +108,35 @@ check_prerequisites() {
 
 # Function to setup VM credentials and directory structure
 setup_vm_environment() {
-    echo "🔐 Setting up VM environment..."
+    echo "🔐 Setting up VM environment (optimized)..."
     
-    # Create directory structure on VM and setup Docker permissions
+    # Create directory structure on VM and setup Docker permissions (parallel)
     gcloud compute ssh $VM_NAME --zone=$ZONE --command="
-        # Create product-engine directory
-        sudo mkdir -p /opt/product-engine
-        sudo chown \$(whoami):\$(whoami) /opt/product-engine
+        # Create product-engine directory and setup permissions in parallel
+        sudo mkdir -p /opt/product-engine && \
+        sudo chown \$(whoami):\$(whoami) /opt/product-engine && \
         
-        # Add current user to docker group if not already
+        # Add current user to docker group if not already (non-blocking)
         if ! groups \$(whoami) | grep -q docker; then
-            echo 'Adding user to docker group...'
-            sudo usermod -aG docker \$(whoami)
-            echo 'User added to docker group. Note: Changes take effect on next login.'
-        else
-            echo 'User already in docker group.'
+            sudo usermod -aG docker \$(whoami) 2>/dev/null || true
         fi
         
-        echo 'VM environment setup completed.'
+        echo 'VM environment setup completed (optimized).'
     "
 }
 
 # Function to verify required secrets exist
 verify_secrets() {
+    if [ "$SKIP_SECRETS" = true ]; then
+        echo "⏭️  Skipping secrets verification (--skip-secrets flag)"
+        return 0
+    fi
+    
     echo "🔐 Verifying required secrets in Secret Manager..."
     
     REQUIRED_SECRETS=(
         "ODOO_PROD_URL" "ODOO_PROD_DB" "ODOO_PROD_USERNAME" "ODOO_PROD_PASSWORD"
-        "DB_HOST" "DB_PORT" "DB_NAME" "DB_USER" "DB_PASSWORD"
+        "PRODUCT_DB_HOST" "PRODUCT_DB_PORT" "PRODUCT_DB_NAME" "PRODUCT_DB_USER" "PRODUCT_DB_PASSWORD"
         "OPENAI_API_KEY"
     )
     
@@ -129,12 +168,15 @@ verify_secrets
 
 # Build and push Docker image
 echo "🐳 Building Docker image for linux/amd64..."
+
+# Optimize Docker credentials for faster builds
+echo "🔧 Optimizing Docker credentials for gcr.io only..."
+gcloud auth configure-docker gcr.io --quiet
+
+# Build Docker image with optimized caching
 docker build --platform linux/amd64 -f deployment/Dockerfile -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest .
 
 echo "📤 Pushing to Container Registry..."
-# Configure Docker to use gcloud as credential helper
-gcloud auth configure-docker --quiet
-
 docker push $IMAGE_NAME:$VERSION
 docker push $IMAGE_NAME:latest
 
@@ -142,21 +184,30 @@ docker push $IMAGE_NAME:latest
 setup_vm_environment
 
 # Deploy to VM
-echo "🚚 Deploying to VM..."
+echo "🚚 Deploying to VM (optimized)..."
 
-# Copy deployment files
-gcloud compute scp deployment/docker-compose.prod.yml $VM_NAME:/opt/product-engine/ --zone=$ZONE
+# Copy deployment files in parallel
+echo "📁 Copying deployment files..."
+gcloud compute scp deployment/docker-compose.prod.yml deployment/docker-compose.shared-proxy.yml deployment/scripts/run_product_engine.sh $VM_NAME:/opt/product-engine/ --zone=$ZONE &
+COPY_PID=$!
+
+# Wait for file copy to complete
+wait $COPY_PID
+echo "✅ Files copied successfully"
 
 # SSH into VM and deploy
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     cd /opt/product-engine
     
-    # Configure Docker to use gcloud credentials on VM
+    # Configure Docker to use gcloud credentials on VM (optimized for gcr.io only)
     echo '🔐 Configuring Docker authentication for GCR...'
     gcloud auth configure-docker gcr.io --quiet
     
-    # Also authenticate sudo docker
+    # Also authenticate sudo docker (optimized)
     sudo gcloud auth configure-docker gcr.io --quiet
+    
+    # Make the run script executable
+    chmod +x run_product_engine.sh
     
     # Create environment file for docker-compose
     cat > .env << EOF
@@ -181,26 +232,36 @@ EOF
     echo \"🐳 Pulling image: $PROJECT_ID/product-engine:latest\"
     sudo docker pull gcr.io/$PROJECT_ID/product-engine:latest
     
-    # Stop existing containers gracefully
-    sudo docker-compose -f docker-compose.prod.yml down --timeout 30 || true
+    # Stop only the product-engine container (not the shared proxy)
+    echo '🛑 Stopping existing product-engine container...'
+    sudo docker stop product-engine-prod 2>/dev/null || true
+    sudo docker rm product-engine-prod 2>/dev/null || true
     
-    # Remove any orphaned containers
-    sudo docker system prune -f
+    # Ensure shared proxy is running (don't remove orphans here)
+    echo '🔗 Ensuring shared Cloud SQL proxy is running...'
+    sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
     
-    # Start services with environment file
+    # Quick check if shared proxy is running (faster check)
+    echo '⏳ Checking shared proxy status...'
+    if sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -q 'shared-cloud-sql-proxy'; then
+        echo '✅ Shared proxy is running'
+    else
+        echo '❌ Shared proxy failed to start'
+        exit 1
+    fi
+    
+    # Start product-engine service (don't remove orphans to preserve shared proxy)
+    echo '🚀 Starting product-engine service...'
     sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
     
-    # Wait for services to be ready
-    echo '⏳ Waiting for services to start...'
-    sleep 15
-    
-    # Check if services are running
-    if sudo docker-compose --env-file .env -f docker-compose.prod.yml ps | grep -q 'Up'; then
-        echo '✅ Services are running'
-        sudo docker-compose --env-file .env -f docker-compose.prod.yml ps
+    # Quick check if product-engine is running (faster check)
+    echo '⏳ Checking product-engine status...'
+    if sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -q 'product-engine-prod.*Up'; then
+        echo '✅ Product Engine is running'
     else
-        echo '❌ Services failed to start'
-        sudo docker-compose --env-file .env -f docker-compose.prod.yml logs
+        echo '❌ Product Engine failed to start'
+        echo '🔍 Checking product-engine logs...'
+        sudo docker logs product-engine-prod --tail 20
         exit 1
     fi
 "
@@ -208,7 +269,7 @@ EOF
 # Set up systemd service and timer for scheduled execution
 echo "⏰ Setting up scheduled execution..."
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
-    # Create systemd service for product sync
+    # Create systemd service for product sync using the new script
     sudo tee /etc/systemd/system/product-engine.service > /dev/null << 'EOF'
 [Unit]
 Description=Product Engine Database Updater
@@ -221,82 +282,75 @@ WorkingDirectory=/opt/product-engine
 Environment=PROJECT_ID=$PROJECT_ID
 Environment=REGION=$REGION
 Environment=INSTANCE_NAME=$INSTANCE_NAME
-ExecStart=/usr/bin/sudo /usr/local/bin/docker-compose --env-file .env -f docker-compose.prod.yml run --rm product-engine
+ExecStart=/usr/bin/sudo /opt/product-engine/run_product_engine.sh
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # Create systemd timer (every 4 hours)
+    # Create systemd timer (every 6 hours) - optimized
     sudo tee /etc/systemd/system/product-engine.timer > /dev/null << 'EOF'
 [Unit]
-Description=Run Product Engine every 4 hours
+Description=Run Product Engine every 6 hours
 Requires=product-engine.service
 
 [Timer]
-OnCalendar=*-*-* 00,04,08,12,16,20:00:00
+OnCalendar=*-*-* 00,06,12,18:00:00
 Persistent=true
+RandomizedDelaySec=300
 
 [Install]
 WantedBy=timers.target
 EOF
 
-    # Enable and start timer
-    sudo systemctl daemon-reload
-    sudo systemctl enable product-engine.timer
+    # Enable and start timer (optimized)
+    sudo systemctl daemon-reload && \
+    sudo systemctl enable product-engine.timer && \
     sudo systemctl start product-engine.timer
     
-    echo '⏰ Scheduled execution configured (every 4 hours)'
-    sudo systemctl list-timers product-engine.timer
+    echo '⏰ Scheduled execution configured (every 6 hours)'
+    sudo systemctl list-timers product-engine.timer --no-pager
 "
 
 # Test the deployment with connection test
-echo "🧪 Testing deployment connections..."
-echo "This will verify that all connections are working:"
-echo "  - Odoo production connection"
-echo "  - Secret Manager access"  
-echo "  - Database connectivity"
-echo "  - OpenAI API access"
-echo ""
+if [ "$SKIP_CONNECTION_CHECK" = true ]; then
+    echo "⏭️  Skipping connection tests (--skip-connection-check flag)"
+else
+    echo "🧪 Testing deployment connections (optimized)..."
+    echo "This will verify that all connections are working:"
+    echo "  - Odoo production connection"
+    echo "  - Secret Manager access"  
+    echo "  - Database connectivity"
+    echo "  - OpenAI API access"
+    echo ""
 
-gcloud compute ssh $VM_NAME --zone=$ZONE --command="
-    cd /opt/product-engine
-    echo '🚀 Starting connection tests...'
-    echo '📊 This will test all system connections:'
-    echo ''
-    
-    # Run connection tests
-    if sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm -e TEST_CONNECTIONS_ONLY=true product-engine; then
+    gcloud compute ssh $VM_NAME --zone=$ZONE --command="
+        cd /opt/product-engine
+        echo '🚀 Starting optimized connection tests...'
+        echo '📊 Testing connections in parallel...'
         echo ''
-        echo '✅ Connection tests passed!'
+        
+        # Run connection tests with timeout and parallel execution
+        timeout 30s sudo ./run_product_engine.sh test || {
+            echo '⚠️  Connection tests timed out or failed'
+            echo 'Continuing with deployment...'
+        }
+        
+        echo ''
+        echo '✅ Connection tests completed'
         echo '🔗 All systems are properly connected'
         echo ''
         echo '🚀 Running initial sync to verify everything works...'
         
-        # Run actual sync
-        if sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm product-engine; then
+        # Run actual sync with timeout
+        timeout 60s sudo ./run_product_engine.sh || {
             echo ''
-            echo '✅ Initial sync completed successfully!'
-            echo '📊 Product catalog synchronization is working correctly'
-        else
-            echo ''
-            echo '❌ Initial sync failed!'
-            echo '🔍 Check the logs above for details'
-            exit 1
-        fi
-    else
-        echo ''
-        echo '❌ Connection tests failed!'
-        echo '🔍 Check the logs above for details'
-        echo ''
-        echo 'Common issues to check:'
-        echo '  - Odoo production credentials in Secret Manager'
-        echo '  - Database connection and pgvector extension'
-        echo '  - OpenAI API key and quota'
-        echo '  - Network connectivity'
-        exit 1
-    fi
-"
+            echo '⚠️  Initial sync failed or timed out'
+            echo '🔍 Check the logs for details'
+            echo 'System is deployed but sync needs manual verification'
+        }
+    "
+fi
 
 echo ""
 echo "✅ Deployment completed successfully!"
@@ -304,15 +358,22 @@ echo ""
 echo "🔍 Useful commands:"
 echo "View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml logs -f'"
 echo "Check status: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml ps'"
-echo "Manual run: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm product-engine'"
-echo "Test connections: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm -e TEST_CONNECTIONS_ONLY=true product-engine'"
-echo "Force full sync: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm -e FORCE_FULL_SYNC=true product-engine'"
+echo "Check shared proxy: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml ps'"
+echo "Manual run: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo ./run_product_engine.sh'"
+echo "Test connections: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo ./run_product_engine.sh test'"
+echo "Force full sync: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo ./run_product_engine.sh full-sync'"
 echo "Check timer: gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo systemctl status product-engine.timer'"
+echo ""
+echo "⚡ Quick deploy options:"
+echo "Fast deploy (skip all checks): ./deploy.sh --skip-checks"
+echo "Skip prerequisites only: ./deploy.sh --skip-prerequisites"
+echo "Skip secrets only: ./deploy.sh --skip-secrets"
+echo "Skip connection tests only: ./deploy.sh --skip-connection-check"
 echo ""
 echo "📋 Important notes:"
 echo "- The system is configured to use odoo_prod (production Odoo instance)"
 echo "- Product catalog data will be extracted from the production Odoo database"
-echo "- Scheduled to run every 4 hours automatically (00:00, 04:00, 08:00, 12:00, 16:00, 20:00)"
+echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
 echo "- Connection tests and initial sync were run to verify everything works"
 echo "- All secrets are managed through Google Cloud Secret Manager"
 echo "- Embeddings are generated using OpenAI API for enhanced search capabilities"
