@@ -31,7 +31,12 @@ dev = [
 run-products-sync = "db_manager.sync_manager:main"
 
 [tool.poetry]
-packages = [{include = "product_engine", from = "src"}]
+packages = [
+    {include = "product_engine", from = "src"},
+    {include = "db_client", from = "src"},
+    {include = "db_manager", from = "src"},
+    {include = "common", from = "src"}
+]
 
 [tool.isort]
 profile = "black"
