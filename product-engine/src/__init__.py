@@ -1,1 +1,1 @@
-# Este archivo permite que el directorio product_engine sea tratado como un paquete Python. 
+# Este archivo permite que el directorio product-engine sea tratado como un paquete Python. 
