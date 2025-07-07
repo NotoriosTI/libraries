@@ -1,6 +1,6 @@
 [project]
 name = "product-engine"
-version = "0.2.0"
+version = "0.3.0"
 description = "Products catalog synchronization engine for Odoo to PostgreSQL with OpenAI embeddings"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
@@ -15,8 +15,8 @@ dependencies = [
     "structlog>=24.0.0",
     "openai>=1.0.0",
     "pgvector>=0.2.0",
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@product-db#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@product-db#subdirectory=config-manager",
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
