@@ -12,21 +12,29 @@ class OdooWarehouse(OdooAPI):
         Versión optimizada que consulta directamente por SKU sin obtener todo el inventario.
         
         Args:
-            sku (str): SKU del producto a consultar
+            sku (str or list): SKU del producto a consultar o lista de SKUs para procesamiento batch
             
         Returns:
-            dict: Información de stock consolidada
-                {
-                    "qty_available": float,
-                    "virtual_available": float,
-                    "locations": [
-                        {"location": str, "warehouse": str, "quantity": float},
-                        ...
-                    ],
-                    "product_name": str,
-                    "sku": str,
-                    "found": bool
-                }
+            dict: Información de stock consolidada (para un SKU) o dict de resultados (para múltiples SKUs)
+        """
+        # Detectar si es un SKU individual o una lista
+        if isinstance(sku, str):
+            return self._get_stock_single_sku(sku)
+        elif isinstance(sku, list):
+            # Validar lista vacía
+            if len(sku) == 0:
+                raise ValueError("La lista de SKUs no puede estar vacía")
+            # Optimización: si la lista tiene un solo elemento, usar la función individual
+            if len(sku) == 1:
+                return self._get_stock_single_sku(sku[0])
+            else:
+                return self._get_stock_multiple_skus(sku)
+        else:
+            raise ValueError("El argumento 'sku' debe ser un string o una lista de strings")
+
+    def _get_stock_single_sku(self, sku):
+        """
+        Procesa un solo SKU.
         """
         try:
             # 1. Buscar el producto por SKU para obtener su ID
@@ -197,6 +205,175 @@ class OdooWarehouse(OdooAPI):
                 "found": False,
                 "error": str(e)
             }
+
+    def _get_stock_multiple_skus(self, skus):
+        """
+        Procesa múltiples SKUs en modo batch.
+        """
+        try:
+            # 1. Buscar los IDs de los productos para todos los SKUs
+            product_ids = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search',
+                [[['default_code', 'in', skus]]]
+            )
+            
+            if not product_ids:
+                return {sku: {"found": False} for sku in skus}
+            
+            # 2. Leer la información de todos los productos encontrados
+            products = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'read',
+                [product_ids], {'fields': ['id', 'name', 'default_code', 'product_template_attribute_value_ids']}
+            )
+            product_dict = {p['default_code']: p for p in products}
+            
+            # 3. Buscar los stock quants para todos los productos encontrados
+            stock_quants = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'stock.quant', 'search_read',
+                [[['product_id', 'in', product_ids]]],
+                {'fields': ['product_id', 'quantity', 'location_id', 'reserved_quantity']}
+            )
+            
+            # 4. Obtener información de ubicaciones que tienen quants
+            location_ids = list(set([quant['location_id'][0] for quant in stock_quants]))
+            
+            if location_ids:
+                all_locations = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'stock.location', 'search_read',
+                    [[['id', 'in', location_ids]]],
+                    {'fields': ['id', 'name', 'usage', 'location_id']}
+                )
+            else:
+                all_locations = []
+            
+            # 5. Obtener información de bodegas
+            warehouse_ids = self.models.execute_kw(
+                self.db, self.uid, self.password, 
+                'stock.warehouse', 'search', [[]]
+            )
+            warehouses = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'stock.warehouse', 'read', 
+                [warehouse_ids, ['id', 'name', 'lot_stock_id']]
+            )
+            
+            # Crear diccionarios para mapear
+            warehouse_dict = {warehouse['lot_stock_id'][0]: warehouse['name'] for warehouse in warehouses}
+            location_dict = {loc['id']: loc for loc in all_locations}
+            
+            # 6. Agrupar quants por producto
+            quants_by_product = {}
+            for quant in stock_quants:
+                pid = quant['product_id'][0]
+                quants_by_product.setdefault(pid, []).append(quant)
+            
+            # 7. Procesar cada SKU
+            results = {}
+            for sku in skus:
+                product = product_dict.get(sku)
+                if not product:
+                    results[sku] = {
+                        "qty_available": 0,
+                        "virtual_available": 0,
+                        "locations": [],
+                        "product_name": None,
+                        "sku": sku,
+                        "found": False
+                    }
+                    continue
+                
+                # Obtener atributos de variante si existen
+                attribute_values = []
+                if product['product_template_attribute_value_ids']:
+                    attribute_value_data = self.models.execute_kw(
+                        self.db, self.uid, self.password,
+                        'product.template.attribute.value', 'read',
+                        [product['product_template_attribute_value_ids']], {'fields': ['name']}
+                    )
+                    attribute_values = [attr['name'] for attr in attribute_value_data]
+                
+                # Construir nombre completo del producto con atributos
+                if attribute_values:
+                    product_name_with_attributes = product['name'] + ' - ' + ', '.join(attribute_values)
+                else:
+                    product_name_with_attributes = product['name']
+                
+                # Obtener quants de este producto
+                quants = quants_by_product.get(product['id'], [])
+                
+                if not quants:
+                    results[sku] = {
+                        "qty_available": 0,
+                        "virtual_available": 0,
+                        "locations": [],
+                        "product_name": product_name_with_attributes,
+                        "sku": sku,
+                        "found": True
+                    }
+                    continue
+                
+                # Calcular stock disponible
+                locations_with_stock = []
+                total_qty_available = 0
+                total_qty_virtual = 0
+                
+                for quant in quants:
+                    location_id = quant['location_id'][0]
+                    quantity = quant['quantity']
+                    reserved_quantity = quant['reserved_quantity']
+                    available_quantity = quantity - reserved_quantity
+                    
+                    location_data = location_dict.get(location_id)
+                    if not location_data:
+                        continue
+                        
+                    # Solo considerar ubicaciones internas para stock disponible
+                    if location_data['usage'] == 'internal' and quantity > 0:
+                        location_name = location_data['name']
+                        
+                        # Determinar bodega
+                        parent_location_id = location_data['location_id'][0] if location_data['location_id'] else None
+                        warehouse_name = warehouse_dict.get(parent_location_id, '')
+                        
+                        # Construir nombre completo de ubicación
+                        if location_name == 'Stock' and parent_location_id:
+                            full_location_name = location_data['location_id'][1] + '/' + location_name
+                        else:
+                            full_location_name = location_name
+                        
+                        if warehouse_name and not full_location_name.startswith(warehouse_name):
+                            full_location_name = f"{warehouse_name}/{full_location_name}"
+                        
+                        locations_with_stock.append({
+                            "location": full_location_name,
+                            "warehouse": warehouse_name,
+                            "quantity": quantity,
+                            "reserved": reserved_quantity,
+                            "available": available_quantity
+                        })
+                        
+                        total_qty_available += available_quantity
+                    
+                    # Para virtual, incluir todas las ubicaciones
+                    total_qty_virtual += quantity
+                
+                results[sku] = {
+                    "qty_available": total_qty_available,
+                    "virtual_available": total_qty_virtual,
+                    "locations": locations_with_stock,
+                    "product_name": product_name_with_attributes,
+                    "sku": sku,
+                    "found": True
+                }
+            
+            return results
+            
+        except Exception as e:
+            return {"error": str(e)}
 
     def read_stock_by_location(self):
         # Obtener todas las ubicaciones que son del tipo 'Ubicación interna' en una sola llamada

@@ -1,0 +1,172 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for Product Engine TESTING
+# -----------------------------------------------------------------------------
+# This configuration runs the test suite instead of the full synchronization.
+# It's designed for testing the deployment setup locally without affecting 
+# the production database.
+
+version: '3.8'
+
+services:
+  # Test runner service
+  product-engine-test:
+    build:
+      context: ../..
+      dockerfile: ./tests/deployment/Dockerfile.test
+    container_name: product-engine-test
+    
+    # Environment variables for testing (using testdb with cloned products table)
+    environment:
+      - ENVIRONMENT=local_container
+      - PRODUCT_DB_HOST=host.docker.internal
+      - PRODUCT_DB_PORT=5432
+      - PRODUCT_DB_NAME=testdb
+      - PRODUCT_DB_USER=automation_admin
+      - PRODUCT_DB_PASSWORD=${PRODUCT_DB_PASSWORD}
+      - USE_TEST_ODOO=true
+      - FORCE_FULL_SYNC=false
+      - TEST_CONNECTIONS_ONLY=false
+      - PYTEST_VERBOSITY=2
+      - RUN_INTEGRATION_TESTS=false
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ODOO_TEST_URL=${ODOO_TEST_URL}
+      - ODOO_TEST_DB=${ODOO_TEST_DB}
+      - ODOO_TEST_USERNAME=${ODOO_TEST_USERNAME}
+      - ODOO_TEST_PASSWORD=${ODOO_TEST_PASSWORD}
+    
+    # Mount source code and tests for development
+    volumes:
+      - ../../src:/app/src:ro
+      - ../../tests/library:/app/tests:ro
+      - ./test.env:/app/.env:ro  # Mount test environment file
+    
+    # Uses host cloud-sql-proxy (no dependency needed)
+    # depends_on:
+    #   - cloud-sql-proxy
+    
+    # Override command to run tests
+    command: ["python", "-m", "pytest", "/app/tests/", "-v", "--tb=short"]
+    
+    # For interactive debugging
+    stdin_open: true
+    tty: true
+
+  # Alternative test runner with specific test selection
+  product-engine-test-setup:
+    build:
+      context: ../..
+      dockerfile: ./tests/deployment/Dockerfile.test
+    container_name: product-engine-test-setup
+    
+    environment:
+      - ENVIRONMENT=local_container
+      - PRODUCT_DB_HOST=127.0.0.1
+      - PRODUCT_DB_PORT=5432
+      - PRODUCT_DB_NAME=testdb
+      - PRODUCT_DB_USER=automation_admin
+      - PRODUCT_DB_PASSWORD=${PRODUCT_DB_PASSWORD}
+      - USE_TEST_ODOO=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ODOO_TEST_URL=${ODOO_TEST_URL}
+      - ODOO_TEST_DB=${ODOO_TEST_DB}
+      - ODOO_TEST_USERNAME=${ODOO_TEST_USERNAME}
+      - ODOO_TEST_PASSWORD=${ODOO_TEST_PASSWORD}
+    
+    volumes:
+      - ../../src:/app/src:ro
+      - ../../tests/library:/app/tests:ro
+      - ./test.env:/app/.env:ro
+    
+    depends_on:
+      - cloud-sql-proxy
+    
+    # Run only setup tests
+    command: ["python", "/app/tests/test_setup.py"]
+    
+    stdin_open: true
+    tty: true
+    profiles:
+      - setup
+
+  # Alternative test runner for complete db manager tests
+  product-engine-test-complete:
+    build:
+      context: ../..
+      dockerfile: ./tests/deployment/Dockerfile.test
+    container_name: product-engine-test-complete
+    
+    environment:
+      - ENVIRONMENT=local_container
+      - PRODUCT_DB_HOST=127.0.0.1
+      - PRODUCT_DB_PORT=5432
+      - PRODUCT_DB_NAME=testdb
+      - PRODUCT_DB_USER=automation_admin
+      - PRODUCT_DB_PASSWORD=${PRODUCT_DB_PASSWORD}
+      - USE_TEST_ODOO=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ODOO_TEST_URL=${ODOO_TEST_URL}
+      - ODOO_TEST_DB=${ODOO_TEST_DB}
+      - ODOO_TEST_USERNAME=${ODOO_TEST_USERNAME}
+      - ODOO_TEST_PASSWORD=${ODOO_TEST_PASSWORD}
+    
+    volumes:
+      - ../../src:/app/src:ro
+      - ../../tests/library:/app/tests:ro
+      - ./test.env:/app/.env:ro
+    
+    depends_on:
+      - cloud-sql-proxy
+    
+    # Run complete tests
+    command: ["python", "/app/tests/test_db_manager_complete.py"]
+    
+    stdin_open: true
+    tty: true
+    profiles:
+      - complete
+
+  # Cloud SQL Auth Proxy service for secure database connection
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: product-test-cloud-sql-proxy
+    restart: unless-stopped
+    
+    # Load environment variables from test.env file
+    env_file:
+      - test.env
+    
+    # The command to start the proxy (using the correct instance name)
+    command: /cloud_sql_proxy -instances=notorios:us-central1:app-temp=tcp:0.0.0.0:5432
+    
+    # Use Google Cloud default credentials (no explicit credentials file needed)
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS
+    
+    ports:
+      - "5432:5432"
+    
+    # Health check for the proxy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Local PostgreSQL for development testing (alternative to Cloud SQL)
+  postgres-test:
+    image: postgres:14-alpine
+    container_name: product-postgres-test
+    environment:
+      POSTGRES_DB: products_test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ../../deployment/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    # Remove profile to make it default for testing
+
+volumes:
+  postgres_test_data:
+    driver: local 

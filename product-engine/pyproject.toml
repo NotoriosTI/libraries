@@ -1,18 +1,20 @@
 [project]
-name = "sales-engine"
+name = "product-engine"
 version = "0.3.0"
-description = "Sales data engine for Odoo to PostgreSQL synchronization"
+description = "Products catalog synchronization engine for Odoo to PostgreSQL with OpenAI embeddings"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "pandas>=2.0.0",
+    "pandas>=2.2.3",
     "psycopg2-binary>=2.9.0",
     "google-cloud-secret-manager>=2.16.0",
     "python-decouple>=3.8",
     "structlog>=24.0.0",
+    "openai>=1.0.0",
+    "pgvector>=0.2.0",
     "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
     "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
 ]
@@ -26,11 +28,10 @@ dev = [
 ]
 
 [project.scripts]
-run-updater = "sales_engine.db_updater:main"
-extract-sales = "sales_engine.__main__:main"
+run-products-sync = "db_manager.sync_manager:main"
 
 [tool.poetry]
-packages = [{include = "sales_engine", from = "src"}]
+packages = [{include = "product_engine", from = "src"}]
 
 [tool.isort]
 profile = "black"
@@ -42,7 +43,7 @@ warn_unused_configs = true
 
 [tool.black]
 line-length = 88
-target-version = ['py312']
+target-version = ['py313']
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
