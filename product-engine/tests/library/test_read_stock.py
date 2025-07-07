@@ -19,6 +19,8 @@ def test_search_functionality():
         ("aceite de lavanda", "Semantic search for lavender oil"),
         ("aceite de coco", "Semantic search for coconut oil"),
         ("aceite de argán", "Semantic search for argan oil"),
+        ("6256", "Exact SKU search for 6256"),
+        ("8085", "Exact SKU search for 8085"),
     ]
     
     for query, description in test_queries:
@@ -27,13 +29,23 @@ def test_search_functionality():
         print("-" * 50)
         
         try:
-            results = search_products(query, limit=None, similarity_threshold=0.5)
+            results = search_products(query, limit=20, similarity_threshold=0.6)
             
             if not results:
                 print("❌ No results found")
                 continue
             
             print(f"✅ Found {len(results)} result(s):")
+            
+            # Debug: Show what search_products returned
+            print(f"🔍 Debug - First result from search_products:")
+            if results:
+                first_result = results[0]
+                print(f"  SKU: {first_result.get('sku', 'N/A')}")
+                print(f"  Name: {first_result.get('name', 'N/A')}")
+                print(f"  Search Type: {first_result.get('search_type', 'N/A')}")
+                print(f"  Relevance Score: {first_result.get('relevance_score', 'N/A')}")
+                print(f"  All keys: {list(first_result.keys())}")
             
             # Extract all SKUs for batch processing
             skus = [result['sku'] for result in results]
@@ -48,7 +60,9 @@ def test_search_functionality():
                 stock_info = stock_batch.get(sku, {})
                 
                 print(f"\n=== Product {i} ===")
-                print(f"Name: {stock_info.get('product_name', 'N/A')}")
+                # Try to get name from search result first, then from stock info
+                product_name = result.get('name', stock_info.get('product_name', 'N/A'))
+                print(f"Name: {product_name}")
                 print(f"SKU: {sku}")
                 print(f"Category: {result.get('category_name', 'N/A')}")
                 print(f"Stock Available: {stock_info.get('qty_available', 0)}")
@@ -82,7 +96,7 @@ def test_batch_vs_individual():
     
     # Test with a specific query
     query = "aceite"
-    results = search_products(query, limit=5, similarity_threshold=0.5)
+    results = search_products(query, limit=20, similarity_threshold=0.6)
     
     if not results:
         print("❌ No results found for comparison")
