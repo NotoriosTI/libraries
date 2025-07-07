@@ -44,7 +44,7 @@ def test_search_functionality():
         print("-" * 30)
         
         try:
-            results = search_products(query, limit=5)
+            results = search_products(query, limit=None, similarity_threshold=0.6)
             
             if not results:
                 print("❌ No results found")
