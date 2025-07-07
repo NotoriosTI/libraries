@@ -335,8 +335,8 @@ dev = ["pytest (>=7.0.0)"]
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "product-db"
-resolved_reference = "a791a9220b206a68a8aa526fc7d99753ef698392"
+reference = "dev"
+resolved_reference = "c91824bb226fb19c090fa10771b47f6fb571620b"
 subdirectory = "config-manager"
 
 [[package]]
@@ -1130,7 +1130,7 @@ files = [
 
 [[package]]
 name = "odoo-api"
-version = "2.3.1"
+version = "2.4.0"
 description = ""
 optional = false
 python-versions = ">=3.13,<4.0"
@@ -1139,7 +1139,7 @@ files = []
 develop = false
 
 [package.dependencies]
-config-manager = {git = "https://github.com/NotoriosTI/libraries.git", rev = "product-db", subdirectory = "config-manager"}
+config-manager = {git = "https://github.com/NotoriosTI/libraries.git", rev = "dev", subdirectory = "config-manager"}
 langchain = ">=0.3.25,<0.4.0"
 langgraph = ">=0.4.5,<0.5.0"
 pandas = ">=2.2.3,<3.0.0"
@@ -1149,8 +1149,8 @@ pytz = ">=2025.2,<2026.0"
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "product-db"
-resolved_reference = "a791a9220b206a68a8aa526fc7d99753ef698392"
+reference = "dev"
+resolved_reference = "c91824bb226fb19c090fa10771b47f6fb571620b"
 subdirectory = "odoo-api"
 
 [[package]]
@@ -2433,4 +2433,4 @@ dev = ["black", "isort", "mypy", "pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "f04a95e455864f70f2cd8f6af1384e4e5deef3cf829c2da5a441127b34bb750a"
+content-hash = "35f1e08a835ff5838fa58a24b3a6eab109a712b7ba82dfdf51a2c6055db44986"

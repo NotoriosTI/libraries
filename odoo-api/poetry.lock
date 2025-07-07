@@ -260,8 +260,8 @@ dev = ["pytest (>=7.0.0)"]
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "product-db"
-resolved_reference = "a791a9220b206a68a8aa526fc7d99753ef698392"
+reference = "dev"
+resolved_reference = "c91824bb226fb19c090fa10771b47f6fb571620b"
 subdirectory = "config-manager"
 
 [[package]]
@@ -1891,4 +1891,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "3ac8128fd93fa566c605a5946e6b6a9cfac1b9f9ad72191b309c646903221399"
+content-hash = "b3d0538186dbab9a5187797db1bd5c0ccadd26b35cc6bd1c993d3d580f749d68"
