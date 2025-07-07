@@ -679,7 +679,33 @@ class OdooProduct(OdooAPI):
         return products
         
     
-    def get_variant_attributes_by_sku(self, sku: str) -> list:
+    def get_variant_attributes_by_sku(self, sku: str | list) -> dict | list:
+        """
+        Obtiene los nombres de los atributos de variante de productos específicos
+        a partir de sus SKUs.
+
+        Args:
+            sku (str or list): El SKU (default_code) del producto o lista de SKUs para procesamiento batch.
+
+        Returns:
+            list: Una lista de nombres de atributos de la variante (para un SKU).
+            dict: Un diccionario con SKUs como claves y listas de atributos como valores (para múltiples SKUs).
+                  Devuelve una lista vacía o diccionario vacío si el producto no se encuentra,
+                  no tiene atributos, o si ocurre un error.
+        """
+        # Detectar si es un SKU individual o una lista
+        if isinstance(sku, str):
+            return self._get_variant_attributes_single_sku(sku)
+        elif isinstance(sku, list):
+            # Validar lista vacía
+            if len(sku) == 0:
+                raise ValueError("La lista de SKUs no puede estar vacía")
+            # SIEMPRE usar el batch para listas, aunque tengan un solo elemento
+            return self._get_variant_attributes_multiple_skus(sku)
+        else:
+            raise ValueError("El argumento 'sku' debe ser un string o una lista de strings")
+
+    def _get_variant_attributes_single_sku(self, sku: str) -> list:
         """
         Obtiene los nombres de los atributos de variante de un producto específico
         a partir de su SKU.
@@ -736,6 +762,97 @@ class OdooProduct(OdooAPI):
         except Exception as e:
             print(f"Error while getting attributes for SKU '{sku}': {str(e)}")
             return []
+
+    def _get_variant_attributes_multiple_skus(self, skus: list) -> dict:
+        """
+        Obtiene los nombres de los atributos de variante para múltiples SKUs en modo batch.
+        
+        Args:
+            skus (list): Lista de SKUs a procesar.
+            
+        Returns:
+            dict: Diccionario con SKUs como claves y listas de atributos como valores.
+        """
+        try:
+            print(f"[DEBUG] SKUs de entrada: {skus}")
+            # 1. Buscar los productos por SKU para obtener sus IDs y los IDs de sus atributos de variante
+            product_info_list = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search_read',
+                [[['default_code', 'in', skus]]],
+                {'fields': ['id', 'name', 'default_code', 'product_template_attribute_value_ids']}
+            )
+
+            print(f"[DEBUG] product_info_list: {product_info_list}")
+
+            if not product_info_list:
+                print("[DEBUG] No se encontraron productos para los SKUs dados.")
+                return {sku: [] for sku in skus}
+
+            # 2. Crear diccionario de productos por SKU
+            product_dict = {p['default_code']: p for p in product_info_list}
+            print(f"[DEBUG] product_dict.keys(): {list(product_dict.keys())}")
+
+            # 3. Obtener todos los IDs de atributos de variante únicos (aplanar listas)
+            all_attribute_value_ids = []
+            for product in product_info_list:
+                attr_ids = product.get('product_template_attribute_value_ids', [])
+                if isinstance(attr_ids, list):
+                    all_attribute_value_ids.extend(attr_ids)
+                elif attr_ids:
+                    all_attribute_value_ids.append(attr_ids)
+                print(f"[DEBUG] SKU: {product.get('default_code')}, product_template_attribute_value_ids: {attr_ids}")
+
+            # Eliminar duplicados
+            all_attribute_value_ids = list(set(all_attribute_value_ids))
+            print(f"[DEBUG] all_attribute_value_ids: {all_attribute_value_ids}")
+
+            # 4. Obtener los nombres de todos los atributos en una sola llamada
+            attribute_names_dict = {}
+            if all_attribute_value_ids:
+                print(f"[DEBUG] Consultando atributos con IDs: {all_attribute_value_ids}")
+                print(f"[DEBUG] Tipo de IDs: {[type(id) for id in all_attribute_value_ids]}")
+                
+                attribute_value_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'product.template.attribute.value', 'read',
+                    [all_attribute_value_ids], {'fields': ['id', 'name']}
+                )
+                print(f"[DEBUG] Respuesta de atributos: {attribute_value_data}")
+                print(f"[DEBUG] Número de atributos encontrados: {len(attribute_value_data)}")
+                
+                attribute_names_dict = {attr['id']: attr['name'] for attr in attribute_value_data if 'name' in attr}
+                print(f"[DEBUG] attribute_names_dict: {attribute_names_dict}")
+                print(f"[DEBUG] Claves del diccionario: {list(attribute_names_dict.keys())}")
+            else:
+                print("[DEBUG] No hay IDs de atributos para consultar")
+
+            # 5. Procesar cada SKU
+            results = {}
+            for sku in skus:
+                product = product_dict.get(sku)
+                if not product:
+                    results[sku] = []
+                    continue
+
+                attribute_value_ids = product.get('product_template_attribute_value_ids', [])
+                # Asegurar que sea una lista
+                if not isinstance(attribute_value_ids, list):
+                    attribute_value_ids = [attribute_value_ids] if attribute_value_ids else []
+                if not attribute_value_ids:
+                    results[sku] = []
+                    continue
+
+                # Obtener nombres de atributos para este producto
+                attribute_names = [attribute_names_dict.get(attr_id) for attr_id in attribute_value_ids if attribute_names_dict.get(attr_id)]
+                results[sku] = attribute_names
+
+            print(f"[DEBUG] results: {results}")
+            return results
+
+        except Exception as e:
+            print(f"Error while getting attributes for SKUs {skus}: {str(e)}")
+            return {sku: [] for sku in skus}
     
     def get_last_mo_draft(self) -> dict:
         """Returns dict of the id, product_name and product_qty of the latest mo draft on Odoo"""
