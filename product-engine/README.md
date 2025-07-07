@@ -1,553 +1,151 @@
 # Product Engine
 
-Una librería robusta y automatizada para sincronizar el catálogo de productos desde Odoo a PostgreSQL con generación de embeddings vectoriales usando OpenAI. Diseñada con arquitectura modular para máxima eficiencia y escalabilidad.
+Este repositorio contiene la librería `product-engine`, una herramienta de Python diseñada para sincronizar productos desde un sistema ERP Odoo a una base de datos PostgreSQL, enriquecerlos con embeddings vectoriales usando OpenAI, y habilitar capacidades de búsqueda híbrida (semántica y de texto completo).
 
-## 🎯 Objetivo
+-----
 
-Desarrollar una librería en Python que actúe como un motor de sincronización de datos entre un sistema ERP Odoo y una base de datos PostgreSQL alojada en Google Cloud SQL, enfocándose exclusivamente en el catálogo de productos y enriqueciendo cada producto con embeddings vectoriales para búsquedas avanzadas.
+## 🌟 Visión General
 
-## ✨ Características Principales
+El objetivo principal de `product-engine` es crear y mantener una base de datos de productos optimizada para búsquedas inteligentes. Esto permite a las aplicaciones realizar consultas que entienden el significado y la intención del usuario, en lugar de solo coincidir con palabras clave exactas.
 
-- **🔄 Sincronización Incremental Inteligente**: Solo sincroniza productos nuevos o modificados (ahorro del 95-99%)
-- **🧠 Embeddings Vectoriales**: Genera automáticamente embeddings usando OpenAI API
-- **🔍 Búsqueda Híbrida**: Combina búsqueda exacta por SKU con búsqueda semántica
-- **📊 Operaciones UPSERT**: Manejo inteligente de productos nuevos vs existentes
-- **🏗️ Arquitectura Modular**: Componentes especializados para máxima eficiencia
-- **⚡ Optimizado para Performance**: Operaciones en lote y consultas eficientes
-- **🔧 Configuración Multi-Entorno**: Desarrollo local y producción en Google Cloud
-- **🛡️ Manejo Robusto de Errores**: Logging estructurado y recuperación automática
-- **🐳 Containerización**: Docker y Docker Compose listos para producción
+**Características Principales:**
 
-## 🏗️ Arquitectura
+  - **Sincronización con Odoo**: Extrae datos de productos directamente desde la API de Odoo.
+  - **Enriquecimiento con IA**: Genera embeddings vectoriales para los nombres y descripciones de los productos utilizando los modelos de OpenAI.
+  - **Base de Datos Potenciada**: Almacena los productos en PostgreSQL utilizando la extensión `pgvector` para soportar búsquedas vectoriales.
+  - **Búsqueda Híbrida**: Ofrece una función de búsqueda que combina la búsqueda semántica (por similitud de embeddings) con la búsqueda tradicional de texto completo (por SKU o palabras clave), proporcionando resultados más relevantes.
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│                 │    │                 │    │                 │
-│  Odoo ERP       │───►│ Product Engine  │───►│ PostgreSQL      │
-│  (Productos)    │    │                 │    │ (+ pgvector)    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │                 │
-                       │  OpenAI API     │
-                       │  (Embeddings)   │
-                       └─────────────────┘
-```
+-----
 
-## 📁 Estructura del Proyecto
+## 🚀 Instalación con Poetry
 
-```
-product-engine/
-├── src/
-│   ├── common/                    # Componentes compartidos
-│   │   ├── config.py             # Configuración centralizada
-│   │   ├── database.py           # Conexiones a BD
-│   │   ├── models.py             # Modelos de datos
-│   │   └── embedding_generator.py # Generación de embeddings
-│   ├── db_client/                 # Operaciones de lectura
-│   │   ├── product_reader.py     # Lectura de productos
-│   │   └── product_search.py     # Búsqueda semántica
-│   ├── db_manager/                # Operaciones de escritura
-│   │   ├── product_updater.py    # Actualización de productos
-│   │   └── sync_manager.py       # Sincronización con Odoo
-│   └── product_engine/            # API pública
-│       └── __init__.py           # Punto de entrada
-├── tests/                         # Suite de pruebas
-│   ├── test_integration_odoo_db.py
-│   ├── test_db_manager_complete.py
-│   └── test_sku_duplicates.py
-├── deployment/                    # Configuración de despliegue
-│   ├── docker-compose.local.yml
-│   ├── docker-compose.prod.yml
-│   └── Dockerfile
-└── pyproject.toml                 # Configuración del proyecto
-```
-
-## 🔄 Sincronización Incremental
-
-### ¿Cómo funciona?
-
-La librería utiliza una **estrategia de sincronización incremental inteligente** que evita descargar miles de productos innecesariamente:
-
-1. **📅 Obtiene la fecha de última sincronización** desde la base de datos
-2. **🔍 Crea un filtro Odoo** para productos modificados: `[['write_date', '>', última_fecha]]`
-3. **📥 Descarga solo productos modificados** después de esa fecha
-4. **🔄 Aplica estrategia UPSERT** para manejar productos nuevos vs existentes
-
-### Escenarios de Sincronización
-
-| Escenario | Productos Descargados | Frecuencia | Eficiencia |
-|-----------|----------------------|------------|------------|
-| 🚀 **Primera sincronización** | 10,000 (todos) | Una vez | 0% (necesario) |
-| 📅 **Sincronización rutinaria** | 15-50 productos | 99% de las veces | 99.5% |
-| 📈 **Día con muchos cambios** | 150-500 productos | Ocasional | 95% |
-| 😴 **Sin cambios** | 0 productos | Frecuente | 100% |
-| 🔧 **Forzar completa** | 10,000 (todos) | Solo manual | 0% |
-
-### Código de Ejemplo
-
-```python
-# Sincronización normal (incremental)
-results = sync_manager.run_sync()
-# Solo descarga productos modificados desde la última sincronización
-
-# Forzar sincronización completa
-results = sync_manager.run_sync(force_full_sync=True)
-# Descarga todos los productos (usar solo cuando sea necesario)
-```
-
-## 🔄 Manejo de Productos: Nuevos vs Existentes
-
-### Estrategia UPSERT
-
-La librería **no diferencia manualmente** entre productos nuevos y existentes. En su lugar, utiliza la estrategia **UPSERT** de PostgreSQL:
-
-```sql
-INSERT INTO products (sku, name, description, ...)
-VALUES (?, ?, ?, ...)
-ON CONFLICT (sku) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    list_price = EXCLUDED.list_price,
-    last_update = EXCLUDED.last_update;
-```
-
-### Comportamiento con SKUs Duplicados
-
-| Situación | Comportamiento | Resultado |
-|-----------|---------------|-----------|
-| 🆕 **SKU nuevo** | `INSERT` | Producto creado |
-| 🔄 **SKU existente** | `UPDATE` | Producto actualizado |
-| 📦 **Lote mixto** | `UPSERT` | Algunos INSERT, algunos UPDATE |
-| ❌ **Sin cambios** | `UPDATE` | Sin modificaciones reales |
-
-### Ventajas de esta estrategia:
-
-✅ **Simplicidad**: No necesita lógica compleja de comparación
-✅ **Eficiencia**: PostgreSQL optimiza automáticamente las operaciones
-✅ **Robustez**: Maneja todos los casos edge automáticamente
-✅ **Escalabilidad**: Funciona igual con 10 o 10,000 productos
-
-## 🚀 Instalación
-
-### Requisitos Previos
-
-- Python 3.13+
-- PostgreSQL con extensión pgvector
-- Acceso a Odoo (producción o test)
-- API Key de OpenAI
-- Google Cloud credentials (para producción)
-
-### Instalación Local
+Para añadir `product-engine` como una dependencia en tu proyecto gestionado con Poetry, ejecuta el siguiente comando. Esto asegurará que la librería y sus dependencias se instalen correctamente desde este repositorio de Git.
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/NotoriosTI/libraries.git
-cd libraries/product-engine
-
-# Instalar con Poetry
-poetry install
-
-# O instalar directamente desde Git
-pip install git+https://github.com/NotoriosTI/libraries.git#subdirectory=product-engine
+poetry add git+https://github.com/NotoriosTI/libraries.git#product-db --subdirectory product-engine
 ```
+
+Este comando añadirá la siguiente línea a tu archivo `pyproject.toml`:
+
+```toml
+[tool.poetry.dependencies]
+product-engine = {git = "https://github.com/NotoriosTI/libraries.git", rev = "product-db", subdirectory = "product-engine"}
+```
+
+-----
 
 ## ⚙️ Configuración
 
-### Desarrollo Local
+La configuración de la librería se gestiona a través de `config-manager`, que carga las variables de entorno necesarias. Debes crear un archivo `.env` en la raíz de tu proyecto.
 
-Crear archivo `.env` en el directorio raíz:
+**Variables de Entorno Requeridas:**
 
-```env
-# Entorno
+```ini
+# Entorno de ejecución: local_machine, local_container, o production
 ENVIRONMENT=local_machine
 
-# Odoo Producción
-ODOO_PROD_URL=https://tu-odoo-domain.com
-ODOO_PROD_DB=tu_base_datos_produccion
-ODOO_PROD_USERNAME=tu_usuario_api
-ODOO_PROD_PASSWORD=tu_password_api
+# Credenciales de la base de datos de Odoo (producción)
+ODOO_URL=https://tu-dominio-odoo.com
+ODOO_DB=tu_base_de_datos
+ODOO_USERNAME=tu_usuario
+ODOO_PASSWORD=tu_contraseña
 
-# Odoo Test (opcional)
-ODOO_TEST_URL=https://tu-odoo-domain.com
-ODOO_TEST_DB=tu_base_datos_test
-ODOO_TEST_USERNAME=tu_usuario_test
-ODOO_TEST_PASSWORD=tu_password_test
+# Credenciales de la base de datos de Odoo (test)
+TEST_ODOO_URL=https://tu-dominio-odoo-test.com
+TEST_ODOO_DB=tu_base_de_datos_test
+TEST_ODOO_USERNAME=tu_usuario_test
+TEST_ODOO_PASSWORD=tu_contraseña_test
 
-# Base de Datos PostgreSQL para productos
-PRODUCT_DB_HOST=127.0.0.1
+# Credenciales de la base de datos de Destino (PostgreSQL)
+PRODUCT_DB_HOST=localhost
 PRODUCT_DB_PORT=5432
 PRODUCT_DB_NAME=productdb
-PRODUCT_DB_USER=automation_admin
-PRODUCT_DB_PASSWORD=tu_password
+PRODUCT_DB_USER=user
+PRODUCT_DB_PASSWORD=password
 
-# OpenAI
-OPENAI_API_KEY=sk-tu-api-key-de-openai
-
-# Google Cloud (opcional para local)
-GCP_PROJECT_ID=tu-project-id
+# Clave de la API de OpenAI
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### Producción (Google Cloud)
+-----
 
-En producción, las credenciales se gestionan a través de Google Cloud Secret Manager:
+## 🎮 Uso de la Librería
 
-```bash
-# Crear secrets requeridos
-gcloud secrets create ODOO_PROD_URL --data-file=-
-gcloud secrets create ODOO_PROD_DB --data-file=-
-gcloud secrets create ODOO_PROD_USERNAME --data-file=-
-gcloud secrets create ODOO_PROD_PASSWORD --data-file=-
-gcloud secrets create PRODUCT_DB_HOST --data-file=-
-gcloud secrets create PRODUCT_DB_PORT --data-file=-
-gcloud secrets create PRODUCT_DB_NAME --data-file=-
-gcloud secrets create PRODUCT_DB_USER --data-file=-
-gcloud secrets create PRODUCT_DB_PASSWORD --data-file=-
-gcloud secrets create OPENAI_API_KEY --data-file=-
-```
+El uso se divide en dos operaciones principales: sincronizar los productos y buscarlos.
 
-## 💾 Esquema de Base de Datos
+### 1\. Sincronización de Productos
 
-La tabla `products` se crea automáticamente con este esquema optimizado:
-
-```sql
-CREATE TABLE products (
-    sku VARCHAR(100) PRIMARY KEY,
-    name VARCHAR(500) NOT NULL,
-    description TEXT,
-    category_id INTEGER,
-    category_name VARCHAR(255),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    list_price NUMERIC(15, 2) DEFAULT 0,
-    standard_price NUMERIC(15, 2) DEFAULT 0,
-    product_type VARCHAR(50),
-    barcode VARCHAR(100),
-    weight NUMERIC(10, 3) DEFAULT 0,
-    volume NUMERIC(10, 3) DEFAULT 0,
-    sale_ok BOOLEAN DEFAULT TRUE,
-    purchase_ok BOOLEAN DEFAULT TRUE,
-    uom_id INTEGER,
-    uom_name VARCHAR(100),
-    company_id INTEGER,
-    text_for_embedding TEXT,
-    embedding VECTOR(1536),  -- pgvector para embeddings
-    last_update TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Índices optimizados para performance
-CREATE INDEX idx_products_active ON products (is_active);
-CREATE INDEX idx_products_category ON products (category_id);
-CREATE INDEX idx_products_last_update ON products (last_update);
-CREATE INDEX idx_products_embedding ON products USING hnsw (embedding vector_cosine_ops);
-```
-
-## 🔄 Uso
-
-### Uso Básico con la Nueva Arquitectura
+El `SyncManager` orquesta todo el proceso de extracción, transformación y carga (ETL).
 
 ```python
-from db_manager.sync_manager import SyncManager
-from db_client.product_reader import ProductReader
-from db_client.product_search import ProductSearchClient
+from product_engine import SyncManager
 
-# 1. Sincronización desde Odoo
+# Inicializa el gestor de sincronización.
+# use_test_odoo=True usará las credenciales de TEST_ODOO_*
 sync_manager = SyncManager(use_test_odoo=False)
-results = sync_manager.run_sync()
 
-if results["success"]:
-    print(f"✅ Sincronizados {results['products_processed']} productos")
-    print(f"📊 Embeddings generados: {results['embeddings_generated']}")
-else:
-    print(f"❌ Error: {results['error']}")
+# Ejecuta la sincronización completa.
+# Esto leerá desde Odoo, generará embeddings y guardará en PostgreSQL.
+sync_manager.run_sync()
 
-# 2. Lectura de productos
-reader = ProductReader()
-products = reader.get_active_products(limit=10)
-print(f"📦 Productos activos: {len(products)}")
-
-# 3. Búsqueda semántica
-search_client = ProductSearchClient()
-results = search_client.search_products(
-    query="aceite esencial de lavanda",
-    limit=5,
-    similarity_threshold=0.7
-)
-print(f"🔍 Resultados de búsqueda: {len(results)}")
+print("Sincronización completada.")
 ```
 
-### Línea de Comandos
+### 2\. Búsqueda de Productos
 
-```bash
-# Ejecutar sincronización normal
-poetry run python -m db_manager.sync_manager
-
-# Usar base de datos test de Odoo
-USE_TEST_ODOO=true poetry run python -m db_manager.sync_manager
-
-# Forzar sincronización completa
-FORCE_FULL_SYNC=true poetry run python -m db_manager.sync_manager
-
-# Solo probar conexiones
-TEST_CONNECTIONS_ONLY=true poetry run python -m db_manager.sync_manager
-```
-
-## 🔍 Búsqueda Avanzada
-
-### Búsqueda Híbrida
-
-La librería soporta búsqueda híbrida que combina:
-
-1. **Búsqueda exacta por SKU** - Para consultas precisas
-2. **Búsqueda semántica** - Para consultas en lenguaje natural
+La función `search_products` permite realizar consultas híbridas.
 
 ```python
-from db_client.product_search import ProductSearchClient
+from product_engine import search_products
 
-search_client = ProductSearchClient()
+# Realiza una búsqueda semántica.
+query = "aceite para masajes relajantes"
+results = search_products(query=query, limit=5)
 
-# Búsqueda por SKU exacto
-results = search_client.search_products("ABC-123")
-# Retorna exactamente el producto con SKU "ABC-123"
-
-# Búsqueda semántica
-results = search_client.search_products(
-    "aceite esencial para relajación",
-    similarity_threshold=0.7
-)
-# Retorna productos similares usando embeddings vectoriales
+# Imprime los resultados
+print(f"Resultados para la búsqueda: '{query}'")
+for product in results:
+    print(
+        f"- SKU: {product['sku']}, "
+        f"Nombre: {product['name']}, "
+        f"Score de Relevancia: {product['relevance_score']:.4f}"
+    )
 ```
 
-### Tipos de Búsqueda Soportados
+-----
 
-| Tipo | Ejemplo | Uso |
-|------|---------|-----|
-| 🎯 **SKU Exacto** | `"ABC-123"` | Búsqueda precisa |
-| 🧠 **Semántica** | `"aceite de lavanda"` | Búsqueda inteligente |
-| 🔤 **Por nombre** | `"Mica Frost"` | Búsqueda textual |
-| 📂 **Por categoría** | `category_id=157` | Filtrado por categoría |
+## 🧪 Pruebas y Validación
 
-## 🧪 Testing
+La librería cuenta con una suite de pruebas robusta para garantizar la fiabilidad, integridad y correctitud de cada componente.
 
-### Suite de Pruebas Completa
+### Objetivo General de las Pruebas
+
+El propósito principal es validar el flujo de datos de extremo a extremo (desde la extracción en Odoo hasta la búsqueda en PostgreSQL) y verificar la lógica de negocio individual de cada módulo. Se utilizan *mocks* extensivamente para aislar los tests de servicios externos y garantizar ejecuciones rápidas y predecibles.
+
+### Tipos de Pruebas Disponibles
+
+Las pruebas están organizadas en dos categorías principales:
+
+1.  **Pruebas de la Librería (`tests/library`)**: Se centran en la lógica interna y las integraciones clave de la librería.
+
+      - `test_integration_odoo_db.py`: **Test de Integración Principal**. Simula el flujo completo: extrae datos de un Odoo mockeado, los procesa, y verifica que se inserten correctamente en una base de datos de prueba. Es crucial para validar el pipeline ETL.
+      - `test_search.py`: Valida que la función de **búsqueda híbrida** construya las consultas SQL apropiadas, combine los resultados de la búsqueda vectorial y de texto completo, y devuelva el formato esperado.
+      - `test_similarity_filter.py`: Prueba específicamente el componente de **filtrado por similitud**, asegurando que el cálculo de la relevancia y el umbral de corte funcionen correctamente.
+      - `test_sku_duplicates.py`: Garantiza la **integridad de los datos** verificando que el sistema maneje correctamente los SKUs duplicados durante la sincronización, evitando inconsistencias.
+      - `test_new_structure.py` y `test_new_structure_simple.py`: Pruebas que validan la **arquitectura modular** de la librería, asegurando que los componentes como `SyncManager`, `ProductUpdater` y `ProductReader` interactúen de la forma esperada.
+
+2.  **Pruebas de Despliegue (`tests/deployment`)**: Verifican que la configuración para el despliegue en contenedores sea correcta.
+
+      - `test_deploy.sh`: Un script que prueba el ciclo de vida del despliegue en un entorno controlado, incluyendo la construcción de las imágenes de Docker y la ejecución de los servicios definidos en `docker-compose.test.yml`.
+
+### ¿Cómo Ejecutar las Pruebas?
+
+Para ejecutar la suite de pruebas de la librería, asegúrate de haber instalado las dependencias de desarrollo con Poetry.
 
 ```bash
-# Ejecutar todas las pruebas
-poetry run pytest tests/
-
-# Pruebas específicas
-poetry run python -m tests.test_integration_odoo_db      # Integración Odoo → BD
-poetry run python -m tests.test_db_manager_complete      # Suite completa
-poetry run python -m tests.test_sku_duplicates           # Manejo de duplicados
-```
-
-### Pruebas Incluidas
-
-1. **🔗 Integración Odoo → Database**
-   - Extrae productos reales de Odoo
-   - Los inserta en la base de datos
-   - Verifica el mapeo correcto de campos
-
-2. **🔧 Funcionalidad Completa**
-   - Operaciones de lectura (ProductReader)
-   - Generación de embeddings
-   - Búsqueda semántica
-   - Búsqueda híbrida
-   - Operaciones CRUD
-
-3. **🔄 Manejo de SKUs Duplicados**
-   - Inserción inicial
-   - Actualización de productos existentes
-   - Lotes mixtos (nuevos + existentes)
-   - Verificación de integridad
-
-## 📊 Flujo de Sincronización Detallado
-
-```
-┌─────────────────┐
-│ Inicio Sync     │
-└─────────┬───────┘
-          │
-          ▼
-┌─────────────────┐    ┌─────────────────┐
-│ ¿Primera vez?   │───►│ Sync Completa   │
-└─────────┬───────┘    └─────────────────┘
-          │
-          ▼
-┌─────────────────┐
-│ Obtener última  │
-│ fecha sync      │
-└─────────┬───────┘
-          │
-          ▼
-┌─────────────────┐
-│ Crear domain    │
-│ Odoo incremental│
-└─────────┬───────┘
-          │
-          ▼
-┌─────────────────┐    ┌─────────────────┐
-│ Consultar       │───►│ ¿Productos      │
-│ productos       │    │ encontrados?    │
-└─────────────────┘    └─────────┬───────┘
-                                 │
-                                 ▼
-                       ┌─────────────────┐
-                       │ Mapear campos   │
-                       │ Odoo → BD       │
-                       └─────────┬───────┘
-                                 │
-                                 ▼
-                       ┌─────────────────┐
-                       │ Ejecutar UPSERT │
-                       │ (bulk operation)│
-                       └─────────┬───────┘
-                                 │
-                                 ▼
-                       ┌─────────────────┐
-                       │ Generar         │
-                       │ embeddings      │
-                       └─────────┬───────┘
-                                 │
-                                 ▼
-                       ┌─────────────────┐
-                       │ Finalizar sync  │
-                       └─────────────────┘
-```
-
-## ⚡ Optimizaciones de Performance
-
-### Operaciones en Lote
-
-- **Bulk INSERT/UPDATE**: Usa `execute_values` para operaciones masivas
-- **Tabla temporal**: Estrategia UPSERT optimizada con tabla temporal
-- **Índices especializados**: Índices HNSW para búsqueda vectorial
-
-### Gestión de Memoria
-
-- **Procesamiento por lotes**: Evita cargar todos los productos en memoria
-- **Conexiones eficientes**: Pool de conexiones para PostgreSQL
-- **Límites configurables**: Control de memoria en generación de embeddings
-
-## 🚨 Troubleshooting
-
-### Problemas Comunes
-
-1. **Error de conexión a Odoo**
-   ```bash
-   # Verificar credenciales
-   poetry run python -c "from db_manager.sync_manager import SyncManager; SyncManager().test_connections()"
-   ```
-
-2. **Extensión pgvector no instalada**
-   ```sql
-   -- Instalar en PostgreSQL
-   CREATE EXTENSION IF NOT EXISTS vector;
-   ```
-
-3. **Productos sin embeddings**
-   ```python
-   # Forzar regeneración de embeddings
-   from db_manager.product_updater import ProductUpdater
-   updater = ProductUpdater()
-   products = updater.get_products_needing_embeddings()
-   print(f"Productos sin embeddings: {len(products)}")
-   ```
-
-### Logs y Debugging
-
-```bash
-# Habilitar logs detallados
-export LOG_LEVEL=DEBUG
-poetry run python -m db_manager.sync_manager
-
-# Verificar estado de la base de datos
-poetry run python -c "
-from common.database import database
-result = database.execute_query('SELECT COUNT(*) as count FROM products WHERE embedding IS NULL')
-print(f'Productos sin embeddings: {result[0][\"count\"]}')
-"
-```
-
-## 📈 Monitoreo y Métricas
-
-### Métricas de Sincronización
-
-```python
-results = sync_manager.run_sync()
-print(f"""
-📊 Métricas de Sincronización:
-- Productos procesados: {results['products_processed']}
-- Productos actualizados: {results['products_upserted']}
-- Productos desactivados: {results['products_deactivated']}
-- Embeddings generados: {results['embeddings_generated']}
-- Duración: {results['duration_seconds']:.2f}s
-""")
-```
-
-### Métricas de Base de Datos
-
-```sql
--- Estado general de productos
-SELECT 
-    COUNT(*) as total_productos,
-    COUNT(CASE WHEN is_active THEN 1 END) as activos,
-    COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) as con_embeddings
-FROM products;
-
--- Productos por categoría
-SELECT category_name, COUNT(*) as cantidad
-FROM products 
-WHERE is_active = true
-GROUP BY category_name
-ORDER BY cantidad DESC;
-```
-
-## 🤝 Contribución
-
-### Desarrollo
-
-```bash
-# Configurar entorno de desarrollo
-git clone https://github.com/NotoriosTI/libraries.git
-cd libraries/product-engine
+# Instala todas las dependencias, incluyendo las de desarrollo
 poetry install
 
-# Ejecutar tests
-poetry run pytest tests/
-
-# Ejecutar linting
-poetry run flake8 src/
-poetry run black src/
+# Ejecuta la suite de pruebas de la librería desde la raíz del monorepo
+poetry run pytest product-engine/tests/library/
 ```
-
-### Estructura de Commits
-
-```
-feat: añadir nueva funcionalidad
-fix: corregir bug
-docs: actualizar documentación
-test: añadir o modificar tests
-refactor: refactorizar código
-```
-
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
-
-## 🔗 Enlaces Relacionados
-
-- [Librería config-manager](../config-manager/)
-- [Librería odoo-api](../odoo-api/)
-- [Documentación pgvector](https://github.com/pgvector/pgvector)
-- [API OpenAI Embeddings](https://platform.openai.com/docs/guides/embeddings)
-
-## 📞 Soporte
-
-Para preguntas o soporte técnico:
-
-- **Issues**: [GitHub Issues](https://github.com/NotoriosTI/libraries/issues)
-- **Documentación**: Este README y comentarios en el código
-- **Tests**: Revisar la suite de pruebas para ejemplos de uso
