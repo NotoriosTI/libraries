@@ -11,6 +11,7 @@ import structlog
 from common.database import database
 from common.embedding_generator import EmbeddingGenerator
 from common.models import SearchResult
+from math import inf
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,7 @@ class ProductSearchClient:
         Returns:
             List of SearchResult objects ranked by relevance
         """
+        limit = 99999 if limit is None else limit
         self.logger.info(
             "Searching products with query",
             query=query,
