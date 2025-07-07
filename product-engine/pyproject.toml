@@ -16,7 +16,7 @@ dependencies = [
     "openai>=1.0.0",
     "pgvector>=0.2.0",
     "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@product-db#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git#subdirectory=config-manager",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@product-db#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
