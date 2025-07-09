@@ -1113,23 +1113,33 @@ class OdooProduct(OdooAPI):
             "product_qty": product_qty
         }
     
-    def confirm_mo(self, mo_id: int):
+    def confirm_production_order(self, production_order_id: int):
         """
         Confirms a draft Manufacturing order(MO) using it's id
         :param mo_id: ID of the MO to confirm
         :return: True if correctly confirmed False if error occurs
         """
+
+        production_order_confirmation_data = {
+            "status": None,
+            "production_order_id": production_order_id,
+            "message": None,
+        }
+
         try:
             result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'mrp.production', 'action_confirm',
-                [[mo_id]]
+                [[production_order_id]]
             )
         except Exception as e:
-            print(f"Error while confirming MO {mo_id}: {e}")
-            return False
-        print(f"MO {mo_id} confirmed!")
-        return True
+            production_order_confirmation_data["status"] = "error"
+            production_order_confirmation_data["message"] = f"Error al confirmar la orden de producción: {e}"
+            return production_order_confirmation_data
+        
+        production_order_confirmation_data["status"] = "success"
+        production_order_confirmation_data["message"] = f"Orden de producción {production_order_id} confirmada correctamente"
+        return production_order_confirmation_data
     
     def get_active_skus(self) -> set[str]:
         """
