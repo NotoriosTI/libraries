@@ -4,3 +4,4 @@ DS_Store
 __pycache__/
 ./sales-engine/data/historic_sales_with_items.csv
 .cursor
+poetry.lock
