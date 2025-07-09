@@ -106,3 +106,5 @@ poetry run pytest
 
 - Python >= 3.13
 - Pydantic >= 2.11.7, < 3.0.0
+
+'pushing package to main branch'
