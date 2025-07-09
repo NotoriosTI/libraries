@@ -574,6 +574,245 @@ class OdooProduct(OdooAPI):
             
         return output
     
+    # ---Lógica simplificada para Juan---
+    def get_id_by_sku(self, sku):
+        """
+        Retrieve the product ID based on the SKU.
+
+        :param sku: The SKU of the product
+        :return: The ID of the product or None if not found
+        """
+        model = 'product.product'  # or 'product.template' based on your Odoo setup
+        domain = [('default_code', '=', sku)]  # 'default_code' is typically used for SKU
+        fields = ['id']
+
+        product_data = {
+            'status': None,
+            'message': None,
+            'product_sku': sku,
+            'product_id': None,
+        }
+
+        try:
+            product = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+        except Exception as e:
+            print(f"Error al obtener el ID del producto: {e}")
+            product_data['status'] = 'error'
+            product_data['message'] = f'Error al obtener el ID del producto: {e}'
+            return product_data
+        
+        if product:
+            product_data['status'] = 'success'
+            product_data['message'] = f'Producto encontrado'
+            product_data['product_id'] = product[0]['id']
+            return product_data
+        else:
+            product_data['status'] = 'error'
+            product_data['message'] = f'Producto no encontrado'
+            return product_data
+        
+    def get_bom_id_by_product_id(self, product_id):
+        """
+        Obtiene el ID de la BOM activa para un producto específico.
+        """
+        bom_data = {
+            'status': None,
+            'message': None,
+            'product_id': product_id,
+            'bom_id': None,
+        }
+
+        try:
+            bom_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.bom', 'search', [[('product_id', '=', product_id), ('active', '=', True)]], {'limit': 1})
+        except Exception as e:
+            print(f"Error al obtener el ID de la BOM: {e}")
+            bom_data['status'] = 'error'
+            bom_data['message'] = f'Error al obtener el ID de la BOM: {e}'
+            return bom_data
+
+        if bom_id:
+            bom_data['status'] = 'success'
+            bom_data['message'] = f'BOM encontrada'
+            bom_data['bom_id'] = bom_id[0]
+            return bom_data
+        else:
+            bom_data['status'] = 'error'
+            bom_data['message'] = f'BOM no encontrada'
+            return bom_data
+
+    def create_stock_move(self, picking_data):
+        """
+        Crea un movimiento de stock para un picking específico.
+        """
+        stock_transfer_data = {
+            'status': None,
+            'message': None,
+            'stock_move_id': None,
+            'picking_data': picking_data,
+            'stock_transfer': None
+        }
+
+        # Corregido: obtener product_id y product_name desde picking_data['product_data']
+        product_id = picking_data['product_data']['product_id']
+        product_sku = picking_data['product_data']['product_sku']
+
+        stock_transfer = {
+            'product_id': product_id,
+            'product_uom_qty': picking_data['picking_quantity'],
+            'name': f'Picking para orden de producción del SKU {product_sku}',
+            'picking_id': picking_data['picking_id'],
+            'location_id': picking_data['source_location_id'],
+            'location_dest_id': picking_data['destination_location_id'],
+        }   
+        stock_transfer_data['stock_transfer'] = stock_transfer
+
+        try:
+            stock_move_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.move', 'create', [stock_transfer])
+        except Exception as e:
+            print(f"Error al crear el movimiento de stock: {e}")
+            stock_transfer_data['status'] = 'error'
+            stock_transfer_data['message'] = f'Error al crear el movimiento de stock: {e}'
+            return stock_transfer_data
+        
+        if stock_move_id:
+            stock_transfer_data['status'] = 'success'
+            stock_transfer_data['message'] = f'Movimiento de stock creado'
+            stock_transfer_data['stock_move_id'] = stock_move_id
+            return stock_transfer_data
+        else:
+            stock_transfer_data['status'] = 'error'
+            stock_transfer_data['message'] = f'Error al crear el movimiento de stock'
+            return stock_transfer_data
+        
+    def create_product_picking(self, product_data, picking_quantity):
+        """
+        Crea una transferencia interna de picking para un producto específico.
+        """
+        # Hardcoded values
+        source_location_id = 8
+        destination_location_id = 29
+        picking_type_id_internal = 5 # ID para 'transferencia-interna'
+
+        picking_data = {
+            'status': None,
+            'message': None,
+            'picking_id': None,
+            'source_location_id': source_location_id,
+            'destination_location_id': destination_location_id,
+            'product_data': product_data,
+            'picking_quantity': picking_quantity,
+        }
+
+        picking_vals = {
+            'location_id': source_location_id,
+            'location_dest_id': destination_location_id,
+            'picking_type_id': picking_type_id_internal,
+        }
+
+        try:
+            picking_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'create', [picking_vals])
+        except Exception as e:
+            print(f"Error al crear el picking: {e}")
+            picking_data['status'] = 'error'
+            picking_data['message'] = f'Error al crear el picking: {e}'
+            return picking_data
+        
+        if picking_id:
+            picking_data['status'] = 'success'
+            picking_data['message'] = f'Picking creado'
+            picking_data['picking_id'] = picking_id
+            return picking_data
+        else:
+            picking_data['status'] = 'error'
+            picking_data['message'] = f'Error al crear el picking'
+            return picking_data
+    
+    def create_single_production_order(self, df_orden):
+        """
+        Crea una orden de poducción en Odoo basándose en el DataFrame de ordenes de producción.
+        args: df_orden: DataFrame con las columnas 'SKU', 'TOTAL PRODUCCIÓN', 'A PRODUCIR PICKING (1 MES)'
+        output: string con el id de la orden de producción creada o 'error' si no se pudo crear la orden
+        """
+
+        production_order_data = {
+            'status': None,
+            'message': None,
+            'production_order_id': None,
+            'bom_data': None,
+            'product_data': None,
+            'df_orden': df_orden,
+            'stock_transfer_data': None,
+            'picking_data': None,
+        }
+
+        # 1. Verificar si el producto existe
+        if not self.product_exists(df_orden['SKU']):
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'El producto no existe'
+            return production_order_data
+
+        # 2. Obtener el ID del producto
+        product_data = self.get_id_by_sku(df_orden['SKU'])
+        if product_data['status'] == 'error':
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'Error al obtener el ID del producto'
+            return production_order_data
+        production_order_data['product_data'] = product_data
+
+        # 3. Obtener el ID de la BOM
+        bom_data = self.get_bom_id_by_product_id(product_data['product_id'])
+        if bom_data['status'] == 'error':
+            # Continuar sin BOM en lugar de detener el flujo
+            bom_data = {'status': 'warning', 'message': 'BOM no encontrada, continuando sin BOM', 'product_id': product_data['product_id'], 'bom_id': None}
+        production_order_data['bom_data'] = bom_data
+        
+        # 4. Crear la orden de producción
+        production_order_vals = {
+            'product_id': product_data['product_id'],
+            'product_qty': df_orden['TOTAL PRODUCCIÓN'],
+            'location_dest_id': 8,
+        }
+        # Solo agregar bom_id si existe
+        if bom_data.get('bom_id'):
+            production_order_vals['bom_id'] = bom_data['bom_id']
+
+        try:
+            production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
+        except Exception as e:
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'Error al crear la orden de producción {e}'
+            return production_order_data
+        
+        if production_order_id:
+            production_order_data['status'] = 'success'
+            production_order_data['message'] = f'Orden de producción creada'
+            production_order_data['production_order_id'] = production_order_id
+            production_order_data['bom_data'] = bom_data
+            production_order_data['product_data'] = product_data
+            production_order_data['df_orden'] = df_orden
+        else:
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'Error al crear la orden de producción'
+            return production_order_data
+
+        # 5. Crear el picking
+        picking_data = self.create_product_picking(product_data, df_orden['A PRODUCIR PICKING (1 MES)'])
+        if picking_data['status'] == 'error':
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'Error al crear el picking'
+            return production_order_data
+        production_order_data['picking_data'] = picking_data
+
+        # 6. Crear el movimiento de stock
+        stock_transfer_data = self.create_stock_move(picking_data)
+        if stock_transfer_data['status'] == 'error':
+            production_order_data['status'] = 'error'
+            production_order_data['message'] = f'Error al crear el movimiento de stock'
+            return production_order_data
+        production_order_data['stock_transfer_data'] = stock_transfer_data
+
+        return production_order_data
+        
     def search_production_orders(self, sku):
             # Use the read_product function to get the product ID
             product_data = self.read_product(sku)
@@ -619,24 +858,6 @@ class OdooProduct(OdooAPI):
         return self.models.execute_kw(self.db, self.uid, self.password, 
                                       model, 'search_read', [[]], {'fields': fields})
 
-    def get_id_by_sku(self, sku):
-        """
-        Retrieve the product ID based on the SKU.
-
-        :param sku: The SKU of the product
-        :return: The ID of the product or None if not found
-        """
-        model = 'product.product'  # or 'product.template' based on your Odoo setup
-        domain = [('default_code', '=', sku)]  # 'default_code' is typically used for SKU
-        fields = ['id']
-
-        product = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
-
-        if product:
-            return product[0]['id']  # Return the ID of the first product found
-        else:
-            return None
-        
     def get_sku_by_id(self, product_id):
         """
         Get the product SKU by ID
