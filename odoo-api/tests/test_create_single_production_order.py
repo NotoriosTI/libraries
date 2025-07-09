@@ -1,5 +1,6 @@
 import sys
 import pandas as pd
+from pprint import pprint
 from src.odoo_api.product import OdooProduct
 from config_manager import secrets
 
@@ -21,18 +22,14 @@ skus = [
 ]
 
 def test_create_single_production_order():
-    print('Iniciando test de create_single_production_order...')
     for sku_data in skus:
-        print(f"\nProbando SKU: {sku_data['SKU']}")
         df_orden = pd.Series(sku_data)
-        # Llama al flujo completo
         result = odoo.create_single_production_order(df_orden)
-        print('Resultado:', result)
+        pprint(result, indent=2)
         assert isinstance(result, dict), 'El resultado debe ser un diccionario.'
         assert 'status' in result, 'El resultado debe tener la clave status.'
         assert result['status'] == 'success', f"La orden de producción no fue creada correctamente para SKU {sku_data['SKU']}: {result.get('message')}"
         assert 'production_order_id' in result, 'Debe retornar el id de la orden de producción.'
-        print(f"Test para SKU {sku_data['SKU']} exitoso. Orden de producción ID: {result['production_order_id']}")
 
 if __name__ == '__main__':
     try:

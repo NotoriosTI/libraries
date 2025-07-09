@@ -738,11 +738,11 @@ class OdooProduct(OdooAPI):
             'status': None,
             'message': None,
             'production_order_id': None,
-            'bom_data': None,
-            'product_data': None,
             'df_orden': df_orden,
-            'stock_transfer_data': None,
+            'product_data': None,
+            'bom_data': None,
             'picking_data': None,
+            'stock_transfer_data': None,
         }
 
         # 1. Verificar si el producto existe
@@ -787,9 +787,9 @@ class OdooProduct(OdooAPI):
             production_order_data['status'] = 'success'
             production_order_data['message'] = f'Orden de producción creada'
             production_order_data['production_order_id'] = production_order_id
-            production_order_data['bom_data'] = bom_data
-            production_order_data['product_data'] = product_data
             production_order_data['df_orden'] = df_orden
+            production_order_data['product_data'] = product_data
+            production_order_data['bom_data'] = bom_data
         else:
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al crear la orden de producción'
