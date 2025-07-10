@@ -749,7 +749,7 @@ class OdooProduct(OdooAPI):
         }
 
         # 1. Verificar si el producto existe
-        if not self.product_exists(df_orden['SKU']):
+        if not self.product_exists(df_orden['SKU'].iloc[0]):
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'El producto no existe'
             return production_order_data
