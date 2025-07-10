@@ -755,7 +755,7 @@ class OdooProduct(OdooAPI):
             return production_order_data
 
         # 2. Obtener el ID del producto
-        product_data = self.get_id_by_sku(df_orden['SKU'])
+        product_data = self.get_id_by_sku(df_orden['SKU'].iloc[0])
         if product_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
@@ -772,7 +772,7 @@ class OdooProduct(OdooAPI):
         # 4. Crear la orden de producción
         production_order_vals = {
             'product_id': product_data['product_id'],
-            'product_qty': df_orden['TOTAL PRODUCCIÓN'],
+            'product_qty': df_orden['TOTAL PRODUCCIÓN'].iloc[0],
             'location_dest_id': 8,
         }
         # Solo agregar bom_id si existe
