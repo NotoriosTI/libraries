@@ -277,6 +277,7 @@ class OdooProduct(OdooAPI):
                 ['sale_ok', '=', True]
             ]]
         )
+        print(f"[DEBUG-product_exists] {product_ids} ")
         return bool(product_ids)
 
     def process_field_value(self, value, command_type='add'):
