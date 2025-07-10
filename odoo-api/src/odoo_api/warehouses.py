@@ -51,7 +51,8 @@ class OdooWarehouse(OdooAPI):
                     "locations": [],
                     "product_name": None,
                     "sku": sku,
-                    "found": False
+                    "found": False,
+                    "uom": None
                 }
             
             product_id = product_ids[0]
@@ -60,7 +61,7 @@ class OdooWarehouse(OdooAPI):
             product_data = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'product.product', 'read',
-                [product_id], {'fields': ['name', 'default_code', 'product_template_attribute_value_ids']}
+                [product_id], {'fields': ['name', 'default_code', 'product_template_attribute_value_ids', 'uom_id']}
             )
             
             # Manejar el caso donde product_data es una lista
@@ -87,7 +88,18 @@ class OdooWarehouse(OdooAPI):
             else:
                 product_name_with_attributes = product_name
             
-            # 4. Obtener quants (stock) directamente para este producto
+            # 4. Obtener información de UOM
+            uom_name = None
+            if product_info['uom_id']:
+                uom_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'uom.uom', 'read',
+                    [product_info['uom_id'][0]], {'fields': ['name']}
+                )
+                if uom_data:
+                    uom_name = uom_data[0]['name']
+            
+            # 5. Obtener quants (stock) directamente para este producto
             stock_quants = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.quant', 'search_read',
@@ -102,10 +114,11 @@ class OdooWarehouse(OdooAPI):
                     "locations": [],
                     "product_name": product_name_with_attributes,
                     "sku": sku,
-                    "found": True
+                    "found": True,
+                    "uom": uom_name
                 }
             
-            # 5. Obtener información de ubicaciones que tienen quants
+            # 6. Obtener información de ubicaciones que tienen quants
             location_ids = [quant['location_id'][0] for quant in stock_quants]
             
             # Obtener todas las ubicaciones (para posteriormente filtrar por tipo)
@@ -123,10 +136,11 @@ class OdooWarehouse(OdooAPI):
                     "locations": [],
                     "product_name": product_name_with_attributes,
                     "sku": sku,
-                    "found": True
+                    "found": True,
+                    "uom": uom_name
                 }
             
-            # 6. Obtener información de bodegas
+            # 7. Obtener información de bodegas
             warehouse_ids = self.models.execute_kw(
                 self.db, self.uid, self.password, 
                 'stock.warehouse', 'search', [[]]
@@ -141,7 +155,7 @@ class OdooWarehouse(OdooAPI):
             warehouse_dict = {warehouse['lot_stock_id'][0]: warehouse['name'] for warehouse in warehouses}
             location_dict = {loc['id']: loc for loc in all_locations}
             
-            # 7. Calcular stock disponible (como lo hace Odoo: quantity - reserved_quantity en ubicaciones internas)
+            # 8. Calcular stock disponible (como lo hace Odoo: quantity - reserved_quantity en ubicaciones internas)
             locations_with_stock = []
             total_qty_available = 0
             total_qty_virtual = 0
@@ -192,7 +206,8 @@ class OdooWarehouse(OdooAPI):
                 "locations": locations_with_stock,
                 "product_name": product_name_with_attributes,
                 "sku": sku,
-                "found": True
+                "found": True,
+                "uom": uom_name
             }
             
         except Exception as e:
@@ -203,7 +218,8 @@ class OdooWarehouse(OdooAPI):
                 "product_name": None,
                 "sku": sku,
                 "found": False,
-                "error": str(e)
+                "error": str(e),
+                "uom": None
             }
 
     def _get_stock_multiple_skus(self, skus):
@@ -219,17 +235,28 @@ class OdooWarehouse(OdooAPI):
             )
             
             if not product_ids:
-                return {sku: {"found": False} for sku in skus}
+                return {sku: {"found": False, "uom": None} for sku in skus}
             
             # 2. Leer la información de todos los productos encontrados
             products = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'product.product', 'read',
-                [product_ids], {'fields': ['id', 'name', 'default_code', 'product_template_attribute_value_ids']}
+                [product_ids], {'fields': ['id', 'name', 'default_code', 'product_template_attribute_value_ids', 'uom_id']}
             )
             product_dict = {p['default_code']: p for p in products}
             
-            # 3. Buscar los stock quants para todos los productos encontrados
+            # 3. Obtener información de UOM para todos los productos en una sola llamada
+            uom_ids = list(set([p['uom_id'][0] for p in products if p['uom_id']]))
+            uom_dict = {}
+            if uom_ids:
+                uom_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'uom.uom', 'read',
+                    [uom_ids], {'fields': ['id', 'name']}
+                )
+                uom_dict = {uom['id']: uom['name'] for uom in uom_data}
+            
+            # 4. Buscar los stock quants para todos los productos encontrados
             stock_quants = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.quant', 'search_read',
@@ -237,7 +264,7 @@ class OdooWarehouse(OdooAPI):
                 {'fields': ['product_id', 'quantity', 'location_id', 'reserved_quantity']}
             )
             
-            # 4. Obtener información de ubicaciones que tienen quants
+            # 5. Obtener información de ubicaciones que tienen quants
             location_ids = list(set([quant['location_id'][0] for quant in stock_quants]))
             
             if location_ids:
@@ -250,7 +277,7 @@ class OdooWarehouse(OdooAPI):
             else:
                 all_locations = []
             
-            # 5. Obtener información de bodegas
+            # 6. Obtener información de bodegas
             warehouse_ids = self.models.execute_kw(
                 self.db, self.uid, self.password, 
                 'stock.warehouse', 'search', [[]]
@@ -265,13 +292,13 @@ class OdooWarehouse(OdooAPI):
             warehouse_dict = {warehouse['lot_stock_id'][0]: warehouse['name'] for warehouse in warehouses}
             location_dict = {loc['id']: loc for loc in all_locations}
             
-            # 6. Agrupar quants por producto
+            # 7. Agrupar quants por producto
             quants_by_product = {}
             for quant in stock_quants:
                 pid = quant['product_id'][0]
                 quants_by_product.setdefault(pid, []).append(quant)
             
-            # 7. Procesar cada SKU
+            # 8. Procesar cada SKU
             results = {}
             for sku in skus:
                 product = product_dict.get(sku)
@@ -282,9 +309,15 @@ class OdooWarehouse(OdooAPI):
                         "locations": [],
                         "product_name": None,
                         "sku": sku,
-                        "found": False
+                        "found": False,
+                        "uom": None
                     }
                     continue
+                
+                # Obtener UOM del producto
+                uom_name = None
+                if product['uom_id']:
+                    uom_name = uom_dict.get(product['uom_id'][0])
                 
                 # Obtener atributos de variante si existen
                 attribute_values = []
@@ -312,7 +345,8 @@ class OdooWarehouse(OdooAPI):
                         "locations": [],
                         "product_name": product_name_with_attributes,
                         "sku": sku,
-                        "found": True
+                        "found": True,
+                        "uom": uom_name
                     }
                     continue
                 
@@ -367,7 +401,8 @@ class OdooWarehouse(OdooAPI):
                     "locations": locations_with_stock,
                     "product_name": product_name_with_attributes,
                     "sku": sku,
-                    "found": True
+                    "found": True,
+                    "uom": uom_name
                 }
             
             return results
