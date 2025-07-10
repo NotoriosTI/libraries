@@ -268,6 +268,7 @@ class OdooProduct(OdooAPI):
         """
         Verifica si el producto ya existe en Odoo basándose en el SKU y que el producto esté habilitado para la venta (sale_ok=True).
         """
+        print(f"[DEBUG-product_exists] sku: {sku}")
         product_ids = self.models.execute_kw(
             self.db, self.uid, self.password,
             'product.product', 'search',
