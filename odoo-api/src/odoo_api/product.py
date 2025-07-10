@@ -776,6 +776,7 @@ class OdooProduct(OdooAPI):
         if bom_data.get('bom_id'):
             production_order_vals['bom_id'] = bom_data['bom_id']
 
+        print(f"[DEBUG-create_single_production_order] production_order_vals: {production_order_vals}")
         try:
             production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
         except Exception as e:
