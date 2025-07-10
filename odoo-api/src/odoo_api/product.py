@@ -755,7 +755,7 @@ class OdooProduct(OdooAPI):
             return production_order_data
 
         # 2. Obtener el ID del producto
-        product_data = self.get_id_by_sku(df_orden['SKU'].iloc[0])
+        product_data = self.get_id_by_sku(int(df_orden['SKU'].iloc[0]))
         if product_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
