@@ -136,6 +136,31 @@ class SyncManager:
             # Step 5: Extract products from Odoo
             self.logger.info("Extracting products from Odoo...")
             products_df = self.odoo_product.read_products_for_embeddings(domain=domain)
+
+            # Combinar nombre base y atributos de variante en batch
+            if not products_df.empty and 'default_code' in products_df.columns:
+                skus = products_df['default_code'].tolist()
+                atributos_dict = self.odoo_product.get_variant_attributes_by_sku(skus)
+                nombres_combinados = []
+                MAX_NAME_LENGTH = 500
+                for idx, row in products_df.iterrows():
+                    name = row['name']
+                    sku = row['default_code']
+                    atributos = atributos_dict.get(sku, [])
+                    if atributos:
+                        if isinstance(atributos, list):
+                            atributos_str = ", ".join(atributos)
+                        else:
+                            atributos_str = str(atributos)
+                        nombre_completo = f"{name} ({atributos_str})"
+                    else:
+                        nombre_completo = name
+                    # Truncar si excede el límite y loguear
+                    if len(nombre_completo) > MAX_NAME_LENGTH:
+                        self.logger.warning(f"Nombre combinado truncado a {MAX_NAME_LENGTH} caracteres", sku=sku, nombre_original=nombre_completo)
+                        nombre_completo = nombre_completo[:MAX_NAME_LENGTH]
+                    nombres_combinados.append(nombre_completo)
+                products_df['name'] = nombres_combinados
             
             if products_df.empty:
                 self.logger.info("No products to sync")

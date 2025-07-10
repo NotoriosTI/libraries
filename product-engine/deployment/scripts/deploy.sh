@@ -352,6 +352,9 @@ else
     "
 fi
 
+echo "Ejecutando sincronización inmediatamente después del deploy..."
+cd /opt/product-engine && docker-compose -f deployment/docker-compose.prod.yml run --rm product-engine
+
 echo ""
 echo "✅ Deployment completed successfully!"
 echo ""
