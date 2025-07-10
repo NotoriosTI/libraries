@@ -730,7 +730,7 @@ class OdooProduct(OdooAPI):
             picking_data['message'] = f'Error al crear el picking'
             return picking_data
     
-    def create_single_production_order(self, df_orden):
+    def create_single_production_order(self, product_data: dict):
         """
         Crea una orden de poducción en Odoo basándose en el DataFrame de ordenes de producción.
         args: df_orden: DataFrame con las columnas 'SKU', 'TOTAL PRODUCCIÓN', 'A PRODUCIR PICKING (1 MES)'
@@ -741,21 +741,20 @@ class OdooProduct(OdooAPI):
             'status': None,
             'message': None,
             'production_order_id': None,
-            'df_orden': df_orden,
-            'product_data': None,
+            'product_data': product_data,
             'bom_data': None,
             'picking_data': None,
             'stock_transfer_data': None,
         }
 
         # 1. Verificar si el producto existe
-        if not self.product_exists(df_orden['SKU'].iloc[0]):
+        if not self.product_exists(product_data['product_sku']):
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'El producto no existe'
             return production_order_data
 
         # 2. Obtener el ID del producto
-        product_data = self.get_id_by_sku(int(df_orden['SKU'].iloc[0]))
+        product_data = self.get_id_by_sku(product_data['product_sku'])
         if product_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
@@ -772,7 +771,7 @@ class OdooProduct(OdooAPI):
         # 4. Crear la orden de producción
         production_order_vals = {
             'product_id': product_data['product_id'],
-            'product_qty': df_orden['TOTAL PRODUCCIÓN'].iloc[0],
+            'product_qty': product_data['product_qty'],
             'location_dest_id': 8,
         }
         # Solo agregar bom_id si existe
@@ -791,7 +790,6 @@ class OdooProduct(OdooAPI):
             production_order_data['status'] = 'success'
             production_order_data['message'] = f'Orden de producción creada'
             production_order_data['production_order_id'] = production_order_id
-            production_order_data['df_orden'] = df_orden
             production_order_data['product_data'] = product_data
             production_order_data['bom_data'] = bom_data
         else:
@@ -800,7 +798,7 @@ class OdooProduct(OdooAPI):
             return production_order_data
 
         # 5. Crear el picking
-        picking_data = self.create_product_picking(product_data, df_orden['A PRODUCIR PICKING (1 MES)'])
+        picking_data = self.create_product_picking(product_data, product_data['picking_qty'])
         if picking_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al crear el picking'
