@@ -754,12 +754,12 @@ class OdooProduct(OdooAPI):
             return production_order_data
 
         # 2. Obtener el ID del producto
-        product_id_data = self.get_id_by_sku(product_data['product_sku'])
-        if product_id_data['status'] == 'error':
+        product_data = self.get_id_by_sku(product_data['product_sku'])
+        if product_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
             return production_order_data
-        production_order_data['product_data'] = product_id_data['product_id']
+        production_order_data['product_data']['product_id'] = product_data['product_id']
 
         # 3. Obtener el ID de la BOM
         bom_data = self.get_bom_id_by_product_id(product_data['product_id'])
