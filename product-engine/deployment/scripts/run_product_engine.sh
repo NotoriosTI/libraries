@@ -107,20 +107,12 @@ if [ -f "/opt/product-engine/.env" ]; then
     echo "📍 Running on VM, using local environment..."
     cd /opt/product-engine
     
-    # Run on VM
-    sudo docker run --rm \
-        --network=host \
-        -e PROJECT_ID=$PROJECT_ID \
-        -e REGION=$REGION \
-        -e INSTANCE_NAME=$INSTANCE_NAME \
-        -e ENVIRONMENT=production \
-        -e GCP_PROJECT_ID=$PROJECT_ID \
-        -e PRODUCT_DB_HOST=127.0.0.1 \
-        -e PRODUCT_DB_PORT=5432 \
-        -e USE_TEST_ODOO=false \
-        -e FORCE_FULL_SYNC=$FORCE_FULL_SYNC \
-        -e TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY \
-        $IMAGE_NAME
+    # Update environment variables in .env file
+    sed -i "s/FORCE_FULL_SYNC=.*/FORCE_FULL_SYNC=$FORCE_FULL_SYNC/" .env
+    sed -i "s/TEST_CONNECTIONS_ONLY=.*/TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY/" .env
+    
+    # Run on VM using docker-compose (keeps logs)
+    sudo docker-compose --env-file .env -f docker-compose.prod.yml up product-engine
 else
     echo "📍 Running locally, connecting to VM..."
     
@@ -128,20 +120,12 @@ else
     gcloud compute ssh langgraph --zone=us-central1-c --command="
         cd /opt/product-engine
         
+        # Update environment variables in .env file
+        sed -i \"s/FORCE_FULL_SYNC=.*/FORCE_FULL_SYNC=$FORCE_FULL_SYNC/\" .env
+        sed -i \"s/TEST_CONNECTIONS_ONLY=.*/TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY/\" .env
+        
         echo '🚀 Starting Product Engine on VM...'
-        sudo docker run --rm \\
-            --network=host \\
-            -e PROJECT_ID=$PROJECT_ID \\
-            -e REGION=$REGION \\
-            -e INSTANCE_NAME=$INSTANCE_NAME \\
-            -e ENVIRONMENT=production \\
-            -e GCP_PROJECT_ID=$PROJECT_ID \\
-            -e PRODUCT_DB_HOST=127.0.0.1 \\
-            -e PRODUCT_DB_PORT=5432 \\
-            -e USE_TEST_ODOO=false \\
-            -e FORCE_FULL_SYNC=$FORCE_FULL_SYNC \\
-            -e TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY \\
-            $IMAGE_NAME
+        sudo docker-compose --env-file .env -f docker-compose.prod.yml up product-engine
     "
 fi
 

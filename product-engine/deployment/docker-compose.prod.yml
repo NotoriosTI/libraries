@@ -24,7 +24,7 @@ services:
     # Replace with your actual image path
     image: gcr.io/${PROJECT_ID}/product-engine:latest
     container_name: product-engine-prod
-    restart: unless-stopped
+    restart: "no"
     # In production, environment variables are passed directly by the orchestrator
     environment:
       - ENVIRONMENT=production

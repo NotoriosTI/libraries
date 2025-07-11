@@ -250,14 +250,36 @@ EOF
         exit 1
     fi
     
-    # Start product-engine service (don't remove orphans to preserve shared proxy)
-    echo '🚀 Starting product-engine service...'
+    # Start product-engine service for verification (will stop after execution)
+    echo '🚀 Starting product-engine service for verification...'
     sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
     
-    # Quick check if product-engine is running (faster check)
-    echo '⏳ Checking product-engine status...'
-    if sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -q 'product-engine-prod.*Up'; then
-        echo '✅ Product Engine is running'
+    # Wait a moment for the container to start and then check logs
+    echo '⏳ Waiting for product-engine to start...'
+    sleep 5
+    
+    # Check if product-engine started successfully
+    if sudo docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -q 'product-engine-prod'; then
+        echo '✅ Product Engine started successfully'
+        echo '📋 Container will run once and stop (no continuous restart)'
+        
+        # Esperar un poco más para que el contenedor complete su ejecución
+        echo '⏳ Waiting for container to complete execution...'
+        sleep 15
+        
+        # Verificar estado final usando grep
+        if sudo docker ps -a | grep 'product-engine-prod' | grep -q 'Exited'; then
+            echo '✅ Product Engine executed successfully and stopped'
+        elif sudo docker ps -a | grep 'product-engine-prod' | grep -q 'Up'; then
+            echo '✅ Product Engine is running'
+        else
+            echo '❌ Product Engine failed to execute properly'
+            echo '🔍 Container status:'
+            sudo docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' | grep 'product-engine-prod'
+            echo '📋 Container logs:'
+            sudo docker logs product-engine-prod --tail 20
+            exit 1
+        fi
     else
         echo '❌ Product Engine failed to start'
         echo '🔍 Checking product-engine logs...'
@@ -288,14 +310,14 @@ ExecStart=/usr/bin/sudo /opt/product-engine/run_product_engine.sh
 WantedBy=multi-user.target
 EOF
 
-    # Create systemd timer (every 6 hours) - optimized
+    # Create systemd timer (every 4 hours) - optimized
     sudo tee /etc/systemd/system/product-engine.timer > /dev/null << 'EOF'
 [Unit]
-Description=Run Product Engine every 6 hours
+Description=Run Product Engine every 4 hours
 Requires=product-engine.service
 
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:00:00
+OnCalendar=*-*-* 00,04,08,12,16,20:00:00
 Persistent=true
 RandomizedDelaySec=300
 
@@ -308,7 +330,7 @@ EOF
     sudo systemctl enable product-engine.timer && \
     sudo systemctl start product-engine.timer
     
-    echo '⏰ Scheduled execution configured (every 6 hours)'
+    echo '⏰ Scheduled execution configured (every 4 hours)'
     sudo systemctl list-timers product-engine.timer --no-pager
 "
 
@@ -353,7 +375,17 @@ else
 fi
 
 echo "Ejecutando sincronización inmediatamente después del deploy..."
-cd /opt/product-engine && docker-compose -f deployment/docker-compose.prod.yml run --rm product-engine
+gcloud compute ssh $VM_NAME --zone=$ZONE --command="
+    cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml up product-engine
+"
+
+# Stop the verification container after execution but keep logs
+echo "🛑 Stopping verification container after execution (keeping logs)..."
+gcloud compute ssh $VM_NAME --zone=$ZONE --command="
+    cd /opt/product-engine
+    sudo docker stop product-engine-prod 2>/dev/null || true
+    echo '✅ Verification container stopped but logs preserved. Product Engine will now only run via systemd timer every 4 hours.'
+"
 
 echo ""
 echo "✅ Deployment completed successfully!"
@@ -376,7 +408,7 @@ echo ""
 echo "📋 Important notes:"
 echo "- The system is configured to use odoo_prod (production Odoo instance)"
 echo "- Product catalog data will be extracted from the production Odoo database"
-echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
+echo "- Scheduled to run every 4 hours automatically (00:00, 04:00, 08:00, 12:00, 16:00, 20:00)"
 echo "- Connection tests and initial sync were run to verify everything works"
 echo "- All secrets are managed through Google Cloud Secret Manager"
 echo "- Embeddings are generated using OpenAI API for enhanced search capabilities"

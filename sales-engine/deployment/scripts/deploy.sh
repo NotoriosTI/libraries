@@ -131,6 +131,25 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     # Also authenticate sudo docker
     sudo gcloud auth configure-docker gcr.io --quiet
     
+    # Check if shared proxy is running
+    echo '🔍 Checking if shared Cloud SQL proxy is running...'
+    if ! sudo docker ps --format 'table {{.Names}}' | grep -q 'shared-cloud-sql-proxy'; then
+        echo '⚠️  Shared proxy not found. Starting it from product-engine...'
+        if [ -f '/opt/product-engine/docker-compose.shared-proxy.yml' ]; then
+            cd /opt/product-engine
+            sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
+            echo '✅ Shared proxy started successfully'
+            cd /opt/sales-engine
+        else
+            echo '❌ Error: Shared proxy configuration not found in /opt/product-engine/'
+            echo 'Please ensure product-engine is deployed first or start the shared proxy manually:'
+            echo 'sudo docker run -d --name shared-cloud-sql-proxy --network host --restart unless-stopped gcr.io/cloudsql-docker/gce-proxy:1.33.2 /cloud_sql_proxy -instances=notorios:us-central1:app-temp=tcp:0.0.0.0:5432'
+            exit 1
+        fi
+    else
+        echo '✅ Shared proxy is already running'
+    fi
+    
     # Create environment file for docker-compose
     cat > .env << EOF
 PROJECT_ID=$PROJECT_ID
@@ -145,6 +164,7 @@ EOF
     echo \"REGION: $REGION\"
     echo \"INSTANCE: $INSTANCE_NAME\"
     echo 'USE_TEST_ODOO: false (uses odoo_prod)'
+    echo 'DB_HOST: 127.0.0.1 (using shared proxy)'
     
     # Pull latest image (use sudo in case user group changes haven't taken effect)
     echo \"🐳 Pulling image: $PROJECT_ID/sales-engine:latest\"
@@ -156,19 +176,38 @@ EOF
     # Remove any orphaned containers
     sudo docker system prune -f
     
-    # Start services with environment file
+    # Start services for verification (will stop after execution)
     sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
     
     # Wait for services to be ready
     echo '⏳ Waiting for services to start...'
     sleep 10
     
-    # Check if services are running
-    if sudo docker-compose --env-file .env -f docker-compose.prod.yml ps | grep -q 'Up'; then
-        echo '✅ Services are running'
-        sudo docker-compose --env-file .env -f docker-compose.prod.yml ps
+    # Check if container was created and started successfully
+    if sudo docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep -q 'sales-engine-prod'; then
+        echo '✅ Sales Engine container started successfully'
+        echo '📋 Container will run once and stop (no continuous restart)'
+        
+        # Wait a bit more for the container to complete its execution
+        echo '⏳ Waiting for container to complete execution...'
+        sleep 15
+        
+        # Check final status
+        CONTAINER_STATUS=$(sudo docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep 'sales-engine-prod' | awk '{print $2}')
+        if [[ "$CONTAINER_STATUS" == *"Exited (0)"* ]]; then
+            echo '✅ Sales Engine executed successfully and stopped'
+        elif [[ "$CONTAINER_STATUS" == *"Up"* ]]; then
+            echo '✅ Sales Engine is running'
+        else
+            echo '❌ Sales Engine failed to execute properly'
+            echo '🔍 Container status:'
+            sudo docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' | grep 'sales-engine-prod'
+            echo '📋 Container logs:'
+            sudo docker logs sales-engine-prod --tail 20
+            exit 1
+        fi
     else
-        echo '❌ Services failed to start'
+        echo '❌ Sales Engine container failed to start'
         sudo docker-compose --env-file .env -f docker-compose.prod.yml logs
         exit 1
     fi
@@ -196,14 +235,14 @@ ExecStart=/usr/bin/sudo /usr/local/bin/docker-compose --env-file .env -f docker-
 WantedBy=multi-user.target
 EOF
 
-    # Create systemd timer (every 6 hours)
+    # Create systemd timer (every 4 hours)
     sudo tee /etc/systemd/system/sales-engine.timer > /dev/null << 'EOF'
 [Unit]
-Description=Run Sales Engine every 6 hours
+Description=Run Sales Engine every 4 hours
 Requires=sales-engine.service
 
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:00:00
+OnCalendar=*-*-* 00,04,08,12,16,20:00:00
 Persistent=true
 
 [Install]
@@ -215,7 +254,7 @@ EOF
     sudo systemctl enable sales-engine.timer
     sudo systemctl start sales-engine.timer
     
-    echo '⏰ Scheduled execution configured (every 6 hours)'
+    echo '⏰ Scheduled execution configured (every 4 hours)'
     sudo systemctl list-timers sales-engine.timer
 "
 
@@ -251,6 +290,15 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     fi
 "
 
+# Stop the verification container after execution
+echo "🛑 Stopping verification container after execution..."
+gcloud compute ssh $VM_NAME --zone=$ZONE --command="
+    cd /opt/sales-engine
+    sudo docker stop sales-engine-prod 2>/dev/null || true
+    sudo docker rm sales-engine-prod 2>/dev/null || true
+    echo '✅ Verification container stopped. Sales Engine will now only run via systemd timer every 6 hours.'
+"
+
 echo ""
 echo "✅ Deployment completed successfully!"
 echo ""
@@ -263,6 +311,6 @@ echo ""
 echo "📋 Important notes:"
 echo "- The system is configured to use odoo_prod (production Odoo instance)"
 echo "- Data extraction will come from the production Odoo database"
-echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
+echo "- Scheduled to run every 4 hours automatically (00:00, 04:00, 08:00, 12:00, 16:00, 20:00)"
 echo "- A test execution was run immediately to verify everything works"
 echo "- All secrets are managed through Google Cloud Secret Manager"

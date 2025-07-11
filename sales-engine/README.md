@@ -14,6 +14,39 @@ Este proyecto sincroniza datos de ventas desde Odoo hacia una base de datos Post
 - ✅ Logging estructurado con métricas
 - ✅ Deployment automatizado en GCP
 - ✅ Ejecución programada cada 6 horas
+- ✅ **Proxy compartido con Product Engine** para conexión a base de datos
+
+## 🔗 Proxy Compartido
+
+**IMPORTANTE**: Sales Engine ahora usa el **proxy compartido** con Product Engine para conectarse a la base de datos. Esto significa:
+
+- ✅ **Un solo proxy** para ambos servicios
+- ✅ **Sin conflictos de puertos** 
+- ✅ **Mejor gestión de recursos**
+- ✅ **Configuración simplificada**
+
+### Gestión del Proxy Compartido
+
+```bash
+# Verificar estado del proxy compartido
+./deployment/scripts/manage_shared_proxy.sh status
+
+# Iniciar proxy compartido (si no está corriendo)
+./deployment/scripts/manage_shared_proxy.sh start
+
+# Ver logs del proxy
+./deployment/scripts/manage_shared_proxy.sh logs
+
+# Reiniciar proxy
+./deployment/scripts/manage_shared_proxy.sh restart
+```
+
+### Configuración de Conexión
+
+Sales Engine ahora se conecta a la base de datos usando:
+- **Host**: `127.0.0.1` (localhost)
+- **Puerto**: `5432`
+- **Red**: `host` (acceso directo al proxy compartido)
 
 ## 🚀 Deployment a Producción
 
