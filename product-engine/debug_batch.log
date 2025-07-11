@@ -1,0 +1,34 @@
+-- Authentication complete --
+=== DEBUG BATCH PROCESSING ===
+
+--- Individual Processing ---
+
+Processing SKU: 6256
+Result: ['1 Kg']
+
+Processing SKU: 8085
+Result: ['100 ml']
+
+Processing SKU: 6009
+Result: ['100 ml']
+
+Processing SKU: 6995
+Result: ['500 ml']
+
+--- Batch Processing ---
+SKUs to process: ['6256', '8085', '6009', '6995']
+Type of SKUS: <class 'list'>
+Length of SKUS: 4
+Calling get_variant_attributes_by_sku with type: <class 'list'>
+Batch result type: <class 'list'>
+Batch result: ['100 ml']
+
+--- Comparison ---
+Individual results: {'6256': ['1 Kg'], '8085': ['100 ml'], '6009': ['100 ml'], '6995': ['500 ml']}
+Batch results: ['100 ml']
+Results match: False
+
+--- Single SKU in List Test ---
+Testing with single SKU list: ['6256']
+Single SKU list result type: <class 'list'>
+Single SKU list result: ['1 Kg']

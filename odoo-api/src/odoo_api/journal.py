@@ -11,8 +11,8 @@ from datetime import datetime
 
 
 class OdooJournal(OdooAPI):
-    def __init__(self, database='test'):
-        super().__init__(database=database)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
 #CRUD
 
@@ -343,26 +343,26 @@ class OdooJournal(OdooAPI):
             return f"Error durante la actualización: {str(e)}"
 
 # Prueba de actualización con IDs específicos
-odoo_journal = OdooJournal(database='test')
+# odoo_journal = OdooJournal()
 
 # IDs específicos para probar
-statement_line_id = 11356  # ID del extracto bancario
-move_line_id = 285476  # ID del apunte contable específico
+# statement_line_id = 11356  # ID del extracto bancario
+# move_line_id = 285476  # ID del apunte contable específico
 
-print(f"\nProbando actualización de contacto con:")
-print(f"Statement Line ID: {statement_line_id}")
-print(f"Move Line ID: {move_line_id}")
+# print(f"\nProbando actualización de contacto con:")
+# print(f"Statement Line ID: {statement_line_id}")
+# print(f"Move Line ID: {move_line_id}")
 
-try:
-    result = odoo_journal.reconcile_statement_line(
-        statement_line_id=statement_line_id,
-        move_line_id=move_line_id
-    )
+# try:
+#     result = odoo_journal.reconcile_statement_line(
+#         statement_line_id=statement_line_id,
+#         move_line_id=move_line_id
+#     )
     
-    if isinstance(result, str):
-        print(f"\n❌ Error en la actualización: {result}")
-    else:
-        print("\n✓ Actualización de contacto exitosa")
-except Exception as e:
-    print(f"Error en la ejecución: {str(e)}")
+#     if isinstance(result, str):
+#         print(f"\n❌ Error en la actualización: {result}")
+#     else:
+#         print("\n✓ Actualización de contacto exitosa")
+# except Exception as e:
+#     print(f"Error en la ejecución: {str(e)}")
         

@@ -1,0 +1,25 @@
+[project]
+name = "config-manager"
+version = "1.0.0"
+description = "Centralized configuration and secret management"
+authors = [
+    {name = "bastianibanez", email = "bastian.miba@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-decouple>=3.8",
+    "google-cloud-secret-manager>=2.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.poetry]
+packages = [{include = "config_manager", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

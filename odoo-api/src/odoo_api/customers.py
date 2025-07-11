@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 class OdooCustomers(OdooAPI):
     
-    def __init__(self, database='productive'):
-        super().__init__(database=database)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
 
 #---------------------------------AUX---------------------------------
     def _normalize_phone_number_chile(self, phone_number):

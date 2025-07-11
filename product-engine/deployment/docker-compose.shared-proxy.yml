@@ -1,0 +1,35 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for SHARED CLOUD SQL PROXY
+# -----------------------------------------------------------------------------
+# This file provides a shared Cloud SQL proxy that can be used by multiple services.
+#
+# Key Features:
+#   - Single proxy instance shared between services
+#   - Uses host networking for direct access
+#   - Configured for the production database instance
+#
+# Usage:
+#   Start the shared proxy: docker-compose -f docker-compose.shared-proxy.yml up -d
+#   Stop the shared proxy: docker-compose -f docker-compose.shared-proxy.yml down
+#
+version: '3.8'
+
+services:
+  # Shared Cloud SQL Auth Proxy service
+  # This proxy is used by both Product Engine and Sales Engine
+  shared-cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: shared-cloud-sql-proxy
+    restart: unless-stopped
+    # The command to start the proxy with stable v1 syntax using correct instance name
+    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:app-temp=tcp:0.0.0.0:5432
+    # In production environment on GCE, the proxy uses the attached service account
+    # No credentials file needed when running on GCE with proper service account
+    network_mode: "host"
+    # Health check to ensure proxy is working
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s 

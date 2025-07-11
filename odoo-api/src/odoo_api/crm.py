@@ -11,8 +11,8 @@ logger = logging.getLogger('odoo_crm')
 
 class OdooCRM(OdooAPI):
 
-    def __init__(self, database='productive'):
-        super().__init__(database=database)
+    def __init__(self, db=None, url=None, username=None, password=None):
+        super().__init__(db=db, url=url, username=username, password=password)
     
     def create_oportunity(self, data, tag=None):
         """

@@ -1,0 +1,55 @@
+[project]
+name = "product-engine"
+version = "1.0.0"
+description = "Products catalog synchronization engine for Odoo to PostgreSQL with OpenAI embeddings"
+authors = [
+    {name = "bastianibanez", email = "bastian.miba@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "pandas>=2.2.3",
+    "psycopg2-binary>=2.9.0",
+    "google-cloud-secret-manager>=2.16.0",
+    "python-decouple>=3.8",
+    "structlog>=24.0.0",
+    "openai>=1.0.0",
+    "pgvector>=0.2.0",
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+run-products-sync = "db_manager.sync_manager:main"
+
+[tool.poetry]
+packages = [
+    {include = "product_engine", from = "src"},
+    {include = "db_client", from = "src"},
+    {include = "db_manager", from = "src"},
+    {include = "common", from = "src"}
+]
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.black]
+line-length = 88
+target-version = ['py313']
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

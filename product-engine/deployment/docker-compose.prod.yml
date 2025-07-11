@@ -1,0 +1,40 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for PRODUCTION DEPLOYMENT (USING SHARED PROXY)
+# -----------------------------------------------------------------------------
+# This file is designed for production environment deployment.
+#
+# Key Features:
+#   - Uses the pre-built production Docker image.
+#   - Connects to Cloud SQL via shared proxy using host networking.
+#   - Uses PRODUCT_DB_* environment variables for database configuration.
+#   - Depends on shared-cloud-sql-proxy service.
+#
+# Usage:
+#   This file is used by deployment scripts or CI/CD pipelines.
+#   To run manually:
+#   docker-compose -f deployment/docker-compose.shared-proxy.yml up -d
+#   docker-compose -f deployment/docker-compose.prod.yml run --rm product-engine
+#
+version: '3.8'
+
+services:
+  # The main application service, using the production-ready image
+  product-engine:
+    # Use an image from a container registry (e.g., GCR)
+    # Replace with your actual image path
+    image: gcr.io/${PROJECT_ID}/product-engine:latest
+    container_name: product-engine-prod
+    restart: "no"
+    # In production, environment variables are passed directly by the orchestrator
+    environment:
+      - ENVIRONMENT=production
+      - GCP_PROJECT_ID=${PROJECT_ID}
+      - PRODUCT_DB_HOST=127.0.0.1 # Connect to shared proxy
+      - PRODUCT_DB_PORT=5432
+      - USE_TEST_ODOO=false  # Ensures we use odoo_prod
+      - FORCE_FULL_SYNC=false  # Normal incremental sync
+      - TEST_CONNECTIONS_ONLY=false  # Full sync operation
+      # PRODUCT_DB_NAME, PRODUCT_DB_USER, PRODUCT_DB_PASSWORD will be fetched from Secret Manager
+    # Use host network for direct proxy access
+    network_mode: "host"
+    # No depends_on needed since we use host networking and shared proxy runs separately 

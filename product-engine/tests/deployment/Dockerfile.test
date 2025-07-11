@@ -1,0 +1,128 @@
+# -----------------------------------------------------------------------------
+# Test Dockerfile for Product Engine (Testing Environment)
+# -----------------------------------------------------------------------------
+# This Dockerfile is specifically designed for running tests in a containerized
+# environment. It includes development dependencies and test tools.
+
+# --- Stage 1: Builder ---
+FROM python:3.13-slim as builder
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies required for building Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+
+# Add Poetry to the PATH
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Configure Poetry
+RUN poetry config virtualenvs.in-project true
+
+# Copy only the files needed to install dependencies
+COPY ./pyproject.toml ./poetry.lock* ./
+
+# Install only main dependencies (like sales-engine)
+RUN poetry install --only main --no-root
+
+# --- Stage 2: Test Runtime ---
+FROM python:3.13-slim as test-runtime
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for runtime
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user for security
+RUN useradd --create-home --shell /bin/bash testuser
+
+# Copy the virtual environment from builder
+COPY --from=builder /app/.venv ./.venv
+
+# Copy the application source code
+COPY ./src ./src
+COPY ./tests ./tests
+
+# Activate the virtual environment
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# Set environment variables
+ENV ENVIRONMENT=local_machine
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
+
+# Change ownership to test user
+RUN chown -R testuser:testuser /app
+
+# Switch to test user
+USER testuser
+
+# Create a test runner script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "🧪 PRODUCT ENGINE TEST RUNNER"\n\
+echo "================================"\n\
+\n\
+# Default test command\n\
+TEST_COMMAND=${1:-"all"}\n\
+\n\
+case "$TEST_COMMAND" in\n\
+    "setup")\n\
+        echo "🔧 Running setup tests..."\n\
+        python /app/tests/test_setup.py\n\
+        ;;\n\
+    "complete")\n\
+        echo "🧪 Running complete db manager tests..."\n\
+        python /app/tests/test_db_manager_complete.py\n\
+        ;;\n\
+    "integration")\n\
+        echo "🔗 Running integration tests..."\n\
+        python /app/tests/test_integration_odoo_db.py\n\
+        ;;\n\
+    "search")\n\
+        echo "🔍 Running search tests..."\n\
+        python /app/tests/test_search.py\n\
+        ;;\n\
+    "pytest")\n\
+        echo "🧪 Running pytest suite..."\n\
+        python -m pytest /app/tests/ -v --tb=short\n\
+        ;;\n\
+    "all")\n\
+        echo "🚀 Running all tests in sequence..."\n\
+        echo ""\n\
+        echo "Step 1: Setup tests"\n\
+        python /app/tests/test_setup.py || exit 1\n\
+        echo ""\n\
+        echo "Step 2: Simple structure tests"\n\
+        python /app/tests/test_new_structure_simple.py || exit 1\n\
+        echo ""\n\
+        echo "Step 3: Complete db manager tests"\n\
+        python /app/tests/test_db_manager_complete.py || exit 1\n\
+        echo ""\n\
+        echo "Step 4: Search tests"\n\
+        python /app/tests/test_search.py || exit 1\n\
+        echo ""\n\
+        echo "✅ All tests completed successfully!"\n\
+        ;;\n\
+    *)\n\
+        echo "❌ Unknown test command: $TEST_COMMAND"\n\
+        echo "Available commands: setup, complete, integration, search, pytest, all"\n\
+        exit 1\n\
+        ;;\n\
+esac\n\
+' > /app/run_tests.sh && chmod +x /app/run_tests.sh
+
+# Set default command to run all tests
+CMD ["/app/run_tests.sh", "all"] 

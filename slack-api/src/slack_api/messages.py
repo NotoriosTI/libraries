@@ -1,12 +1,18 @@
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from dotenv import load_dotenv
 import threading
 from queue import Queue
 import logging
 import requests
 from openai import OpenAI
 from io import BytesIO
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 
 class SlackBot:
     def __init__(
@@ -82,6 +88,44 @@ class SlackBot:
             return 'wav'
         else:
             return filetype  # fallback to what Slack reported
+
+    def _add_reaction(self, channel, timestamp, emoji="white_check_mark"):
+        """
+        Agrega una reacción a un mensaje específico.
+        
+        Args:
+            channel (str): ID del canal donde está el mensaje.
+            timestamp (str): Timestamp del mensaje.
+            emoji (str): Emoji a usar como reacción (default: ✅).
+        """
+        try:
+            if self.debug:
+                logging.info(f"Intentando agregar reacción {emoji} al mensaje en canal {channel}, timestamp {timestamp}")
+            
+            # Verificar que tenemos los datos necesarios
+            if not channel:
+                logging.error("No se puede agregar reacción: channel es None")
+                return
+            if not timestamp:
+                logging.error("No se puede agregar reacción: timestamp es None")
+                return
+            
+            # Intentar agregar la reacción
+            response = self.app.client.reactions_add(
+                channel=channel,
+                timestamp=timestamp,
+                name=emoji
+            )
+            
+            if self.debug:
+                logging.info(f"✅ Reacción {emoji} agregada exitosamente al mensaje en {channel}")
+                logging.info(f"Respuesta de la API: {response}")
+                
+        except Exception as e:
+            logging.error(f"Error agregando reacción {emoji}: {e}")
+            if self.debug:
+                logging.error(f"Error detallado: {str(e)}", exc_info=True)
+                logging.error(f"Channel: {channel}, Timestamp: {timestamp}, Emoji: {emoji}")
 
     def _process_audio_file(self, file, user_id, say):
         """
@@ -170,7 +214,9 @@ class SlackBot:
                 'user_id': user_id,
                 'text': transcript_data.text,
                 'say': say,
-                'audio_file': True  # Flag para identificar que viene de audio
+                'audio_file': True,  # Flag para identificar que viene de audio
+                'channel': file.get('channels', [None])[0] if file.get('channels') else None,
+                'timestamp': file.get('timestamp')
             })
             
             if self.debug:
@@ -219,6 +265,11 @@ class SlackBot:
                 return
 
             user_id = event.get('user')
+            channel = event.get('channel')
+            timestamp = event.get('ts')
+            
+            if self.debug:
+                logging.info(f"Datos del mensaje - user_id: {user_id}, channel: {channel}, timestamp: {timestamp}")
             
             # DEBUG: Verificar si el mensaje contiene archivos
             if self.debug:
@@ -245,6 +296,16 @@ class SlackBot:
                         audio_files_found = True
                         if self.debug:
                             logging.info(f"¡Archivo de audio detectado! Procesando: {file.get('name')}")
+                        
+                        # Agregar reacción ✅ al mensaje de audio
+                        if channel and timestamp:
+                            if self.debug:
+                                logging.info(f"Agregando reacción a archivo de audio en canal {channel}")
+                            self._add_reaction(channel, timestamp)
+                        else:
+                            if self.debug:
+                                logging.warning(f"No se puede agregar reacción: channel={channel}, timestamp={timestamp}")
+                        
                         self._process_audio_file(file, user_id, say)
                     else:
                         if self.debug:
@@ -266,6 +327,15 @@ class SlackBot:
                 if self.debug:
                     logging.info(f"Procesando mensaje de texto: '{text}' del usuario: {user_id}")
                 
+                # Agregar reacción ✅ al mensaje de texto
+                if channel and timestamp:
+                    if self.debug:
+                        logging.info(f"Agregando reacción a mensaje de texto en canal {channel}")
+                    self._add_reaction(channel, timestamp)
+                else:
+                    if self.debug:
+                        logging.warning(f"No se puede agregar reacción a texto: channel={channel}, timestamp={timestamp}")
+                
                 # --- INICIO DE LA MODIFICACION ---
                 # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
                 # Esto mejora la experiencia del usuario al darle feedback instantaneo.
@@ -282,7 +352,9 @@ class SlackBot:
                     'user_id': user_id,
                     'text': text,
                     'say': say,  # La funcion para responder en el canal correcto
-                    'audio_file': False  # Flag para identificar que es texto normal
+                    'audio_file': False,  # Flag para identificar que es texto normal
+                    'channel': channel,
+                    'timestamp': timestamp
                 })
             else:
                 if self.debug:
@@ -296,6 +368,11 @@ class SlackBot:
             
             file_id = event.get("file_id")
             user_id = event.get("user_id")
+            channel = event.get("channel_id")
+            timestamp = event.get("message_ts")
+            
+            if self.debug:
+                logging.info(f"Datos del archivo compartido - file_id: {file_id}, user_id: {user_id}, channel: {channel}, timestamp: {timestamp}")
             
             if file_id and user_id:
                 try:
@@ -312,6 +389,16 @@ class SlackBot:
                     if filetype in audio_filetypes:
                         if self.debug:
                             logging.info(f"Procesando archivo de audio compartido: {file_info.get('name')}")
+                        
+                        # Agregar reacción ✅ al mensaje de archivo compartido
+                        if channel and timestamp:
+                            if self.debug:
+                                logging.info(f"Agregando reacción a archivo compartido en canal {channel}")
+                            self._add_reaction(channel, timestamp)
+                        else:
+                            if self.debug:
+                                logging.warning(f"No se puede agregar reacción a archivo compartido: channel={channel}, timestamp={timestamp}")
+                        
                         self._process_audio_file(file_info, user_id, say)
                 
                 except Exception as e:
@@ -327,3 +414,34 @@ class SlackBot:
         thread = threading.Thread(target=handler.start)
         thread.daemon = True
         thread.start()
+
+    def send_maintenance_message(self, user_ids: set[str], message: str = None):
+        """
+        Envia un mensaje de mantenimiento a los usuarios especificados.
+        """
+        if message is None:
+            message = "Juan se encontrará en mantenimiento temporalmente. Avisaremos cuando vuelva a estar disponible."
+
+        # Enviar mensaje de mantenimiento a cada usuario    
+        logging.info(f"Enviando mensaje de mantenimiento {message} a {len(user_ids)} usuarios")
+        for user_id in user_ids:
+            try:
+                im_channel = self.app.client.conversations_open(users=user_id)
+            except Exception as e:
+                logging.error(f"Error al abrir canal de usuario {user_id}: {e}")
+                continue
+            
+            try:
+                channel_id = im_channel['channel']['id']
+                self.app.client.chat_postMessage(channel=channel_id, text=message)
+                logging.info(f"Mensaje de mantenimiento enviado a {user_id}")
+            except Exception as e:
+                logging.error(f"Error al enviar mensaje de mantenimiento a {user_id}: {e}")
+            
+
+    def send_message(self, user_ids: set[str], message: str):
+        """
+        Envia un mensaje a los usuarios especificados.
+        """
+        for user_id in user_ids:
+            self.app.client.chat_postMessage(channel=user_id, text=message)
