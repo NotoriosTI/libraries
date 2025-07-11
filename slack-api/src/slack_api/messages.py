@@ -83,6 +83,28 @@ class SlackBot:
         else:
             return filetype  # fallback to what Slack reported
 
+    def _add_reaction(self, channel, timestamp, emoji="white_check_mark"):
+        """
+        Agrega una reacción a un mensaje específico.
+        
+        Args:
+            channel (str): ID del canal donde está el mensaje.
+            timestamp (str): Timestamp del mensaje.
+            emoji (str): Emoji a usar como reacción (default: ✅).
+        """
+        try:
+            self.app.client.reactions_add(
+                channel=channel,
+                timestamp=timestamp,
+                name=emoji
+            )
+            if self.debug:
+                logging.info(f"✅ Reacción agregada al mensaje en {channel}")
+        except Exception as e:
+            logging.error(f"Error agregando reacción: {e}")
+            if self.debug:
+                logging.error(f"Error detallado: {str(e)}", exc_info=True)
+
     def _process_audio_file(self, file, user_id, say):
         """
         Procesa un archivo de audio, lo transcribe y agrega el texto a la cola.
@@ -170,7 +192,9 @@ class SlackBot:
                 'user_id': user_id,
                 'text': transcript_data.text,
                 'say': say,
-                'audio_file': True  # Flag para identificar que viene de audio
+                'audio_file': True,  # Flag para identificar que viene de audio
+                'channel': file.get('channels', [None])[0] if file.get('channels') else None,
+                'timestamp': file.get('timestamp')
             })
             
             if self.debug:
@@ -219,6 +243,8 @@ class SlackBot:
                 return
 
             user_id = event.get('user')
+            channel = event.get('channel')
+            timestamp = event.get('ts')
             
             # DEBUG: Verificar si el mensaje contiene archivos
             if self.debug:
@@ -245,6 +271,11 @@ class SlackBot:
                         audio_files_found = True
                         if self.debug:
                             logging.info(f"¡Archivo de audio detectado! Procesando: {file.get('name')}")
+                        
+                        # Agregar reacción ✅ al mensaje de audio
+                        if channel and timestamp:
+                            self._add_reaction(channel, timestamp)
+                        
                         self._process_audio_file(file, user_id, say)
                     else:
                         if self.debug:
@@ -266,6 +297,10 @@ class SlackBot:
                 if self.debug:
                     logging.info(f"Procesando mensaje de texto: '{text}' del usuario: {user_id}")
                 
+                # Agregar reacción ✅ al mensaje de texto
+                if channel and timestamp:
+                    self._add_reaction(channel, timestamp)
+                
                 # --- INICIO DE LA MODIFICACION ---
                 # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
                 # Esto mejora la experiencia del usuario al darle feedback instantaneo.
@@ -282,7 +317,9 @@ class SlackBot:
                     'user_id': user_id,
                     'text': text,
                     'say': say,  # La funcion para responder en el canal correcto
-                    'audio_file': False  # Flag para identificar que es texto normal
+                    'audio_file': False,  # Flag para identificar que es texto normal
+                    'channel': channel,
+                    'timestamp': timestamp
                 })
             else:
                 if self.debug:
@@ -296,6 +333,8 @@ class SlackBot:
             
             file_id = event.get("file_id")
             user_id = event.get("user_id")
+            channel = event.get("channel_id")
+            timestamp = event.get("message_ts")
             
             if file_id and user_id:
                 try:
@@ -312,6 +351,11 @@ class SlackBot:
                     if filetype in audio_filetypes:
                         if self.debug:
                             logging.info(f"Procesando archivo de audio compartido: {file_info.get('name')}")
+                        
+                        # Agregar reacción ✅ al mensaje de archivo compartido
+                        if channel and timestamp:
+                            self._add_reaction(channel, timestamp)
+                        
                         self._process_audio_file(file_info, user_id, say)
                 
                 except Exception as e:
