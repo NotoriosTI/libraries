@@ -7,6 +7,13 @@ import logging
 import requests
 from openai import OpenAI
 from io import BytesIO
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 
 class SlackBot:
     def __init__(
