@@ -93,17 +93,33 @@ class SlackBot:
             emoji (str): Emoji a usar como reacción (default: ✅).
         """
         try:
-            self.app.client.reactions_add(
+            if self.debug:
+                logging.info(f"Intentando agregar reacción {emoji} al mensaje en canal {channel}, timestamp {timestamp}")
+            
+            # Verificar que tenemos los datos necesarios
+            if not channel:
+                logging.error("No se puede agregar reacción: channel es None")
+                return
+            if not timestamp:
+                logging.error("No se puede agregar reacción: timestamp es None")
+                return
+            
+            # Intentar agregar la reacción
+            response = self.app.client.reactions_add(
                 channel=channel,
                 timestamp=timestamp,
                 name=emoji
             )
+            
             if self.debug:
-                logging.info(f"✅ Reacción agregada al mensaje en {channel}")
+                logging.info(f"✅ Reacción {emoji} agregada exitosamente al mensaje en {channel}")
+                logging.info(f"Respuesta de la API: {response}")
+                
         except Exception as e:
-            logging.error(f"Error agregando reacción: {e}")
+            logging.error(f"Error agregando reacción {emoji}: {e}")
             if self.debug:
                 logging.error(f"Error detallado: {str(e)}", exc_info=True)
+                logging.error(f"Channel: {channel}, Timestamp: {timestamp}, Emoji: {emoji}")
 
     def _process_audio_file(self, file, user_id, say):
         """
@@ -246,6 +262,9 @@ class SlackBot:
             channel = event.get('channel')
             timestamp = event.get('ts')
             
+            if self.debug:
+                logging.info(f"Datos del mensaje - user_id: {user_id}, channel: {channel}, timestamp: {timestamp}")
+            
             # DEBUG: Verificar si el mensaje contiene archivos
             if self.debug:
                 logging.info(f"Verificando archivos en evento. 'files' presente: {'files' in event}")
@@ -274,7 +293,12 @@ class SlackBot:
                         
                         # Agregar reacción ✅ al mensaje de audio
                         if channel and timestamp:
+                            if self.debug:
+                                logging.info(f"Agregando reacción a archivo de audio en canal {channel}")
                             self._add_reaction(channel, timestamp)
+                        else:
+                            if self.debug:
+                                logging.warning(f"No se puede agregar reacción: channel={channel}, timestamp={timestamp}")
                         
                         self._process_audio_file(file, user_id, say)
                     else:
@@ -299,7 +323,12 @@ class SlackBot:
                 
                 # Agregar reacción ✅ al mensaje de texto
                 if channel and timestamp:
+                    if self.debug:
+                        logging.info(f"Agregando reacción a mensaje de texto en canal {channel}")
                     self._add_reaction(channel, timestamp)
+                else:
+                    if self.debug:
+                        logging.warning(f"No se puede agregar reacción a texto: channel={channel}, timestamp={timestamp}")
                 
                 # --- INICIO DE LA MODIFICACION ---
                 # Enviar un acuse de recibo inmediato para mostrar que el bot esta "escribiendo".
@@ -336,6 +365,9 @@ class SlackBot:
             channel = event.get("channel_id")
             timestamp = event.get("message_ts")
             
+            if self.debug:
+                logging.info(f"Datos del archivo compartido - file_id: {file_id}, user_id: {user_id}, channel: {channel}, timestamp: {timestamp}")
+            
             if file_id and user_id:
                 try:
                     # Obtener información del archivo
@@ -354,7 +386,12 @@ class SlackBot:
                         
                         # Agregar reacción ✅ al mensaje de archivo compartido
                         if channel and timestamp:
+                            if self.debug:
+                                logging.info(f"Agregando reacción a archivo compartido en canal {channel}")
                             self._add_reaction(channel, timestamp)
+                        else:
+                            if self.debug:
+                                logging.warning(f"No se puede agregar reacción a archivo compartido: channel={channel}, timestamp={timestamp}")
                         
                         self._process_audio_file(file_info, user_id, say)
                 
