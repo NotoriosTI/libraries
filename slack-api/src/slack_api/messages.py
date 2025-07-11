@@ -408,3 +408,34 @@ class SlackBot:
         thread = threading.Thread(target=handler.start)
         thread.daemon = True
         thread.start()
+
+    def send_maintenance_message(self, user_ids: set[str], message: str = None):
+        """
+        Envia un mensaje de mantenimiento a los usuarios especificados.
+        """
+        if message is None:
+            message = "Juan se encontrará en mantenimiento temporalmente. Avisaremos cuando vuelva a estar disponible."
+
+        # Enviar mensaje de mantenimiento a cada usuario    
+        logging.info(f"Enviando mensaje de mantenimiento {message} a {len(user_ids)} usuarios")
+        for user_id in user_ids:
+            try:
+                im_channel = self.app.client.conversations_open(users=user_id)
+            except Exception as e:
+                logging.error(f"Error al abrir canal de usuario {user_id}: {e}")
+                continue
+            
+            try:
+                channel_id = im_channel['channel']['id']
+                self.app.client.chat_postMessage(channel=channel_id, text=message)
+                logging.info(f"Mensaje de mantenimiento enviado a {user_id}")
+            except Exception as e:
+                logging.error(f"Error al enviar mensaje de mantenimiento a {user_id}: {e}")
+            
+
+    def send_message(self, user_ids: set[str], message: str):
+        """
+        Envia un mensaje a los usuarios especificados.
+        """
+        for user_id in user_ids:
+            self.app.client.chat_postMessage(channel=user_id, text=message)
