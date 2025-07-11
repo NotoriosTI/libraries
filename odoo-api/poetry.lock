@@ -242,7 +242,7 @@ files = [
 
 [[package]]
 name = "config-manager"
-version = "0.1.0"
+version = "1.0.0"
 description = "Centralized configuration and secret management"
 optional = false
 python-versions = ">=3.13"
@@ -260,8 +260,8 @@ dev = ["pytest (>=7.0.0)"]
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "dev"
-resolved_reference = "c91824bb226fb19c090fa10771b47f6fb571620b"
+reference = "feature-restock-tool"
+resolved_reference = "1eaf33db4fd143fee6c6a454235d23ab97e7ea53"
 subdirectory = "config-manager"
 
 [[package]]
@@ -1891,4 +1891,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "b3d0538186dbab9a5187797db1bd5c0ccadd26b35cc6bd1c993d3d580f749d68"
+content-hash = "57c3fce72656bd5fd820ca71cf7a5fa89a7e02a860b9299a8eb1512f318ab359"
