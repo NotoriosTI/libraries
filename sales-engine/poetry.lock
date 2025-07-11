@@ -335,8 +335,8 @@ dev = ["pytest (>=7.0.0)"]
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "main"
-resolved_reference = "2c179d994c85d8b88c252f0f15033a8abc561869"
+reference = "feature-restock-tool"
+resolved_reference = "b8d6fb72d928cb797151acb4c4a2a94129b34452"
 subdirectory = "config-manager"
 
 [[package]]
@@ -1040,7 +1040,7 @@ files = []
 develop = false
 
 [package.dependencies]
-config-manager = {git = "https://github.com/NotoriosTI/libraries.git", rev = "main", subdirectory = "config-manager"}
+config-manager = {git = "https://github.com/NotoriosTI/libraries.git", rev = "feature-restock-tool", subdirectory = "config-manager"}
 langchain = ">=0.3.25,<0.4.0"
 langgraph = ">=0.4.5,<0.5.0"
 pandas = ">=2.2.3,<3.0.0"
@@ -1050,8 +1050,8 @@ pytz = ">=2025.2,<2026.0"
 [package.source]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
-reference = "main"
-resolved_reference = "2c179d994c85d8b88c252f0f15033a8abc561869"
+reference = "feature-restock-tool"
+resolved_reference = "b8d6fb72d928cb797151acb4c4a2a94129b34452"
 subdirectory = "odoo-api"
 
 [[package]]
@@ -2269,4 +2269,4 @@ dev = ["black", "isort", "mypy", "pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "98ec33e437a3005aa574e7e20df95b6abc5156c19e39ad4faefeb1a54432c093"
+content-hash = "2289d0c3b8c00769455d707327598897c99bb140e12a75e271775e5b68915348"

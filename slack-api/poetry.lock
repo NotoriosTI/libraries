@@ -193,7 +193,7 @@ dev = ["pytest (>=7.0.0)"]
 type = "git"
 url = "https://github.com/NotoriosTI/libraries.git"
 reference = "feature-restock-tool"
-resolved_reference = "b8d6fb72d928cb797151acb4c4a2a94129b34452"
+resolved_reference = "99e5f30cc2bfb8933446c40a414e03967a5f2db9"
 subdirectory = "config-manager"
 
 [[package]]
