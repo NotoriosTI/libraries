@@ -45,6 +45,7 @@ def reasoner_node(state: ReasonerState) -> ReasonerState:
     Analiza la conversación actual y en base a la conversacion:
     - sugiere mejoras o consideraciones
     - si consideras que falta información, haz preguntas específicas
+    - si el usuario te especifica directamente que quieres salir de ejecucion, invoca la herramienta `set_should_generate_prompt` con el valor `True`.
     
     Responde de manera clara y estructurada.
 
@@ -94,6 +95,8 @@ def prompt_generator_node(state: ReasonerState) -> ReasonerState:
     3) restricciones y limitaciones, y 
     4) respuestas a preguntas específicas realizadas por el agente recolector para profundizar en el prompt deseado. 
 
+    si el usuario espesifico directamente que quiere salir de ejecucion no genere un prompt, unicamente retorna saliendo de ejecucion.
+    
     Tu tarea es generar un prompt que:  
     - Incluya toda la información y contexto proporcionados, sin omitir detalles importantes.  
     - Sea coherente, claro, sin ambigüedades, inconsistencias ni contradicciones.  
