@@ -1,6 +1,6 @@
 [project]
 name = "prompt-assistant"
-version = "0.2.2"
+version = "0.3.0"
 description = "Agente React para generar prompts de manera estructurada y eficiente"
 authors = [
     {name = "Your Name",email = "you@example.com"}
