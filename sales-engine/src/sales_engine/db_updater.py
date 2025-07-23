@@ -363,10 +363,11 @@ class DatabaseUpdater:
                 self._connection_pool.closeall()
                 self.logger.info("Database connection pool closed")
             
-            # --- NEW: Disconnect from Odoo API ---
+            # --- NEW: Cleanup Odoo API connection ---
             if self.odoo_api:
-                self.odoo_api.disconnect()
-                self.logger.info("Odoo API connection closed")
+                # The OdooAPI uses context manager with __exit__ for cleanup
+                # Manual cleanup is handled automatically by the parent class
+                self.logger.info("Odoo API connection cleanup completed")
 
         except Exception as e:
             self.logger.error("Error during cleanup", error=str(e))
