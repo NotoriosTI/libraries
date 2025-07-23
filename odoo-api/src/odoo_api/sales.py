@@ -134,8 +134,8 @@ class OdooSales(OdooAPI):
             user_tz = self.get_user_timezone()
             start_utc, end_utc = self._convert_timezone_range(start_date, end_date, user_tz)
 
-            sales_orders = self._get_sales_orders_optimized(start_utc, end_utc, limit)
-            pos_orders = self._get_pos_orders_optimized(start_utc, end_utc, limit)
+            sales_orders = self._get_sales_orders(start_utc, end_utc, limit)
+            pos_orders = self._get_pos_orders(start_utc, end_utc, limit)
             all_orders = sales_orders + pos_orders
             
             if not all_orders:
