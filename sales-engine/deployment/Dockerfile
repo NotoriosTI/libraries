@@ -82,6 +82,6 @@ RUN chown -R appuser:appuser /app
 # Switch to the non-root user
 USER appuser
 
-# Set the default command to run the database updater
+# Set the default command to run the main entry point
 # Since we use --no-root, run the module directly
-CMD ["python", "-m", "sales_engine.db_updater"]
+CMD ["python", "-m", "sales_engine.main"]

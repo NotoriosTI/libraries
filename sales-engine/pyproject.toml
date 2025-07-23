@@ -13,8 +13,8 @@ dependencies = [
     "google-cloud-secret-manager>=2.16.0",
     "python-decouple>=3.8",
     "structlog>=24.0.0",
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
