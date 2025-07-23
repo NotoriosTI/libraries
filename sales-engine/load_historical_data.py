@@ -4,7 +4,8 @@ into the sales_items table after schema refactoring.
 
 This script handles:
 - Headerless CSV files
-- Efficient bulk loading using psycopg2's copy_expert
+- Duplicate record handling (keeps most recent)
+- Efficient bulk loading using upsert operations
 - Proper column mapping to database schema
 - Error handling and progress reporting
 
@@ -18,35 +19,49 @@ Example:
 import sys
 import os
 import psycopg2
-from psycopg2.extras import RealDictCursor
-import structlog
-from typing import Optional
+from psycopg2.extras import RealDictCursor, execute_values
+import pandas as pd
+from typing import Optional, Tuple
 from pathlib import Path
+from contextlib import contextmanager
 
 # Import the centralized configuration
 from config_manager import secrets
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="ISO"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
-    ],
-    logger_factory=structlog.PrintLoggerFactory(),
-    wrapper_class=structlog.make_filtering_bound_logger(20),  # INFO level
-    cache_logger_on_first_use=True,
-)
+# --- ANSI Color Codes for Output ---
+class Colors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    ENDC = '\033[0m'
 
-logger = structlog.get_logger(__name__)
+def print_info(message):
+    print(f"{Colors.CYAN}ℹ️  INFO:{Colors.ENDC} {message}")
+
+def print_success(message):
+    print(f"{Colors.GREEN}✅ SUCCESS:{Colors.ENDC} {message}")
+
+def print_warning(message):
+    print(f"{Colors.YELLOW}⚠️  WARNING:{Colors.ENDC} {message}")
+
+def print_error(message):
+    print(f"{Colors.RED}❌ ERROR:{Colors.ENDC} {message}")
+
+def print_progress(message):
+    print(f"{Colors.PURPLE}📊 PROGRESS:{Colors.ENDC} {message}")
+
+def print_batch(message):
+    print(f"{Colors.BLUE}🔄 BATCH:{Colors.ENDC} {message}")
 
 
 class HistoricalDataLoader:
-    """Loads historical sales data from headerless CSV files."""
+    """Loads historical sales data from headerless CSV files with duplicate handling."""
     
     def __init__(self):
         """Initialize the loader with database configuration."""
-        self.logger = logger.bind(component="historical_data_loader")
         self.db_config = secrets.get_database_config()
         
         # Column mapping for the 18 columns in the CSV (in order)
@@ -72,12 +87,12 @@ class HistoricalDataLoader:
             'sales_channel'             # Tienda Sabaj
         ]
         
-        self.logger.info("HistoricalDataLoader initialized", 
-                        database=self.db_config.get('database', 'salesdb'),
-                        csv_columns_count=len(self.csv_columns))
+        print_info(f"HistoricalDataLoader initialized for database '{self.db_config.get('database', 'salesdb')}' with {len(self.csv_columns)} columns")
     
+    @contextmanager
     def get_connection(self):
-        """Create a database connection."""
+        """Context manager for database connections."""
+        conn = None
         try:
             conn = psycopg2.connect(
                 host=self.db_config['host'],
@@ -87,20 +102,30 @@ class HistoricalDataLoader:
                 password=self.db_config['password'],
                 cursor_factory=RealDictCursor
             )
-            self.logger.info("Database connection established")
-            return conn
-        except Exception as e:
-            self.logger.error("Failed to connect to database", error=str(e))
+            yield conn
+            conn.commit()
+        except psycopg2.Error as e:
+            if conn:
+                conn.rollback()
+            print_error(f"Database transaction failed: {e}")
             raise
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            print_error(f"Failed to connect to database: {e}")
+            raise
+        finally:
+            if conn:
+                conn.close()
     
     def validate_csv_file(self, csv_file_path: Path) -> bool:
         """Validate that the CSV file exists and is readable."""
         if not csv_file_path.exists():
-            self.logger.error("CSV file does not exist", path=str(csv_file_path))
+            print_error(f"CSV file does not exist: {csv_file_path}")
             return False
         
         if not csv_file_path.is_file():
-            self.logger.error("Path is not a file", path=str(csv_file_path))
+            print_error(f"Path is not a file: {csv_file_path}")
             return False
         
         try:
@@ -108,131 +133,232 @@ class HistoricalDataLoader:
             with open(csv_file_path, 'r', encoding='utf-8') as f:
                 first_line = f.readline().strip()
                 if not first_line:
-                    self.logger.error("CSV file appears to be empty")
+                    print_error("CSV file appears to be empty")
                     return False
                 
                 # Count columns in first line
                 column_count = len(first_line.split(','))
                 if column_count != len(self.csv_columns):
-                    self.logger.warning(
-                        "Column count mismatch",
-                        expected=len(self.csv_columns),
-                        found=column_count,
-                        first_line_preview=first_line[:100] + "..." if len(first_line) > 100 else first_line
-                    )
+                    print_warning(f"Column count mismatch: expected {len(self.csv_columns)}, found {column_count}")
+                    print_warning(f"First line preview: {first_line[:100]}{'...' if len(first_line) > 100 else ''}")
                 
                 # Estimate total rows (for progress reporting)
                 f.seek(0)
                 estimated_rows = sum(1 for _ in f)
                 
-            self.logger.info("CSV file validated", 
-                           path=str(csv_file_path),
-                           estimated_rows=estimated_rows,
-                           columns_found=column_count)
+            print_success(f"CSV file validated: {csv_file_path} ({estimated_rows:,} rows, {column_count} columns)")
             return True
             
         except Exception as e:
-            self.logger.error("Failed to validate CSV file", path=str(csv_file_path), error=str(e))
+            print_error(f"Failed to validate CSV file {csv_file_path}: {e}")
             return False
+
+    def bulk_upsert_sales_data(self, df: pd.DataFrame) -> Tuple[int, int, int]:
+        """
+        Perform bulk upsert using INSERT ... ON CONFLICT DO UPDATE SET.
+        Returns (total_upserts, new_records, updated_records)
+        """
+        if df.empty:
+            return 0, 0, 0
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                
+                upsert_sql = """
+                INSERT INTO sales_items (
+                    salesinvoiceid, doctype_name, docnumber, customer_customerid,
+                    customer_name, customer_vatid, salesman_name, term_name,
+                    warehouse_name, totals_net, totals_vat, total_total,
+                    items_product_description, items_product_sku, items_quantity,
+                    items_unitprice, issueddate, sales_channel
+                ) VALUES %s
+                ON CONFLICT (salesinvoiceid, items_product_sku) 
+                DO UPDATE SET
+                    doctype_name = EXCLUDED.doctype_name,
+                    docnumber = EXCLUDED.docnumber,
+                    customer_customerid = EXCLUDED.customer_customerid,
+                    customer_name = EXCLUDED.customer_name,
+                    customer_vatid = EXCLUDED.customer_vatid,
+                    salesman_name = EXCLUDED.salesman_name,
+                    term_name = EXCLUDED.term_name,
+                    warehouse_name = EXCLUDED.warehouse_name,
+                    totals_net = EXCLUDED.totals_net,
+                    totals_vat = EXCLUDED.totals_vat,
+                    total_total = EXCLUDED.total_total,
+                    items_product_description = EXCLUDED.items_product_description,
+                    items_quantity = EXCLUDED.items_quantity,
+                    items_unitprice = EXCLUDED.items_unitprice,
+                    issueddate = EXCLUDED.issueddate,
+                    sales_channel = EXCLUDED.sales_channel,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING 
+                    salesinvoiceid, 
+                    items_product_sku,
+                    (xmax = 0) AS was_inserted
+                """
+
+                # Convert data to tuples
+                data_tuples = []
+                for _, row in df.iterrows():
+                    data_tuple = (
+                        row['salesinvoiceid'], row['doctype_name'], row['docnumber'],
+                        int(row['customer_customerid']), row['customer_name'], row['customer_vatid'],
+                        row['salesman_name'], row['term_name'], row['warehouse_name'],
+                        float(row['totals_net']), float(row['totals_vat']), float(row['total_total']),
+                        row['items_product_description'], row['items_product_sku'],
+                        float(row['items_quantity']), float(row['items_unitprice']),
+                        row['issueddate'], row['sales_channel']
+                    )
+                    data_tuples.append(data_tuple)
+
+                execute_values(
+                    cursor, upsert_sql, data_tuples,
+                    template=None, page_size=1000
+                )
+
+                results = cursor.fetchall()
+                total_upserts = len(results)
+                
+                # Check if results have the expected structure
+                if results:
+                    if isinstance(results[0], (list, tuple)) and len(results[0]) >= 3:
+                        new_records = sum(1 for result in results if result[2])
+                    elif hasattr(results[0], 'was_inserted'):
+                        new_records = sum(1 for result in results if result.was_inserted)
+                    else:
+                        # Fallback: assume all are new records
+                        new_records = total_upserts
+                else:
+                    new_records = 0
+                    
+                updated_records = total_upserts - new_records
+
+                return total_upserts, new_records, updated_records
     
     def load_data(self, csv_file_path: Path) -> bool:
-        """Load data from CSV file into the database."""
+        """Load data from CSV file into the database with batch processing and duplicate handling."""
         if not self.validate_csv_file(csv_file_path):
             return False
         
         try:
+            # 1. Get total row count for progress tracking
+            print_info(f"Analyzing CSV file size: {csv_file_path}")
+            with open(csv_file_path, 'r', encoding='utf-8') as f:
+                total_rows = sum(1 for _ in f)
+            print_success(f"CSV file analyzed: {total_rows:,} total records")
+
+            # 2. Define batch size for processing (smaller for stability)
+            BATCH_SIZE = 10000
+            estimated_batches = (total_rows // BATCH_SIZE) + 1
+            print_info(f"Starting batch processing: {BATCH_SIZE:,} records per batch ({estimated_batches} estimated batches)")
+
+            # Statistics tracking
+            total_processed = 0
+            total_duplicates_removed = 0
+            total_upserts = 0
+            total_new_records = 0
+            total_updated_records = 0
+            batch_number = 0
+
+            print("")
+            print(f"{Colors.GREEN}=========================================={Colors.ENDC}")
+            print(f"{Colors.GREEN}  Starting Historical Data Load Process  {Colors.ENDC}")
+            print(f"{Colors.GREEN}=========================================={Colors.ENDC}")
+            print("")
+
+            # 3. Process file in chunks
+            for chunk in pd.read_csv(csv_file_path, names=self.csv_columns, encoding='utf-8', chunksize=BATCH_SIZE):
+                batch_number += 1
+                original_batch_size = len(chunk)
+                
+                print_batch(f"Batch {batch_number}: Processing {original_batch_size:,} records...")
+                
+                # Handle duplicates within this batch (more robust)
+                print_info("  → Removing duplicates within batch...")
+                
+                # First, sort by a stable column to ensure consistent ordering
+                chunk_sorted = chunk.sort_values(['salesinvoiceid', 'items_product_sku', 'docnumber'])
+                
+                # Then remove duplicates keeping the last occurrence
+                chunk_deduped = chunk_sorted.drop_duplicates(
+                    subset=['salesinvoiceid', 'items_product_sku'], 
+                    keep='last'
+                ).copy()
+                
+                deduped_batch_size = len(chunk_deduped)
+                batch_duplicates = original_batch_size - deduped_batch_size
+                
+                # Additional verification: ensure no duplicates remain
+                duplicate_check = chunk_deduped.duplicated(subset=['salesinvoiceid', 'items_product_sku'])
+                if duplicate_check.any():
+                    print_warning(f"  → Still found {duplicate_check.sum()} duplicates after first pass, forcing additional cleanup...")
+                    # Force another round of deduplication
+                    chunk_deduped = chunk_deduped.drop_duplicates(
+                        subset=['salesinvoiceid', 'items_product_sku'], 
+                        keep='last'
+                    ).copy()
+                    print_success("  → Additional deduplication completed")
+                
+                print_info("  → Converting date formats...")
+                chunk_deduped.loc[:, 'issueddate'] = pd.to_datetime(chunk_deduped['issueddate']).dt.date
+                
+                print_info(f"  → Upserting {len(chunk_deduped):,} unique records to database...")
+                # Perform upsert for this batch
+                batch_upserts, batch_new, batch_updated = self.bulk_upsert_sales_data(chunk_deduped)
+                
+                # Update statistics
+                total_processed += original_batch_size
+                total_duplicates_removed += batch_duplicates
+                total_upserts += batch_upserts
+                total_new_records += batch_new
+                total_updated_records += batch_updated
+                
+                # Log batch completion
+                progress_pct = (total_processed / total_rows) * 100
+                print_success(f"  → Batch {batch_number} completed: {batch_upserts:,} upserted ({batch_new:,} new, {batch_updated:,} updated, {batch_duplicates:,} duplicates removed)")
+                print_progress(f"  → Progress: {total_processed:,}/{total_rows:,} records ({progress_pct:.1f}%)")
+                print("")
+
+            # 4. Final verification
+            print_info("Performing final verification...")
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    self.logger.info("Starting bulk data load", csv_file=str(csv_file_path))
+                    cursor.execute("SELECT COUNT(*) as total FROM sales_items")
+                    final_count = cursor.fetchone()['total']
                     
-                    # Use COPY command for optimal performance
-                    # Note: We exclude created_at and updated_at from the column list
-                    # so the database can auto-fill them with CURRENT_TIMESTAMP
-                    columns_str = ', '.join(self.csv_columns)
-                    
-                    copy_sql = f"""
-                    COPY sales_items ({columns_str})
-                    FROM STDIN
-                    WITH (
-                        FORMAT CSV,
-                        DELIMITER ',',
-                        NULL '',
-                        ENCODING 'UTF8'
-                    )
-                    """
-                    
-                    # Open file and execute COPY
-                    with open(csv_file_path, 'r', encoding='utf-8') as f:
-                        try:
-                            cursor.copy_expert(copy_sql, f)
-                            rows_loaded = cursor.rowcount
-                            
-                            # Commit the transaction
-                            conn.commit()
-                            
-                            self.logger.info("Data loaded successfully", 
-                                           rows_loaded=rows_loaded,
-                                           csv_file=str(csv_file_path))
-                            
-                            # Verify the load
-                            cursor.execute("SELECT COUNT(*) as total FROM sales_items")
-                            total_rows = cursor.fetchone()['total']
-                            
-                            cursor.execute("""
-                                SELECT MIN(issueddate) as earliest_date, 
-                                       MAX(issueddate) as latest_date,
-                                       COUNT(DISTINCT salesinvoiceid) as unique_invoices
-                                FROM sales_items
-                            """)
-                            stats = cursor.fetchone()
-                            
-                            self.logger.info("Load verification completed",
-                                           total_rows_in_table=total_rows,
-                                           earliest_date=str(stats['earliest_date']),
-                                           latest_date=str(stats['latest_date']),
-                                           unique_invoices=stats['unique_invoices'])
-                            
-                            return True
-                            
-                        except psycopg2.Error as e:
-                            conn.rollback()
-                            self.logger.error("Database error during COPY operation", 
-                                            error=str(e),
-                                            pgcode=getattr(e, 'pgcode', None))
-                            return False
+                    cursor.execute("""
+                        SELECT MIN(issueddate) as earliest_date, 
+                               MAX(issueddate) as latest_date,
+                               COUNT(DISTINCT salesinvoiceid) as unique_invoices
+                        FROM sales_items
+                    """)
+                    stats = cursor.fetchone()
+
+            # 5. Summary report
+            print("")
+            print(f"{Colors.GREEN}=" * 60 + Colors.ENDC)
+            print(f"{Colors.GREEN}📊 BATCH PROCESSING SUMMARY:{Colors.ENDC}")
+            print(f"  Total CSV records processed: {total_processed:,}")
+            print(f"  Total duplicates removed: {total_duplicates_removed:,}")
+            print(f"  Total unique records: {total_processed - total_duplicates_removed:,}")
+            print(f"  Records in database: {final_count:,}")
+            print(f"  Total upserts performed: {total_upserts:,}")
+            print(f"  New records inserted: {total_new_records:,}")
+            print(f"  Existing records updated: {total_updated_records:,}")
+            print(f"  Date range: {stats['earliest_date']} to {stats['latest_date']}")
+            print(f"  Unique invoices: {stats['unique_invoices']:,}")
+            print(f"  Batches processed: {batch_number}")
+            print(f"{Colors.GREEN}=" * 60 + Colors.ENDC)
+                
+            return True
         
         except Exception as e:
-            self.logger.error("Failed to load historical data", error=str(e))
+            import traceback
+            print_error(f"Failed to load historical data: {e}")
+            traceback.print_exc()
             return False
     
-    def check_for_duplicates(self) -> None:
-        """Check for potential duplicate records after loading."""
-        try:
-            with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    # Check for duplicate primary key combinations
-                    cursor.execute("""
-                        SELECT salesinvoiceid, items_product_sku, COUNT(*) as duplicate_count
-                        FROM sales_items
-                        GROUP BY salesinvoiceid, items_product_sku
-                        HAVING COUNT(*) > 1
-                        ORDER BY duplicate_count DESC
-                        LIMIT 10
-                    """)
-                    
-                    duplicates = cursor.fetchall()
-                    if duplicates:
-                        self.logger.warning("Found duplicate records", duplicate_count=len(duplicates))
-                        for dup in duplicates:
-                            self.logger.warning("Duplicate record", 
-                                              invoice_id=dup['salesinvoiceid'],
-                                              product_sku=dup['items_product_sku'],
-                                              count=dup['duplicate_count'])
-                    else:
-                        self.logger.info("No duplicate records found")
-                        
-        except Exception as e:
-            self.logger.error("Failed to check for duplicates", error=str(e))
+
 
 
 def main():
@@ -244,7 +370,10 @@ def main():
     
     csv_file_path = Path(sys.argv[1])
     
-    logger.info("Historical data load starting", csv_file=str(csv_file_path))
+    print("")
+    print(f"{Colors.BLUE}🚀 Historical Data Loader Starting{Colors.ENDC}")
+    print(f"   Target file: {csv_file_path}")
+    print("")
     
     try:
         loader = HistoricalDataLoader()
@@ -253,24 +382,23 @@ def main():
         success = loader.load_data(csv_file_path)
         
         if success:
-            # Check for duplicates
-            loader.check_for_duplicates()
-            
-            logger.info("Historical data load completed successfully")
-            print("✅ Historical data loaded successfully!")
+            print("")
+            print_success("Historical data loaded successfully!")
+            print_info("Data processed in batches of 10,000 records with automatic duplicate handling.")
+            print_info("Check the summary above for detailed batch processing statistics.")
             sys.exit(0)
         else:
-            logger.error("Historical data load failed")
-            print("❌ Historical data load failed. Check logs for details.")
+            print_error("Historical data load failed. Check logs for details.")
             sys.exit(1)
             
     except KeyboardInterrupt:
-        logger.info("Historical data load interrupted by user")
-        print("⚠️ Load interrupted by user")
+        print("")
+        print_warning("Load interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logger.error("Unexpected error during historical data load", error=str(e), exc_info=True)
-        print(f"❌ Unexpected error: {e}")
+        import traceback
+        print_error(f"Unexpected error: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
 

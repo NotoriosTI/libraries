@@ -1,4 +1,3 @@
-# src/sales_engine/db_updater.py
 """
 Refactored DatabaseUpdater for Sales Engine
 
@@ -204,9 +203,21 @@ class DatabaseUpdater:
         if df.empty:
             return 0, 0, 0
 
+        # --- IMPROVEMENT: Deduplicate DataFrame before upsert ---
+        original_count = len(df)
+        df_deduped = df.drop_duplicates(subset=['salesinvoiceid', 'items_product_sku'], keep='last').copy()
+        deduped_count = len(df_deduped)
+        duplicates_removed = original_count - deduped_count
+        
+        if duplicates_removed > 0:
+            self.logger.info("Duplicates removed from DataFrame before upsert",
+                           duplicates_removed=duplicates_removed,
+                           original_count=original_count,
+                           deduped_count=deduped_count)
+
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                self.logger.info("Starting bulk upsert operation", record_count=len(df))
+                self.logger.info("Starting bulk upsert operation", record_count=len(df_deduped))
                 
                 upsert_sql = """
                 INSERT INTO sales_items (
@@ -241,11 +252,23 @@ class DatabaseUpdater:
                     (xmax = 0) AS was_inserted
                 """
 
-                data_tuples = [tuple(x) for x in df.to_records(index=False)]
+                # Convert data to tuples using deduplicated DataFrame
+                data_tuples = []
+                for _, row in df_deduped.iterrows():
+                    data_tuple = (
+                        row['salesinvoiceid'], row['doctype_name'], row['docnumber'],
+                        int(row['customer_customerid']), row['customer_name'], row['customer_vatid'],
+                        row['salesman_name'], row['term_name'], row['warehouse_name'],
+                        float(row['totals_net']), float(row['totals_vat']), float(row['total_total']),
+                        row['items_product_description'], row['items_product_sku'],
+                        float(row['items_quantity']), float(row['items_unitprice']),
+                        row['issueddate'], row['sales_channel']
+                    )
+                    data_tuples.append(data_tuple)
 
                 execute_values(
                     cursor, upsert_sql, data_tuples,
-                    template=None, page_size=100
+                    template=None, page_size=1000
                 )
 
                 results = cursor.fetchall()
@@ -256,7 +279,8 @@ class DatabaseUpdater:
                 self.logger.info("Bulk upsert completed",
                                  total_upserts=total_upserts,
                                  new_records=new_records,
-                                 updated_records=updated_records)
+                                 updated_records=updated_records,
+                                 duplicates_removed_before_upsert=duplicates_removed)
 
                 return total_upserts, new_records, updated_records
 
