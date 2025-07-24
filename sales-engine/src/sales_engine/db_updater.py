@@ -23,7 +23,6 @@ import pandas as pd
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor, execute_values
-import structlog
 
 # --- CORRECTED IMPORTS ---
 # Fetches data from the refactored, external odoo-api library
@@ -31,8 +30,17 @@ from odoo_api.sales import OdooSales
 # Fetches configuration from the external config-manager library
 from config_manager import secrets
 
-# Configure structured logging
-logger = structlog.get_logger(__name__)
+# Reemplazar structlog por pretty logger
+try:
+    from dev_utils import PrettyLogger
+    logger = PrettyLogger("sales-engine")
+except ImportError:
+    class LoggerFallback:
+        def info(self, msg, **kwargs): print(f"ℹ️  {msg}")
+        def error(self, msg, **kwargs): print(f"❌ {msg}")
+        def warning(self, msg, **kwargs): print(f"⚠️  {msg}")
+        def success(self, msg, **kwargs): print(f"✅ {msg}")
+    logger = LoggerFallback()
 
 
 class DatabaseUpdaterError(Exception):
@@ -68,7 +76,6 @@ def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            log = structlog.get_logger()
             
             for attempt in range(max_retries + 1):
                 try:
@@ -77,7 +84,7 @@ def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
                     last_exception = e
                     if attempt < max_retries:
                         wait_time = delay * (2 ** attempt)
-                        log.warning(
+                        logger.warning(
                             "Database operation failed, retrying...",
                             func_name=func.__name__,
                             attempt=attempt + 1,
@@ -88,7 +95,7 @@ def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
                         import time
                         time.sleep(wait_time)
                     else:
-                        log.error("Database operation failed after all retries", 
+                        logger.error("Database operation failed after all retries", 
                                   func_name=func.__name__, error=str(e))
                         break
                 except Exception:
