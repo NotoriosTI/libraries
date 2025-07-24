@@ -114,10 +114,9 @@ class DatabaseUpdater:
     def __init__(self, use_test_odoo: bool = False):
         """Initialize DatabaseUpdater with centralized configuration."""
         self.config = secrets
-        self.logger = logger.bind(
-            component="sales_database_updater",
-            odoo_env="test" if use_test_odoo else "production"
-        )
+        self.logger = logger
+        self.component = "sales_database_updater"
+        self.odoo_env = "test" if use_test_odoo else "production"
         self.use_test_odoo = use_test_odoo
         self._connection_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
         
@@ -133,7 +132,9 @@ class DatabaseUpdater:
         self.logger.info(
             "DatabaseUpdater initialized",
             environment=self.config.ENVIRONMENT,
-            use_test_odoo=self.use_test_odoo
+            use_test_odoo=self.use_test_odoo,
+            component=self.component,
+            odoo_env=self.odoo_env
         )
 
     def _get_connection_params(self) -> Dict[str, Any]:
@@ -143,7 +144,8 @@ class DatabaseUpdater:
             db_config['port'] = int(db_config['port'])
             return db_config
         except Exception as e:
-            self.logger.error("Database configuration error", error=str(e))
+            self.logger.error("Database configuration error", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Database configuration is incomplete.") from e
 
     def _setup_connection_pool(self):
@@ -158,9 +160,11 @@ class DatabaseUpdater:
             )
             self.logger.info("Database connection pool created", 
                               host=params.get('host'), 
-                              database=params.get('database'))
+                              database=params.get('database'),
+                              component=self.component, odoo_env=self.odoo_env)
         except Exception as e:
-            self.logger.error("Failed to create connection pool", error=str(e))
+            self.logger.error("Failed to create connection pool", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Failed to create connection pool.") from e
 
     @contextmanager
@@ -177,7 +181,8 @@ class DatabaseUpdater:
         except psycopg2.Error as e:
             if conn:
                 conn.rollback()
-            self.logger.error("Database transaction failed", error=str(e))
+            self.logger.error("Database transaction failed", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Database transaction failed.") from e
         finally:
             if conn:
@@ -196,7 +201,9 @@ class DatabaseUpdater:
                 
                 if last_sync_time:
                     self.logger.info("Last sync time retrieved", 
-                                     last_sync_time=last_sync_time.isoformat())
+                                     last_sync_time=last_sync_time.isoformat(),
+                                     component=self.component,
+                                     odoo_env=self.odoo_env)
                 else:
                     self.logger.info("No previous sync time found - will perform full sync")
                 

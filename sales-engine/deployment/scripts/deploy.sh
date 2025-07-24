@@ -261,6 +261,11 @@ EOF
         exit 1
     fi
     
+    # Clean up orphaned containers and volumes
+    echo '🧹 Cleaning up orphaned sales-engine containers and volumes...'
+    sudo docker ps -a | grep sales-engine | awk '{print $1}' | xargs -r sudo docker rm -f
+    sudo docker volume prune -f
+
     # Start sales-engine service for verification (will stop after execution)
     echo '🚀 Starting sales-engine service for verification...'
     sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
@@ -386,7 +391,11 @@ fi
 
 echo "Executing sync immediately after deploy..."
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
-    cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml up sales-engine
+    cd /opt/sales-engine
+    echo '🧹 Cleaning up orphaned sales-engine containers and volumes...'
+    sudo docker ps -a | grep sales-engine | awk '{print \$1}' | xargs -r sudo docker rm -f
+    sudo docker volume prune -f
+    sudo docker-compose --env-file .env -f docker-compose.prod.yml up sales-engine
 "
 
 # Stop the verification container after execution but keep logs
