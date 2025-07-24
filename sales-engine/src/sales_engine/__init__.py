@@ -19,14 +19,26 @@ Author: Bastian Ibañez (Refactored)
 # Package version
 __version__ = "1.0.0-refactored"
 
-# Main exports from refactored modules
-from .db_updater import DatabaseUpdater, UpdateResult
+# NOTE: Imports commented to avoid RuntimeWarning when executing modules directly
+# Use main.py as entry point or import explicitly when needed
+# from .db_updater import DatabaseUpdater, UpdateResult
 
 __all__ = [
-    "DatabaseUpdater",
-    "UpdateResult", 
+    # "DatabaseUpdater",
+    # "UpdateResult", 
     "__version__"
 ]
+
+# Lazy import function to avoid loading heavy modules
+def get_database_updater(*args, **kwargs):
+    """
+    Get DatabaseUpdater instance with lazy loading.
+    
+    This avoids importing the module until actually needed,
+    preventing RuntimeWarnings when executing modules directly.
+    """
+    from .db_updater import DatabaseUpdater
+    return DatabaseUpdater(*args, **kwargs)
 
 # Backward compatibility note
 def get_legacy_updater(*args, **kwargs):
@@ -40,4 +52,4 @@ def get_legacy_updater(*args, **kwargs):
     
     All existing functionality is preserved but enhanced.
     """
-    return DatabaseUpdater(*args, **kwargs)
+    return get_database_updater(*args, **kwargs)
