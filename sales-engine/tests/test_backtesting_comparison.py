@@ -35,7 +35,7 @@ RESULTS_DIR = Path(__file__).parent / "data" / "backtesting"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports internos
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 
 class BacktestingComparison:
     """Sistema de backtesting para comparar diferentes enfoques de forecasting."""

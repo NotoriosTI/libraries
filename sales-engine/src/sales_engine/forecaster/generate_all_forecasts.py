@@ -10,10 +10,9 @@ como limpias para análisis posterior.
 import sys
 import os
 import argparse
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 import pandas as pd
-import numpy as np
 import psycopg2
 import psycopg2.extras
 from contextlib import contextmanager
@@ -24,248 +23,11 @@ import structlog
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Crear directorio de forecasts si no existe
-FORECASTS_DIR = Path("data/forecasts")
+FORECASTS_DIR = Path(__file__).parent / "data" / "forecasts"
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports
-from sales_engine.forecaster import SalesForecaster
-from config_manager import secrets
-
-# Configurar logger
-logger = structlog.get_logger(__name__)
-
-
-class DatabaseForecastUpdater:
-    """
-    Maneja la inserción/actualización de forecasts en la base de datos.
-    Sigue el patrón de DatabaseUpdater del sales-engine.
-    """
-    
-    def __init__(self):
-        """Inicializar el updater de forecasts."""
-        self.config = secrets
-        self.logger = logger.bind(component="forecast_database_updater")
-        self._connection_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
-        
-        self.logger.info(
-            "DatabaseForecastUpdater inicializado",
-            environment=self.config.ENVIRONMENT
-        )
-    
-    def _get_connection_params(self) -> Dict[str, Any]:
-        """Obtener parámetros de conexión de la base de datos."""
-        try:
-            db_config = self.config.get_database_config()
-            db_config['port'] = int(db_config['port'])
-            return db_config
-        except Exception as e:
-            self.logger.error("Error en configuración de base de datos", error=str(e))
-            raise Exception("La configuración de base de datos está incompleta.") from e
-    
-    def _setup_connection_pool(self):
-        """Inicializar pool de conexiones de base de datos."""
-        if self._connection_pool:
-            return
-            
-        try:
-            params = self._get_connection_params()
-            self._connection_pool = psycopg2.pool.ThreadedConnectionPool(
-                minconn=2, maxconn=10, connect_timeout=30, **params
-            )
-            self.logger.info(
-                "Pool de conexiones de base de datos creado", 
-                host=params.get('host'), 
-                database=params.get('database')
-            )
-        except Exception as e:
-            self.logger.error("Error al crear pool de conexiones", error=str(e))
-            raise Exception("Error al crear pool de conexiones.") from e
-    
-    @contextmanager
-    def get_connection(self):
-        """Context manager para conexiones pooled de base de datos."""
-        if not self._connection_pool:
-            self._setup_connection_pool()
-
-        conn = None
-        try:
-            conn = self._connection_pool.getconn()
-            yield conn
-            conn.commit()
-        except psycopg2.Error as e:
-            if conn:
-                conn.rollback()
-            self.logger.error("Transacción de base de datos falló", error=str(e))
-            raise Exception("Transacción de base de datos falló.") from e
-        finally:
-            if conn:
-                self._connection_pool.putconn(conn)
-    
-    def _ensure_forecast_table_exists(self):
-        """Crear tabla forecast si no existe."""
-        create_table_sql = """
-        CREATE TABLE IF NOT EXISTS forecast (
-            sku VARCHAR(50) NOT NULL,
-            forecast_date DATE NOT NULL,
-            forecasted_quantity INTEGER NOT NULL,
-            year INTEGER NOT NULL,
-            month INTEGER NOT NULL,
-            month_name VARCHAR(20) NOT NULL,
-            quarter VARCHAR(5) NOT NULL,
-            week_of_year INTEGER NOT NULL,
-            total_forecast_12_months INTEGER,
-            avg_monthly_forecast DECIMAL(10,2),
-            std_dev DECIMAL(10,2),
-            min_monthly_forecast INTEGER,
-            max_monthly_forecast INTEGER,
-            months_forecasted INTEGER,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (sku, forecast_date)
-        );
-        """
-        
-        # Crear función trigger para updated_at
-        create_trigger_function_sql = """
-        CREATE OR REPLACE FUNCTION update_forecast_updated_at_column()
-        RETURNS TRIGGER AS $$
-        BEGIN
-            NEW.updated_at = CURRENT_TIMESTAMP;
-            RETURN NEW;
-        END;
-        $$ language 'plpgsql';
-        """
-        
-        # Crear trigger
-        create_trigger_sql = """
-        DROP TRIGGER IF EXISTS update_forecast_updated_at ON forecast;
-        CREATE TRIGGER update_forecast_updated_at
-            BEFORE UPDATE ON forecast
-            FOR EACH ROW EXECUTE FUNCTION update_forecast_updated_at_column();
-        """
-        
-        # Crear índices
-        create_indexes_sql = [
-            "CREATE INDEX IF NOT EXISTS idx_forecast_sku ON forecast (sku);",
-            "CREATE INDEX IF NOT EXISTS idx_forecast_date ON forecast (forecast_date);",
-            "CREATE INDEX IF NOT EXISTS idx_forecast_created_at ON forecast (created_at);",
-            "CREATE INDEX IF NOT EXISTS idx_forecast_updated_at ON forecast (updated_at);"
-        ]
-        
-        try:
-            with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    # Crear tabla
-                    cursor.execute(create_table_sql)
-                    self.logger.info("Tabla forecast verificada/creada")
-                    
-                    # Crear función trigger
-                    cursor.execute(create_trigger_function_sql)
-                    
-                    # Crear trigger
-                    cursor.execute(create_trigger_sql)
-                    
-                    # Crear índices
-                    for index_sql in create_indexes_sql:
-                        cursor.execute(index_sql)
-                    
-                    self.logger.info("Tabla forecast y estructuras auxiliares creadas exitosamente")
-                    
-        except Exception as e:
-            self.logger.error("Error creando tabla forecast", error=str(e))
-            raise Exception(f"Error creando tabla forecast: {str(e)}") from e
-    
-    def upsert_forecasts(self, df_with_stats: pd.DataFrame) -> Dict[str, int]:
-        """
-        Insertar o actualizar forecasts en la base de datos usando UPSERT.
-        
-        Args:
-            df_with_stats: DataFrame con forecasts y estadísticas
-            
-        Returns:
-            Dict con contadores de registros insertados/actualizados
-        """
-        self._ensure_forecast_table_exists()
-        
-        upsert_sql = """
-        INSERT INTO forecast (
-            sku, forecast_date, forecasted_quantity, year, month, month_name,
-            quarter, week_of_year, total_forecast_12_months, avg_monthly_forecast,
-            std_dev, min_monthly_forecast, max_monthly_forecast, months_forecasted
-        ) VALUES (
-            %(sku)s, %(forecast_date)s, %(forecasted_quantity)s, %(year)s, %(month)s,
-            %(month_name)s, %(quarter)s, %(week_of_year)s, %(total_forecast_12_months)s,
-            %(avg_monthly_forecast)s, %(std_dev)s, %(min_monthly_forecast)s,
-            %(max_monthly_forecast)s, %(months_forecasted)s
-        )
-        ON CONFLICT (sku, forecast_date) 
-        DO UPDATE SET
-            forecasted_quantity = EXCLUDED.forecasted_quantity,
-            year = EXCLUDED.year,
-            month = EXCLUDED.month,
-            month_name = EXCLUDED.month_name,
-            quarter = EXCLUDED.quarter,
-            week_of_year = EXCLUDED.week_of_year,
-            total_forecast_12_months = EXCLUDED.total_forecast_12_months,
-            avg_monthly_forecast = EXCLUDED.avg_monthly_forecast,
-            std_dev = EXCLUDED.std_dev,
-            min_monthly_forecast = EXCLUDED.min_monthly_forecast,
-            max_monthly_forecast = EXCLUDED.max_monthly_forecast,
-            months_forecasted = EXCLUDED.months_forecasted,
-            updated_at = CURRENT_TIMESTAMP
-        """
-        
-        try:
-            with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    # Convertir DataFrame a lista de diccionarios
-                    records = df_with_stats.to_dict('records')
-                    
-                    # Ejecutar upserts en lotes
-                    batch_size = 1000
-                    total_processed = 0
-                    
-                    for i in range(0, len(records), batch_size):
-                        batch = records[i:i + batch_size]
-                        
-                        # Ejecutar batch
-                        psycopg2.extras.execute_batch(
-                            cursor, upsert_sql, batch, page_size=batch_size
-                        )
-                        
-                        total_processed += len(batch)
-                        
-                        self.logger.info(
-                            f"Batch procesado",
-                            processed=total_processed,
-                            total=len(records),
-                            batch_size=len(batch)
-                        )
-                    
-                    # Obtener estadísticas finales
-                    cursor.execute("SELECT COUNT(*) FROM forecast")
-                    total_records = cursor.fetchone()[0]
-                    
-                    cursor.execute("SELECT COUNT(DISTINCT sku) FROM forecast")
-                    unique_skus = cursor.fetchone()[0]
-                    
-                    result = {
-                        'total_processed': total_processed,
-                        'total_records_in_db': total_records,
-                        'unique_skus_in_db': unique_skus
-                    }
-                    
-                    self.logger.info(
-                        "Forecasts guardados en base de datos exitosamente",
-                        **result
-                    )
-                    
-                    return result
-                    
-        except Exception as e:
-            self.logger.error("Error guardando forecasts en base de datos", error=str(e))
-            raise Exception(f"Error guardando forecasts: {str(e)}") from e
-
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 
 def generate_all_forecasts():
     """Generar forecasts para todos los productos."""
@@ -274,16 +36,18 @@ def generate_all_forecasts():
     print("=" * 60)
     
     try:
-        # Habilitar validación mejorada de ciclo de vida
-        forecaster = SalesForecaster(enable_lifecycle_validation=True)
-        print("📊 Iniciando proceso de forecasting para todos los SKUs (con validación de ciclo de vida mejorada)...")
-        # Generar forecasts para todos los productos
-        all_forecasts = forecaster.run_forecasting_for_all_skus()
-        if not all_forecasts:
-            print("❌ No se generaron forecasts")
-            return None
-        print(f"✅ Forecasts generados para {len(all_forecasts)} productos")
-        return all_forecasts
+        with SalesForecaster() as forecaster:
+            print("📊 Iniciando proceso de forecasting para todos los SKUs...")
+            
+            # Generar forecasts para todos los productos
+            all_forecasts = forecaster.run_forecasting_for_all_skus()
+            
+            if not all_forecasts:
+                print("❌ No se generaron forecasts")
+                return None
+            
+            print(f"✅ Forecasts generados para {len(all_forecasts)} productos")
+            return all_forecasts
             
     except Exception as e:
         print(f"❌ Error generando forecasts: {str(e)}")
@@ -499,69 +263,12 @@ def show_quality_analysis(df, summary_df):
 
 
 
-def parse_arguments():
-    """Parsear argumentos de línea de comandos."""
-    parser = argparse.ArgumentParser(
-        description='Generador de Forecasts para Todos los Productos',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Modos disponibles:
-  db      - Guardar forecasts en base de datos (default)
-  report  - Generar archivos CSV de reporte
-
-Ejemplos:
-  python generate_all_forecasts.py --mode db
-  python generate_all_forecasts.py --mode report
-        """
-    )
-    
-    parser.add_argument(
-        '--mode',
-        choices=['db', 'report'],
-        default='db',
-        help='Modo de operación: "db" para base de datos, "report" para archivos CSV (default: db)'
-    )
-    
-    return parser.parse_args()
-
-
-def save_to_database(df_with_stats: pd.DataFrame) -> Dict[str, int]:
-    """Guardar forecasts en base de datos."""
-    print("\n" + "="*70)
-    print("💾 GUARDANDO EN BASE DE DATOS")
-    print("="*70)
-    
-    try:
-        db_updater = DatabaseForecastUpdater()
-        result = db_updater.upsert_forecasts(df_with_stats)
-        
-        print(f"✅ Forecasts guardados en base de datos exitosamente")
-        print(f"   📊 Registros procesados: {result['total_processed']:,}")
-        print(f"   🗄️  Total registros en DB: {result['total_records_in_db']:,}")
-        print(f"   📦 SKUs únicos en DB: {result['unique_skus_in_db']:,}")
-        
-        return result
-        
-    except Exception as e:
-        print(f"❌ Error guardando en base de datos: {str(e)}")
-        raise
-
-
 def main():
-    """Función principal con soporte para múltiples modos."""
+    """Función principal con limpieza integrada."""
     
-    # Parsear argumentos
-    args = parse_arguments()
-    
-    print("🎯 Generador de Forecasts - Todos los Productos")
+    print("🎯 Generador de Forecasts - Todos los Productos (con Limpieza)")
     print("=" * 70)
-    print(f"📋 Modo seleccionado: {args.mode.upper()}")
-    
-    if args.mode == 'report':
-        print(f"📁 Los archivos CSV se guardarán en: {FORECASTS_DIR}")
-    else:
-        print(f"🗄️  Los forecasts se guardarán en la base de datos")
-    
+    print(f"📁 Los archivos CSV se guardarán en: {FORECASTS_DIR}")
     print("=" * 70)
     
     try:
@@ -582,65 +289,40 @@ def main():
         # 3. Agregar estadísticas
         df_with_stats, sku_stats = add_summary_statistics(df)
         
-        # 4. Proceso según el modo seleccionado
-        if args.mode == 'db':
-            # Modo Base de Datos
-            save_result = save_to_database(df_with_stats)
-            
-            # Mostrar resúmenes
-            show_forecast_overview(df)
-            show_top_products(sku_stats)
-            
-            # 5. RESUMEN FINAL - Modo DB
-            print(f"\n" + "="*70)
-            print("✅ PROCESO COMPLETADO EXITOSAMENTE!")
-            print("="*70)
-            
-            print(f"\n🗄️  Forecasts guardados en base de datos:")
-            print(f"   📊 Registros procesados: {save_result['total_processed']:,}")
-            print(f"   🗄️  Total registros en DB: {save_result['total_records_in_db']:,}")
-            print(f"   📦 SKUs únicos en DB: {save_result['unique_skus_in_db']:,}")
-            
-            print(f"\n💡 Uso de los datos:")
-            print(f"   🎯 Forecasts disponibles para consulta en la tabla 'forecast'")
-            print(f"   📊 Listos para análisis de negocio y toma de decisiones")
-            print(f"   ✅ Actualizados automáticamente con timestamp")
-            
-        else:
-            # Modo Reporte (CSV)
-            print("\n" + "="*70)
-            print("📊 EXPORTANDO FORECASTS")
-            print("="*70)
-            
-            files_created = export_to_csv(df_with_stats, sku_stats)
-            
-            # Mostrar resúmenes
-            show_forecast_overview(df)
-            show_top_products(sku_stats)
-            
-            # Análisis de calidad (solo informativo)
-            print("\n" + "="*70)
-            print("📊 ANÁLISIS DE CALIDAD DE FORECASTS")
-            print("="*70)
-            
-            # Solo mostrar estadísticas descriptivas, sin limpiar
-            show_quality_analysis(df_with_stats, sku_stats)
-            
-            # RESUMEN FINAL - Modo Report
-            print(f"\n" + "="*70)
-            print("✅ PROCESO COMPLETADO EXITOSAMENTE!")
-            print("="*70)
-            
-            print(f"\n📁 Archivos de Forecasts:")
-            for file_type, filename in files_created.items():
-                print(f"   • {filename}")
-            
-            print(f"\n📍 Ubicación de archivos: {FORECASTS_DIR}")
-            print(f"\n💡 Uso de los archivos:")
-            print(f"   📊 Forecasts validados individualmente por SKU")
-            print(f"   🎯 Listos para análisis de negocio y toma de decisiones")
-            print(f"   ✅ Sin distorsión por limpieza global artificial")
-            print(f"   📈 Cada producto respeta sus patrones históricos específicos")
+        # 4. Exportar archivos de forecasts
+        print("\n" + "="*70)
+        print("📊 EXPORTANDO FORECASTS")
+        print("="*70)
+        
+        files_created = export_to_csv(df_with_stats, sku_stats)
+        
+        # 5. Mostrar resúmenes originales
+        show_forecast_overview(df)
+        show_top_products(sku_stats)
+        
+        # 6. ANÁLISIS DE CALIDAD (Solo informativo)
+        print("\n" + "="*70)
+        print("📊 ANÁLISIS DE CALIDAD DE FORECASTS")
+        print("="*70)
+        
+        # Solo mostrar estadísticas descriptivas, sin limpiar
+        show_quality_analysis(df_with_stats, sku_stats)
+        
+        # 7. RESUMEN FINAL
+        print(f"\n" + "="*70)
+        print("✅ PROCESO COMPLETADO EXITOSAMENTE!")
+        print("="*70)
+        
+        print(f"\n📁 Archivos de Forecasts:")
+        for file_type, filename in files_created.items():
+            print(f"   • {filename}")
+        
+        print(f"\n📍 Ubicación de archivos: {FORECASTS_DIR}")
+        print(f"\n💡 Uso de los archivos:")
+        print(f"   📊 Forecasts validados individualmente por SKU")
+        print(f"   🎯 Listos para análisis de negocio y toma de decisiones")
+        print(f"   ✅ Sin distorsión por limpieza global artificial")
+        print(f"   📈 Cada producto respeta sus patrones históricos específicos")
         
         return 0
         

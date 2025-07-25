@@ -15,13 +15,8 @@ dependencies = [
     "structlog>=24.0.0",
     "openai>=1.0.0",
     "pgvector>=0.2.0",
-<<<<<<< HEAD
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
-=======
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@feature-restock-tool#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@feature-restock-tool#subdirectory=config-manager",
->>>>>>> e69f0af (Rebase conflict)
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@feature/restock-tool#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@feature/restock-tool#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
