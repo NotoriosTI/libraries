@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 TARGET_SKU = "5958"
 
 # Imports
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 from sales_engine.db_client import DatabaseReader
 
 def responder_pregunta_usuario():

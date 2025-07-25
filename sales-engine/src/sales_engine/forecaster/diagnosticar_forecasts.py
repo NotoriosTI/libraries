@@ -17,7 +17,7 @@ from datetime import date, timedelta
 # Agregar src al path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 
 def analizar_datos_historicos():
     """Analizar calidad de datos históricos."""
