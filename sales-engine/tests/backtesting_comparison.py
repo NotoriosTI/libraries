@@ -394,35 +394,99 @@ class BacktestingComparison:
             print(f"    ❌ Error Linear mismo mes: {str(e)}")
             return None
     
-    def run_backtesting_for_sku(self, sku: str, data: pd.DataFrame) -> Dict[str, Any]:
-        """Ejecutar backtesting para un SKU específico."""
+    def add_covid_flag(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Agrega la variable exógena covid_flag=1 entre 2020-01 y 2023-06, 0 en el resto."""
+        df = df.copy()
+        df['covid_flag'] = 0
+        covid_start = pd.Timestamp('2020-01-01')
+        covid_end = pd.Timestamp('2023-06-30')
+        mask = (df['month'] >= covid_start) & (df['month'] <= covid_end)
+        df.loc[mask, 'covid_flag'] = 1
+        return df
+
+    def forecast_sarimax_all_months(self, train_data: pd.DataFrame, steps: int = 12) -> Optional[pd.Series]:
+        """SARIMAX usando todos los meses y covid_flag como exógena."""
+        try:
+            ts = train_data.set_index('month')['total_quantity'].asfreq('ME', fill_value=0)
+            exog = train_data.set_index('month')['covid_flag'].asfreq('ME', fill_value=0)
+            if len(ts) < 24:
+                return None
+            model = sm.tsa.statespace.SARIMAX(
+                ts,
+                exog=exog,
+                order=(0, 1, 1),
+                seasonal_order=(0, 1, 1, 12),
+                enforce_stationarity=True,
+                enforce_invertibility=True
+            )
+            results = model.fit(disp=False, maxiter=50)
+            if not results.mle_retvals['converged']:
+                return None
+            # Exógena futura: 0 si se asume sin covid
+            exog_future = pd.Series([0]*steps, index=pd.date_range(ts.index[-1]+pd.offsets.MonthEnd(1), periods=steps, freq='M'))
+            forecast = results.get_forecast(steps=steps, exog=exog_future)
+            predicted_values = forecast.predicted_mean
+            historical_max = ts.max()
+            upper_limit = max(historical_max * 2, 50)
+            predicted_values = predicted_values.clip(lower=0, upper=upper_limit)
+            return predicted_values.round().astype(int)
+        except Exception as e:
+            print(f"    ❌ Error SARIMAX todos los meses: {str(e)}")
+            return None
+
+    def forecast_sarimax_same_month(self, train_data: pd.DataFrame, target_month: int) -> Optional[float]:
+        """SARIMAX usando solo el mismo mes histórico y covid_flag como exógena."""
+        try:
+            same_month_data = train_data[train_data['month'].dt.month == target_month].copy()
+            same_month_data = same_month_data.sort_values('month')
+            if len(same_month_data) < 5:
+                return None
+            ts = same_month_data.set_index('month')['total_quantity']
+            exog = same_month_data.set_index('month')['covid_flag']
+            model = sm.tsa.statespace.SARIMAX(
+                ts,
+                exog=exog,
+                order=(1, 1, 1),
+                enforce_stationarity=True,
+                enforce_invertibility=True
+            )
+            results = model.fit(disp=False, maxiter=50)
+            if not results.mle_retvals['converged']:
+                return None
+            exog_future = pd.Series([0], index=[ts.index[-1] + pd.offsets.MonthEnd(1)])
+            forecast = results.get_forecast(steps=1, exog=exog_future)
+            predicted_value = forecast.predicted_mean.iloc[0]
+            historical_max = ts.max()
+            upper_limit = max(historical_max * 2, 5)
+            predicted_value = max(0, min(predicted_value, upper_limit))
+            return round(predicted_value)
+        except Exception as e:
+            print(f"    ❌ Error SARIMAX mismo mes: {str(e)}")
+            return None
+
+    def run_backtesting_for_sku(self, sku: str, data: pd.DataFrame) -> dict:
         sku_data = data[data['sku'] == sku].copy()
         sku_data = sku_data.sort_values('month').reset_index(drop=True)
-        
+        sku_data = self.add_covid_flag(sku_data)
         results = {
             'sku': sku,
             'predictions': {},
             'actuals': {},
             'errors': {}
         }
-        
         for test_year in self.test_years:
-            # Dividir datos en entrenamiento y prueba
             train_data = sku_data[sku_data['month'].dt.year < test_year].copy()
             test_data = sku_data[sku_data['month'].dt.year == test_year].copy()
-            
             if len(train_data) < 24 or len(test_data) == 0:
                 continue
-            
-            # Predicciones para cada mes del año de prueba
+            train_data = self.add_covid_flag(train_data)
+            test_data = self.add_covid_flag(test_data)
             year_predictions = {}
             year_actuals = {}
-            
             for _, test_row in test_data.iterrows():
                 target_month = test_row['month'].month
                 target_year = test_row['month'].year
                 actual_value = test_row['total_quantity']
-                
                 # SARIMA todos los meses
                 if test_year not in year_predictions:
                     sarima_all_forecast = self.forecast_sarima_all_months(train_data, 12)
@@ -431,97 +495,82 @@ class BacktestingComparison:
                         for i, pred in enumerate(sarima_all_forecast):
                             month_num = ((target_month - 1 + i) % 12) + 1
                             year_predictions['sarima_all'][month_num] = pred
-                
                 pred_sarima_all = year_predictions.get('sarima_all', {}).get(target_month, None)
-                
                 # SARIMA mismo mes
                 pred_sarima_same = self.forecast_sarima_same_month(train_data, target_month)
-                
                 # Linear todos los meses
                 pred_linear_all = self.forecast_linear_all_months(train_data, target_month, target_year)
-                
                 # Linear mismo mes
                 pred_linear_same = self.forecast_linear_same_month(train_data, target_month, target_year)
-                
+                # SARIMAX todos los meses
+                if test_year not in year_predictions:
+                    sarimax_all_forecast = self.forecast_sarimax_all_months(train_data, 12)
+                    year_predictions['sarimax_all'] = {}
+                    if sarimax_all_forecast is not None:
+                        for i, pred in enumerate(sarimax_all_forecast):
+                            month_num = ((target_month - 1 + i) % 12) + 1
+                            year_predictions['sarimax_all'][month_num] = pred
+                pred_sarimax_all = year_predictions.get('sarimax_all', {}).get(target_month, None)
+                # SARIMAX mismo mes
+                pred_sarimax_same = self.forecast_sarimax_same_month(train_data, target_month)
                 # Guardar resultados
                 month_key = f"{target_year}-{target_month:02d}"
-                
                 year_predictions[month_key] = {
                     'sarima_all': pred_sarima_all,
                     'sarima_same': pred_sarima_same,
                     'linear_all': pred_linear_all,
-                    'linear_same': pred_linear_same
+                    'linear_same': pred_linear_same,
+                    'sarimax_all': pred_sarimax_all,
+                    'sarimax_same': pred_sarimax_same
                 }
-                
                 year_actuals[month_key] = actual_value
-            
             results['predictions'].update(year_predictions)
             results['actuals'].update(year_actuals)
-        
         return results
-    
-    def calculate_metrics(self, results: List[Dict[str, Any]]) -> pd.DataFrame:
-        """Calcular métricas de error para todos los modelos."""
+
+    def calculate_metrics(self, results: list) -> pd.DataFrame:
         print("\n📊 Calculando métricas de error...")
-        
         all_predictions = {
             'sarima_all': [],
             'sarima_same': [],
             'linear_all': [],
-            'linear_same': []
+            'linear_same': [],
+            'sarimax_all': [],
+            'sarimax_same': []
         }
         all_actuals = []
-        
-        # Recopilar todas las predicciones y valores reales
         for sku_result in results:
             for month_key, actual in sku_result['actuals'].items():
                 if month_key in sku_result['predictions']:
                     preds = sku_result['predictions'][month_key]
-                    
                     all_actuals.append(actual)
-                    
                     for model_name in all_predictions.keys():
                         pred_value = preds.get(model_name)
-                        if pred_value is not None and not np.isnan(pred_value):
+                        if pred_value is not None and not pd.isna(pred_value):
                             all_predictions[model_name].append(pred_value)
                         else:
                             all_predictions[model_name].append(np.nan)
-        
-        # Calcular métricas para cada modelo
         metrics_data = []
-        
         for model_name, predictions in all_predictions.items():
-            # Filtrar valores válidos
             valid_indices = ~(np.isnan(predictions) | np.isnan(all_actuals))
             valid_preds = np.array(predictions)[valid_indices]
             valid_actuals = np.array(all_actuals)[valid_indices]
-            
             if len(valid_preds) == 0:
                 continue
-            
-            # Calcular métricas
             mae = mean_absolute_error(valid_actuals, valid_preds)
             mse = mean_squared_error(valid_actuals, valid_preds)
             rmse = np.sqrt(mse)
-            
-            # MAPE (evitar división por cero)
             valid_actuals_nonzero = valid_actuals[valid_actuals != 0]
             valid_preds_nonzero = valid_preds[valid_actuals != 0]
-            
             if len(valid_actuals_nonzero) > 0:
                 mape = mean_absolute_percentage_error(valid_actuals_nonzero, valid_preds_nonzero) * 100
             else:
                 mape = np.nan
-            
-            # Variabilidad (desviación estándar de errores absolutos)
             abs_errors = np.abs(valid_actuals - valid_preds)
             variability = np.std(abs_errors)
-            
-            # R² (coeficiente de determinación)
             ss_tot = np.sum((valid_actuals - np.mean(valid_actuals)) ** 2)
             ss_res = np.sum((valid_actuals - valid_preds) ** 2)
             r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else np.nan
-            
             metrics_data.append({
                 'model': model_name,
                 'n_predictions': len(valid_preds),
@@ -532,7 +581,6 @@ class BacktestingComparison:
                 'variability': variability,
                 'r2': r2
             })
-        
         metrics_df = pd.DataFrame(metrics_data)
         return metrics_df
     
