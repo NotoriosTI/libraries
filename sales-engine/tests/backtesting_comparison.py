@@ -28,10 +28,10 @@ import statsmodels.api as sm
 warnings.filterwarnings('ignore')
 
 # Agregar src al path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Crear directorio de resultados
-RESULTS_DIR = Path(__file__).parent / "data" / "backtesting"
+RESULTS_DIR = Path(__file__).parent.parent / "data" / "backtesting"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports internos
@@ -57,10 +57,28 @@ class BacktestingComparison:
         """Obtener y preparar datos históricos."""
         print("\n📥 Obteniendo datos históricos...")
         
-        # Obtener datos usando el forecaster existente
+        # Intentar obtener datos usando el forecaster existente
         historical_data = self.forecaster.get_historical_sales_data()
         if historical_data is None:
-            raise ValueError("No se pudieron obtener datos históricos")
+            print("⚠️  No se pudo conectar a la base de datos. Intentando cargar ../data/historical_data.csv ...")
+            csv_path = Path(__file__).parent.parent / "data" / "historical_data.csv"
+            if not csv_path.exists():
+                raise ValueError(f"No se pudieron obtener datos históricos ni encontrar el archivo {csv_path}")
+            # Leer sin encabezado
+            raw_df = pd.read_csv(csv_path, header=None)
+            # Asignar nombres de columna (18 columnas)
+            raw_df.columns = [
+                'col1', 'col2', 'col3', 'col4', 'col5', 'col6', 'col7', 'col8', 'col9',
+                'col10', 'col11', 'col12', 'product_name', 'sku', 'quantity', 'col16', 'issueddate', 'col18'
+            ]
+            # Extraer solo las columnas relevantes
+            historical_data = raw_df[['issueddate', 'sku', 'quantity']].copy()
+            historical_data.rename(columns={'sku': 'items_product_sku', 'quantity': 'items_quantity'}, inplace=True)
+            historical_data['issueddate'] = pd.to_datetime(historical_data['issueddate'])
+            # Asegurar tipos
+            historical_data['items_product_sku'] = historical_data['items_product_sku'].astype(str)
+            historical_data['items_quantity'] = pd.to_numeric(historical_data['items_quantity'], errors='coerce').fillna(0).astype(int)
+            print(f"✅ Datos cargados desde CSV: {len(historical_data)} registros")
         
         # Preparar series temporales mensuales
         monthly_data = self.forecaster.prepare_monthly_time_series(historical_data)
