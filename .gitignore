@@ -4,11 +4,7 @@ DS_Store
 __pycache__/
 .cursor
 poetry.lock
-<<<<<<< HEAD
 *.toml.backup
-=======
 /sales-engine/tests
 /sales-engine/forecaster
-/sales-engine/data
->>>>>>> e69f0af (Rebase conflict)
 *.csv
