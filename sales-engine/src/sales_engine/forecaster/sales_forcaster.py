@@ -65,7 +65,8 @@ class SalesForecaster:
         FROM
             sales_items
         WHERE
-            items_quantity > 0;
+            items_quantity > 0
+            AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones');
         """
         try:
             # Usamos el pool de conexiones de DatabaseUpdater
@@ -191,6 +192,9 @@ class SalesForecaster:
             if original_max > upper_limit:
                 self.logger.info(f"SKU {sku_ts.name}: Limited forecast from {original_max:.0f} to {upper_limit:.0f}")
             
+            # 🚨 NUEVA VALIDACIÓN: Límite de 40% de variación entre meses consecutivos
+            predicted_values = self._apply_month_to_month_variation_limit(sku_ts, predicted_values, max_variation=0.40)
+            
             # Conversión segura a enteros
             predicted_values = predicted_values.round().astype(int)
             
@@ -210,6 +214,66 @@ class SalesForecaster:
             else:
                 self.logger.error(f"Failed to generate forecast for SKU {sku_ts.name}: {error_type} - {str(e)}")
             return None
+
+    def _apply_month_to_month_variation_limit(self, historical_ts: pd.Series, predicted_values: pd.Series, max_variation: float = 0.40) -> pd.Series:
+        """
+        Aplica un límite de variación entre meses consecutivos para evitar saltos extremos.
+        
+        Args:
+            historical_ts: Serie temporal histórica para obtener el último valor real
+            predicted_values: Predicciones generadas por el modelo
+            max_variation: Variación máxima permitida (0.40 = 40%)
+            
+        Returns:
+            Serie de predicciones suavizada con límites de variación
+        """
+        if len(predicted_values) == 0:
+            return predicted_values
+            
+        # Crear una copia para modificar
+        smoothed_predictions = predicted_values.copy()
+        
+        # Obtener el último valor histórico como punto de referencia
+        last_historical_value = historical_ts.iloc[-1] if len(historical_ts) > 0 else predicted_values.iloc[0]
+        
+        # Si el último valor histórico es 0, usar la media histórica como referencia
+        if last_historical_value <= 0:
+            last_historical_value = max(historical_ts.mean(), 1)  # Mínimo 1 para evitar división por 0
+        
+        # Aplicar límites secuencialmente, mes por mes
+        previous_value = last_historical_value
+        adjustments_made = 0
+        
+        for i in range(len(smoothed_predictions)):
+            current_prediction = smoothed_predictions.iloc[i]
+            
+            # Calcular límites: +/- max_variation% del valor anterior
+            upper_limit = previous_value * (1 + max_variation)
+            lower_limit = previous_value * (1 - max_variation)
+            
+            # Aplicar límites
+            original_prediction = current_prediction
+            
+            if current_prediction > upper_limit:
+                smoothed_predictions.iloc[i] = upper_limit
+                adjustments_made += 1
+            elif current_prediction < lower_limit:
+                smoothed_predictions.iloc[i] = lower_limit
+                adjustments_made += 1
+            
+            # El valor ajustado se convierte en la referencia para el siguiente mes
+            previous_value = smoothed_predictions.iloc[i]
+        
+        # Log si se hicieron ajustes significativos
+        if adjustments_made > 0:
+            original_max_change = abs(predicted_values.iloc[-1] - last_historical_value) / last_historical_value * 100
+            smoothed_max_change = abs(smoothed_predictions.iloc[-1] - last_historical_value) / last_historical_value * 100
+            
+            self.logger.info(f"SKU {historical_ts.name}: Applied {max_variation:.0%} variation limit - "
+                           f"{adjustments_made} adjustments made. "
+                           f"Max change: {original_max_change:.1f}% → {smoothed_max_change:.1f}%")
+        
+        return smoothed_predictions
 
     def run_forecasting_for_all_skus(self) -> Optional[Dict[str, pd.Series]]:
         """

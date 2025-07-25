@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
 """
-Análisis Específico de Forecasts para Enero 2025
+Análisis de Impacto del Límite de Variación 40% - Enero 2025
 
-Genera forecasts para los SKUs 5851, 6434, 5958 en enero 2025
-usando todos los modelos disponibles y compara con valores reales.
+Evalúa el efecto del límite de variación del 40% entre meses consecutivos
+usando SKUs con diferentes niveles de error histórico:
+
+📈 SKUs de BAJO error (control): 6849, 683411, 6192 
+📉 SKUs PROBLEMÁTICOS (test): 5937, 6012, 6025, 6024, 7057
+⚖️ SKUs de referencia: 5851, 6434, 5958
+
+Modelos incluidos:
+- SARIMA (todos los meses y específico enero) ← CON límite 40%
+- SARIMAX (todos los meses y específico enero) 
+- Regresión lineal (todos los meses y específico enero)
+- Prophet (Facebook's time series forecasting)
+- Forecaster productivo ← CON límite 40%
+- Ensemble adaptativo mejorado (combina múltiples modelos)
+
+🎯 Objetivo: Demostrar que el límite de 40% mejora significativamente
+los SKUs problemáticos sin afectar los SKUs ya buenos.
 """
 
 import sys
@@ -19,8 +34,25 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 import statsmodels.api as sm
 
-# Suprimir warnings de statsmodels
+# 🔇 SILENCIAR LOGS MOLESTOS DE PROPHET Y CMDSTANPY
+import logging
+import os
+
+# Configurar logging ANTES de importar Prophet
+logging.getLogger('prophet').setLevel(logging.CRITICAL)
+logging.getLogger('cmdstanpy').setLevel(logging.CRITICAL)
+logging.getLogger('prophet.plot').setLevel(logging.CRITICAL)
+logging.getLogger('prophet.forecaster').setLevel(logging.CRITICAL)
+logging.getLogger('prophet.models').setLevel(logging.CRITICAL)
+
+# Suprimir también a nivel de sistema
+os.environ['CMDSTANPY_WARN_CHAIN_1'] = '0'
+os.environ['PROPHET_SUPPRESS_LOGS'] = '1'
+
+# Configurar warnings
 warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 # Agregar src al path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -32,16 +64,43 @@ from sales_engine.forecaster.sales_forcaster import SalesForecaster
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from scipy import stats
 
+# Agregar Prophet (con logs ya suprimidos arriba)
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from prophet import Prophet
+    PROPHET_AVAILABLE = True
+    
+    # Segunda ronda de supresión después de importar
+    logging.getLogger('prophet').setLevel(logging.CRITICAL)
+    logging.getLogger('cmdstanpy').setLevel(logging.CRITICAL)
+    
+except ImportError:
+    print("⚠️  Prophet no está disponible. Instalar con: pip install prophet")
+    PROPHET_AVAILABLE = False
+
 class January2025Analyzer:
     """Analizador específico para forecasts de enero 2025."""
     
     def __init__(self, use_test_odoo: bool = False):
         self.use_test_odoo = use_test_odoo
         self.forecaster = SalesForecaster(use_test_odoo=use_test_odoo)
-        self.target_skus = [5851, 6434, 5958]
+        
+        # SKUs originales + SKUs con mejor/peor performance para comparar impacto del límite 40%
+        self.target_skus = [
+            # Originales
+            5851, 6434, 5958,
+            # SKUs con MENOR error (controles - deberían mantener buen performance)
+            6849, 683411, 6192,
+            # SKUs con MAYOR error (problemáticos - deberían mejorar con límite 40%)
+            5937, 6012, 6025, 6024, 7057
+        ]
         
         print("🔍 January2025Analyzer inicializado")
-        print(f"🎯 SKUs objetivo: {self.target_skus}")
+        print(f"🎯 SKUs objetivo: {len(self.target_skus)} SKUs")
+        print(f"   📈 SKUs de bajo error: 6849, 683411, 6192")
+        print(f"   📉 SKUs problemáticos: 5937, 6012, 6025, 6024, 7057")
+        print(f"   🎯 SKUs originales: 5851, 6434, 5958")
     
     def get_data(self) -> pd.DataFrame:
         """Obtener y preparar datos históricos."""
@@ -224,6 +283,369 @@ class January2025Analyzer:
             return round(predicted_value)
         except Exception as e:
             print(f"    ❌ Error SARIMAX mismo mes: {str(e)}")
+            return None
+    
+    def forecast_prophet(self, train_data: pd.DataFrame, steps: int = 1) -> Optional[float]:
+        """Prophet forecasting usando datos mensuales con configuración optimizada."""
+        if not PROPHET_AVAILABLE:
+            return None
+            
+        try:
+            # Preparar datos en formato Prophet
+            prophet_df = train_data[['month', 'total_quantity']].copy()
+            prophet_df = prophet_df.rename(columns={'month': 'ds', 'total_quantity': 'y'})
+            
+            # Prophet necesita al menos 2 puntos de datos
+            if len(prophet_df) < 2:
+                return None
+            
+            # Asegurar que 'ds' sea datetime
+            prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+            
+            # 🚀 CONFIGURACIÓN MEJORADA: Parámetros más flexibles para datos mensuales
+            model = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=False,  # No relevante para datos mensuales
+                daily_seasonality=False,   # No relevante para datos mensuales
+                seasonality_mode='additive',            # 🔧 Cambio: additive es más estable para datos irregulares
+                changepoint_prior_scale=0.15,           # 🔧 Más flexible (era 0.05)
+                seasonality_prior_scale=15,             # 🔧 Más flexibilidad estacional
+                holidays_prior_scale=15,                # 🔧 Más flexibilidad para holidays  
+                mcmc_samples=0,                         # Mantener por velocidad
+                uncertainty_samples=100,                # 🔧 Agregar incertidumbre para mejor calibración
+                interval_width=0.8                      # 🔧 Intervalo de confianza del 80%
+            )
+            
+            # 🚀 MEJORA: Estacionalidad mensual siempre, con orden adaptativo
+            if len(prophet_df) >= 12:  # Al menos 1 año de datos
+                fourier_order = min(3, len(prophet_df) // 8)  # Orden adaptativo
+                model.add_seasonality(name='monthly', period=12, fourier_order=fourier_order)
+            
+            # 🚀 MEJORA: Agregar tendencia trimestral si hay suficientes datos
+            if len(prophet_df) >= 36:  # Al menos 3 años
+                model.add_seasonality(name='quarterly', period=3, fourier_order=2)
+            
+            # Logs ya suprimidos globalmente al inicio del archivo
+            
+            # Entrenar modelo
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model.fit(prophet_df)
+            
+            # Crear fechas futuras - usar el último día del mes para predicciones mensuales
+            last_date = prophet_df['ds'].max()
+            future_dates = []
+            
+            for i in range(1, steps + 1):
+                # Añadir i meses a la última fecha
+                next_date = last_date + pd.DateOffset(months=i)
+                # Asegurar que sea fin de mes
+                next_date = next_date + pd.offsets.MonthEnd(0)
+                future_dates.append(next_date)
+            
+            # Crear dataframe futuro manualmente para mayor control
+            future = pd.DataFrame({'ds': prophet_df['ds'].tolist() + future_dates})
+            
+            # Generar forecast
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                forecast = model.predict(future)
+            
+            # Obtener la predicción para el período futuro
+            predicted_values = forecast['yhat'].iloc[-steps:]
+            
+            # Si solo queremos 1 step, devolver el valor
+            if steps == 1:
+                predicted_value = predicted_values.iloc[0]
+                
+                # 🚀 MEJORA: Límites más inteligentes basados en percentiles
+                historical_max = train_data['total_quantity'].max()
+                historical_mean = train_data['total_quantity'].mean()
+                historical_q95 = train_data['total_quantity'].quantile(0.95)
+                historical_q75 = train_data['total_quantity'].quantile(0.75)
+                
+                # Límite superior más inteligente usando múltiples criterios
+                upper_candidates = [
+                    historical_max * 2.5,      # Basado en máximo histórico
+                    historical_q95 * 3,        # Basado en percentil 95
+                    historical_mean * 8,       # Basado en media (más generoso)
+                    historical_q75 * 4         # Basado en percentil 75
+                ]
+                upper_limit = max(upper_candidates + [50])  # Mínimo absoluto de 50
+                
+                # 🚀 MEJORA: Límite inferior más realista
+                lower_limit = max(0, historical_mean * 0.1)  # Al menos 10% de la media histórica
+                
+                # Aplicar límites más flexibles
+                predicted_value = max(lower_limit, min(predicted_value, upper_limit))
+                
+                return round(predicted_value)
+            else:
+                # Para múltiples steps, devolver serie
+                predicted_values = predicted_values.clip(lower=0)
+                
+                # Aplicar límites a la serie completa con mismo criterio
+                historical_max = train_data['total_quantity'].max()
+                historical_q95 = train_data['total_quantity'].quantile(0.95)
+                upper_limit = max(historical_max * 2.5, historical_q95 * 3, 50)
+                predicted_values = predicted_values.clip(upper=upper_limit)
+                
+                return predicted_values.round().astype(int)
+                
+        except Exception as e:
+            print(f"    ❌ Error Prophet: {str(e)}")
+            return None
+    
+    def forecast_prophet_enhanced(self, train_data: pd.DataFrame, steps: int = 1) -> Optional[float]:
+        """Prophet MEJORADO con detección de outliers y regresores adicionales."""
+        if not PROPHET_AVAILABLE:
+            return None
+            
+        try:
+            # Preparar datos en formato Prophet
+            prophet_df = train_data[['month', 'total_quantity']].copy()
+            prophet_df = prophet_df.rename(columns={'month': 'ds', 'total_quantity': 'y'})
+            
+            if len(prophet_df) < 2:
+                return None
+            
+            prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+            
+            # 🚀 MEJORA: Detección y manejo de outliers ANTES del entrenamiento
+            if len(prophet_df) >= 6:
+                Q1 = prophet_df['y'].quantile(0.25)
+                Q3 = prophet_df['y'].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                
+                # Marcar outliers pero NO eliminarlos (Prophet puede manejarlos)
+                prophet_df['is_outlier'] = (prophet_df['y'] < lower_bound) | (prophet_df['y'] > upper_bound)
+                outlier_count = prophet_df['is_outlier'].sum()
+                
+                if outlier_count > 0:
+                    # Suavizar outliers extremos (no eliminar)
+                    median_val = prophet_df['y'].median()
+                    prophet_df.loc[prophet_df['is_outlier'], 'y'] = (
+                        prophet_df.loc[prophet_df['is_outlier'], 'y'] * 0.7 + median_val * 0.3
+                    )
+            
+            # 🚀 MEJORA: Agregar regresores de tiempo
+            prophet_df['month_num'] = prophet_df['ds'].dt.month
+            prophet_df['quarter'] = prophet_df['ds'].dt.quarter
+            prophet_df['year'] = prophet_df['ds'].dt.year - prophet_df['ds'].dt.year.min()
+            
+            # Configuración Prophet optimizada
+            model = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=False,
+                daily_seasonality=False,
+                seasonality_mode='additive',
+                changepoint_prior_scale=0.2,    # Aún más flexible
+                seasonality_prior_scale=20,     # Más flexibilidad estacional
+                holidays_prior_scale=20,
+                mcmc_samples=0,
+                uncertainty_samples=150,
+                interval_width=0.85,
+                changepoint_range=0.9           # 🔧 Permitir cambios hasta el 90% de los datos
+            )
+            
+            # Agregar regresores
+            model.add_regressor('month_num')
+            model.add_regressor('quarter') 
+            model.add_regressor('year')
+            
+            # Estacionalidad adaptativa
+            if len(prophet_df) >= 12:
+                fourier_order = min(4, len(prophet_df) // 6)  # Más agresivo
+                model.add_seasonality(name='monthly', period=12, fourier_order=fourier_order)
+            
+            if len(prophet_df) >= 24:
+                model.add_seasonality(name='biannual', period=6, fourier_order=2)
+            
+            # Entrenar modelo
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model.fit(prophet_df)
+            
+            # Crear fechas futuras con regresores
+            last_date = prophet_df['ds'].max()
+            future_dates = []
+            
+            for i in range(1, steps + 1):
+                next_date = last_date + pd.DateOffset(months=i)
+                next_date = next_date + pd.offsets.MonthEnd(0)
+                future_dates.append(next_date)
+            
+            # Crear dataframe futuro con regresores
+            future = pd.DataFrame({'ds': prophet_df['ds'].tolist() + future_dates})
+            future['month_num'] = future['ds'].dt.month
+            future['quarter'] = future['ds'].dt.quarter  
+            future['year'] = future['ds'].dt.year - prophet_df['ds'].dt.year.min()
+            
+            # Generar forecast
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                forecast = model.predict(future)
+            
+            # Obtener predicción
+            predicted_values = forecast['yhat'].iloc[-steps:]
+            
+            if steps == 1:
+                predicted_value = predicted_values.iloc[0]
+                
+                # Límites aún más inteligentes
+                historical_stats = {
+                    'max': train_data['total_quantity'].max(),
+                    'mean': train_data['total_quantity'].mean(),
+                    'median': train_data['total_quantity'].median(),
+                    'std': train_data['total_quantity'].std(),
+                    'q95': train_data['total_quantity'].quantile(0.95),
+                    'q75': train_data['total_quantity'].quantile(0.75),
+                    'q25': train_data['total_quantity'].quantile(0.25)
+                }
+                
+                # Límite superior dinámico
+                upper_candidates = [
+                    historical_stats['max'] * 3,                    # Máximo * 3
+                    historical_stats['q95'] * 4,                   # Q95 * 4  
+                    historical_stats['mean'] + 3 * historical_stats['std'],  # Media + 3σ
+                    historical_stats['median'] * 10,               # Mediana * 10
+                ]
+                upper_limit = max(upper_candidates + [100])  # Mínimo de 100
+                
+                # Límite inferior dinámico
+                lower_limit = max(0, historical_stats['q25'] * 0.3)  # Q25 * 0.3
+                
+                # Aplicar límites
+                predicted_value = max(lower_limit, min(predicted_value, upper_limit))
+                
+                return round(predicted_value)
+            else:
+                predicted_values = predicted_values.clip(lower=0)
+                upper_limit = max(train_data['total_quantity'].max() * 3, 100)
+                predicted_values = predicted_values.clip(upper=upper_limit)
+                return predicted_values.round().astype(int)
+                
+        except Exception as e:
+            print(f"    ❌ Error Prophet Enhanced: {str(e)}")
+            return None
+    
+    def forecast_prophet_diagnostic(self, train_data: pd.DataFrame, steps: int = 1) -> Optional[Dict]:
+        """Prophet con diagnóstico completo para identificar problemas."""
+        if not PROPHET_AVAILABLE:
+            return None
+            
+        try:
+            # Preparar datos
+            prophet_df = train_data[['month', 'total_quantity']].copy()
+            prophet_df = prophet_df.rename(columns={'month': 'ds', 'total_quantity': 'y'})
+            
+            if len(prophet_df) < 2:
+                return None
+            
+            prophet_df['ds'] = pd.to_datetime(prophet_df['ds'])
+            
+            print(f"\n🔍 DIAGNÓSTICO PROPHET:")
+            print(f"   📊 Datos de entrada: {len(prophet_df)} puntos")
+            print(f"   📊 Rango valores: {prophet_df['y'].min():.1f} - {prophet_df['y'].max():.1f}")
+            print(f"   📊 Media: {prophet_df['y'].mean():.1f}, Mediana: {prophet_df['y'].median():.1f}")
+            
+            # Modelo Prophet básico (sin regresores)
+            model = Prophet(
+                yearly_seasonality=True,
+                weekly_seasonality=False,
+                daily_seasonality=False,
+                seasonality_mode='additive',
+                changepoint_prior_scale=0.05,  # ⬅️ VOLVER A VALOR CONSERVADOR
+                seasonality_prior_scale=10,
+                mcmc_samples=0,
+                uncertainty_samples=0
+            )
+            
+            # Solo agregar estacionalidad si hay suficientes datos
+            if len(prophet_df) >= 24:
+                model.add_seasonality(name='monthly', period=12, fourier_order=3)
+            
+            # Entrenar modelo
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model.fit(prophet_df)
+            
+            # Crear fechas futuras
+            last_date = prophet_df['ds'].max()
+            future_dates = []
+            
+            for i in range(1, steps + 1):
+                next_date = last_date + pd.DateOffset(months=i)
+                next_date = next_date + pd.offsets.MonthEnd(0)
+                future_dates.append(next_date)
+            
+            future = pd.DataFrame({'ds': prophet_df['ds'].tolist() + future_dates})
+            
+            # Generar forecast
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                forecast = model.predict(future)
+            
+            # Obtener predicción RAW (sin límites)
+            predicted_raw = forecast['yhat'].iloc[-steps].item() if steps == 1 else forecast['yhat'].iloc[-steps:]
+            predicted_lower = forecast['yhat_lower'].iloc[-steps].item() if steps == 1 else forecast['yhat_lower'].iloc[-steps:]
+            predicted_upper = forecast['yhat_upper'].iloc[-steps].item() if steps == 1 else forecast['yhat_upper'].iloc[-steps:]
+            
+            print(f"   🔮 Predicción RAW: {predicted_raw:.1f}")
+            print(f"   📉 Límite inferior: {predicted_lower:.1f}")
+            print(f"   📈 Límite superior: {predicted_upper:.1f}")
+            
+            # Calcular estadísticas históricas
+            historical_stats = {
+                'max': train_data['total_quantity'].max(),
+                'mean': train_data['total_quantity'].mean(),
+                'median': train_data['total_quantity'].median(),
+                'q95': train_data['total_quantity'].quantile(0.95),
+                'q75': train_data['total_quantity'].quantile(0.75),
+                'q25': train_data['total_quantity'].quantile(0.25)
+            }
+            
+            print(f"   📊 Stats históricas - Max: {historical_stats['max']:.1f}, Mean: {historical_stats['mean']:.1f}")
+            
+            # Aplicar límites originales (más restrictivos)
+            upper_limit_orig = max(historical_stats['max'] * 2, historical_stats['mean'] * 5, 10)
+            predicted_limited_orig = max(0, min(predicted_raw, upper_limit_orig))
+            
+            print(f"   🔒 Límite original: {upper_limit_orig:.1f}")
+            print(f"   🔒 Predicción limitada original: {predicted_limited_orig:.1f}")
+            
+            # Aplicar límites mejorados (más flexibles)
+            upper_candidates = [
+                historical_stats['max'] * 2.5,
+                historical_stats['q95'] * 3,
+                historical_stats['mean'] * 8,
+                historical_stats['q75'] * 4
+            ]
+            upper_limit_new = max(upper_candidates + [50])
+            lower_limit = max(0, historical_stats['mean'] * 0.1)
+            predicted_limited_new = max(lower_limit, min(predicted_raw, upper_limit_new))
+            
+            print(f"   🆕 Límite nuevo: {upper_limit_new:.1f}")
+            print(f"   🆕 Predicción limitada nueva: {predicted_limited_new:.1f}")
+            
+            # Sin límites (solo clip negativo)
+            predicted_no_limits = max(0, predicted_raw)
+            print(f"   🆓 Sin límites: {predicted_no_limits:.1f}")
+            
+            return {
+                'raw': round(predicted_raw),
+                'limited_original': round(predicted_limited_orig),
+                'limited_new': round(predicted_limited_new),
+                'no_limits': round(predicted_no_limits),
+                'confidence_lower': round(predicted_lower),
+                'confidence_upper': round(predicted_upper),
+                'stats': historical_stats
+            }
+                
+        except Exception as e:
+            print(f"    ❌ Error Prophet Diagnostic: {str(e)}")
             return None
     
     def create_features_all_months(self, ts_data: pd.DataFrame) -> pd.DataFrame:
@@ -660,6 +1082,32 @@ class January2025Analyzer:
         except Exception as e:
             print(f"   ❌ Error Linear avanzado: {e}")
         
+        # 5. Prophet MEJORADO (peso medio-alto por su robustez)
+        try:
+            if PROPHET_AVAILABLE:
+                # Intentar versión mejorada primero
+                prophet_pred = self.forecast_prophet_enhanced(train_data, steps=1)
+                if prophet_pred is not None:
+                    predictions['prophet'] = prophet_pred
+                    weights['prophet'] = 0.25  # 🚀 Peso aumentado para versión mejorada
+                else:
+                    # Fallback a versión original si falla la mejorada
+                    prophet_pred = self.forecast_prophet(train_data, steps=1)
+                    if prophet_pred is not None:
+                        predictions['prophet'] = prophet_pred
+                        weights['prophet'] = 0.2
+        except Exception as e:
+            print(f"   ❌ Error Prophet: {e}")
+        
+        # Reajustar pesos para incluir Prophet
+        if 'prophet' in predictions:
+            # Reducir ligeramente otros pesos para acomodar Prophet
+            weights['sarima'] = 0.25
+            weights['random_forest'] = 0.2
+            weights['gradient_boosting'] = 0.2
+            weights['linear_advanced'] = 0.15
+            # Prophet mantiene 0.2
+        
         # Calcular ensemble weighted average
         if predictions:
             total_weight = sum(weights[model] for model in predictions.keys())
@@ -783,9 +1231,10 @@ class January2025Analyzer:
                 print(f"   {model_name:<25} {prediction:<12.0f} {'N/A':<8} {'N/A':<10} ⚠️")
     
     def analyze_specific_skus_january_2025(self, data: pd.DataFrame) -> None:
-        """Análisis específico para SKUs 5851, 6434, 5958 en enero 2025."""
+        """Análisis específico para múltiples SKUs en enero 2025 con diferentes niveles de error."""
         print("\n" + "="*80)
-        print("📅 ANÁLISIS ESPECÍFICO: ENERO 2025 - SKUs 5851, 6434, 5958")
+        print("📅 ANÁLISIS ESPECÍFICO: ENERO 2025 - IMPACTO LÍMITE 40%")
+        print("📊 Comparando SKUs de alto/bajo error con límite de variación")
         print("="*80)
         
         with self.forecaster:
@@ -877,7 +1326,19 @@ class January2025Analyzer:
                 
                 self._print_forecast_row("SARIMAX (enero)", pred_sarimax_same, actual_value)
                 
-                # 7. Forecaster productivo
+                # 7. Prophet MEJORADO
+                try:
+                    # Intentar versión mejorada primero
+                    pred_prophet = self.forecast_prophet_enhanced(historical_data, 1)
+                    if pred_prophet is None:
+                        # Fallback a versión original
+                        pred_prophet = self.forecast_prophet(historical_data, 1)
+                except:
+                    pred_prophet = None
+                
+                self._print_forecast_row("Prophet", pred_prophet, actual_value)
+                
+                # 8. Forecaster productivo
                 try:
                     ts_data = historical_data.set_index('month')['total_quantity']
                     prod_forecast = self.forecaster._forecast_single_sku(ts_data, steps=1)
@@ -888,7 +1349,7 @@ class January2025Analyzer:
                 
                 self._print_forecast_row("Productivo", pred_productivo, actual_value)
                 
-                # 8. Ensemble Adaptativo (Modelo Mejorado)
+                # 9. Ensemble Adaptativo (Modelo Mejorado)
                 try:
                     pred_adaptive, strategy = self.adaptive_forecast(sku_data, 1, 2025, verbose=False)
                 except Exception as e:
@@ -907,6 +1368,7 @@ class January2025Analyzer:
                         ("Linear (enero)", pred_linear_same),
                         ("SARIMAX (todos)", pred_sarimax),
                         ("SARIMAX (enero)", pred_sarimax_same),
+                        ("Prophet", pred_prophet),
                         ("Productivo", pred_productivo),
                         ("🚀 Ensemble Adaptativo", pred_adaptive)
                     ]
@@ -962,10 +1424,12 @@ class January2025Analyzer:
     
     def run_analysis(self) -> None:
         """Ejecutar análisis completo."""
-        print("🔍 ANÁLISIS DE FORECASTS PARA ENERO 2025 - MEJORADO")
+        print("🔍 ANÁLISIS DE FORECASTS PARA ENERO 2025 - IMPACTO LÍMITE 40%")
         print("=" * 70)
-        print("SKUs objetivo: 5851, 6434, 5958")
-        print("🚀 Incluye modelo ensemble adaptativo mejorado")
+        print("🎯 SKUs de bajo error: 6849, 683411, 6192 (control)")
+        print("📈 SKUs problemáticos: 5937, 6012, 6025, 6024, 7057 (test)")
+        print("⚖️ SKUs originales: 5851, 6434, 5958 (referencia)")
+        print("🚀 Incluye límite de variación 40% y modelo ensemble")
         print("=" * 70)
         
         try:
@@ -988,10 +1452,11 @@ class January2025Analyzer:
             print("="*70)
             print("\n💡 TÉCNICAS DE MEJORA IMPLEMENTADAS:")
             print("   🧹 Detección y corrección de outliers")
-            print("   🎯 Ensemble de 4 modelos (SARIMA + RF + GB + Linear)")
+            print("   🎯 Ensemble de 5 modelos (SARIMA + RF + GB + Linear + Prophet)")
             print("   📊 Análisis adaptativo de patrones por SKU")
             print("   ⚙️ Feature engineering avanzado (+20 features)")
             print("   🎛️ Ajustes automáticos por estacionalidad/tendencia")
+            print("   🧠 Prophet para modelos de series de tiempo")
             
         except Exception as e:
             print(f"\n❌ Error durante análisis: {str(e)}")
