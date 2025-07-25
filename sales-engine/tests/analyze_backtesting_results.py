@@ -18,7 +18,7 @@ import glob
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
 
-RESULTS_DIR = Path(__file__).parent / "data" / "backtesting"
+RESULTS_DIR = Path(__file__).parent.parent / "data" / "backtesting"
 
 class BacktestingAnalyzer:
     """Analizador de resultados de backtesting."""
