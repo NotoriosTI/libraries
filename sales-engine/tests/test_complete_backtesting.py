@@ -23,11 +23,12 @@ def main():
     
     print("🚀 PROCESO COMPLETO DE BACKTESTING")
     print("=" * 70)
-    print("Comparando 4 enfoques de forecasting:")
+    print("Comparando 5 enfoques de forecasting:")
     print("  1. SARIMA con todos los meses")
     print("  2. SARIMA específico al mes a predecir")
     print("  3. Regresión lineal con todos los meses")
     print("  4. Regresión lineal específica al mes a predecir")
+    print("  5. Forecaster productivo (SalesForecaster real)")
     print("=" * 70)
     
     start_time = time.time()
