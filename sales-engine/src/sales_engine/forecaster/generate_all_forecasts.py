@@ -22,7 +22,7 @@ FORECASTS_DIR = Path(__file__).parent / "data" / "forecasts"
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 
 def generate_all_forecasts():
     """Generar forecasts para todos los productos."""

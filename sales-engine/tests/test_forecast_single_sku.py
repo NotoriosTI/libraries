@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 TARGET_SKU = "5958"
 
 # Imports del sales engine
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 from sales_engine.db_client import DatabaseReader
 
 def test_get_sku_historical_data(sku: str) -> pd.DataFrame:

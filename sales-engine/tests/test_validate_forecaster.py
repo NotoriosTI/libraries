@@ -36,7 +36,7 @@ except ImportError:
     logger = LoggerFallback()
 
 # Import the class we want to validate
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 
 def run_live_validation():
     """

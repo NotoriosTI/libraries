@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 import time
 
-# Add the project root to the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Agregar src al path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 def main():
     """Ejecutar proceso completo de backtesting."""
@@ -37,7 +37,7 @@ def main():
         print("\n🔬 PASO 1: EJECUTANDO BACKTESTING...")
         print("-" * 50)
         
-        from test_backtesting_comparison import BacktestingComparison
+        from backtesting_comparison import BacktestingComparison
         
         backtester = BacktestingComparison()
         metrics_df, all_results = backtester.run_full_backtesting()
@@ -57,7 +57,7 @@ def main():
         print("\n🔍 PASO 2: ANÁLISIS DETALLADO...")
         print("-" * 50)
         
-        from forecaster.analyze_backtesting_results import BacktestingAnalyzer
+        from analyze_backtesting_results import BacktestingAnalyzer
         
         analyzer = BacktestingAnalyzer()
         analyzer.metrics_df = metrics_df
