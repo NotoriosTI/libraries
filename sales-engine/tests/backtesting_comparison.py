@@ -465,15 +465,24 @@ class BacktestingComparison:
             return None
 
     def run_backtesting_for_sku(self, sku: str, data: pd.DataFrame) -> dict:
+        """Ejecutar backtesting para un SKU específico usando todos los enfoques."""
+        results = {}
         sku_data = data[data['sku'] == sku].copy()
-        sku_data = sku_data.sort_values('month').reset_index(drop=True)
+        sku_data = sku_data.sort_values('month')
+        sku_data = sku_data.reset_index(drop=True)
         sku_data = self.add_covid_flag(sku_data)
         results = {
             'sku': sku,
             'predictions': {},
             'actuals': {},
-            'errors': {}
+            'errors': {},
+            'debug_info': {
+                'productivo_success_count': 0,
+                'productivo_total_attempts': 0,
+                'productivo_failures': []
+            }
         }
+        
         for test_year in self.test_years:
             train_data = sku_data[sku_data['month'].dt.year < test_year].copy()
             test_data = sku_data[sku_data['month'].dt.year == test_year].copy()
@@ -481,12 +490,49 @@ class BacktestingComparison:
                 continue
             train_data = self.add_covid_flag(train_data)
             test_data = self.add_covid_flag(test_data)
+            
+            # Calcular forecast productivo para este año usando solo datos de entrenamiento
+            try:
+                train_ts = train_data.set_index('month')['total_quantity']
+                results['debug_info']['productivo_total_attempts'] += 1
+                
+                # Debug: mostrar características de los datos de entrenamiento
+                zero_pct = (train_ts == 0).sum() / len(train_ts)
+                total_sales = train_ts.sum()
+                max_val = train_ts.max()
+                
+                print(f"    🔍 SKU {sku} año {test_year}: train_len={len(train_ts)}, zeros={zero_pct:.1%}, total={total_sales}, max={max_val}")
+                
+                forecast_prod_year = self.forecaster._forecast_single_sku(train_ts)
+                
+                # Extraer forecasts mensuales del año de prueba
+                prod_forecasts_by_month = {}
+                if forecast_prod_year is not None:
+                    results['debug_info']['productivo_success_count'] += 1
+                    for i, forecast_val in enumerate(forecast_prod_year):
+                        # Los forecasts empiezan desde el siguiente mes después del último de entrenamiento
+                        last_train_month = train_data['month'].max()
+                        forecast_month = last_train_month + pd.DateOffset(months=i+1)
+                        if forecast_month.year == test_year:
+                            prod_forecasts_by_month[forecast_month.month] = forecast_val
+                    print(f"    ✅ Productivo exitoso para SKU {sku} año {test_year}")
+                else:
+                    results['debug_info']['productivo_failures'].append(f"año_{test_year}")
+                    print(f"    ❌ Productivo falló para SKU {sku} año {test_year}")
+                    
+            except Exception as e:
+                print(f"    ❌ Error en forecaster productivo para {sku} año {test_year}: {e}")
+                results['debug_info']['productivo_failures'].append(f"año_{test_year}_exception")
+                prod_forecasts_by_month = {}
+            
             year_predictions = {}
             year_actuals = {}
+            
             for _, test_row in test_data.iterrows():
                 target_month = test_row['month'].month
                 target_year = test_row['month'].year
                 actual_value = test_row['total_quantity']
+                
                 # SARIMA todos los meses
                 if test_year not in year_predictions:
                     sarima_all_forecast = self.forecast_sarima_all_months(train_data, 12)
@@ -496,12 +542,16 @@ class BacktestingComparison:
                             month_num = ((target_month - 1 + i) % 12) + 1
                             year_predictions['sarima_all'][month_num] = pred
                 pred_sarima_all = year_predictions.get('sarima_all', {}).get(target_month, None)
+                
                 # SARIMA mismo mes
                 pred_sarima_same = self.forecast_sarima_same_month(train_data, target_month)
+                
                 # Linear todos los meses
                 pred_linear_all = self.forecast_linear_all_months(train_data, target_month, target_year)
+                
                 # Linear mismo mes
                 pred_linear_same = self.forecast_linear_same_month(train_data, target_month, target_year)
+                
                 # SARIMAX todos los meses
                 if test_year not in year_predictions:
                     sarimax_all_forecast = self.forecast_sarimax_all_months(train_data, 12)
@@ -511,8 +561,13 @@ class BacktestingComparison:
                             month_num = ((target_month - 1 + i) % 12) + 1
                             year_predictions['sarimax_all'][month_num] = pred
                 pred_sarimax_all = year_predictions.get('sarimax_all', {}).get(target_month, None)
+                
                 # SARIMAX mismo mes
                 pred_sarimax_same = self.forecast_sarimax_same_month(train_data, target_month)
+                
+                # Forecaster productivo
+                pred_productivo = prod_forecasts_by_month.get(target_month, None)
+                
                 # Guardar resultados
                 month_key = f"{target_year}-{target_month:02d}"
                 year_predictions[month_key] = {
@@ -521,11 +576,14 @@ class BacktestingComparison:
                     'linear_all': pred_linear_all,
                     'linear_same': pred_linear_same,
                     'sarimax_all': pred_sarimax_all,
-                    'sarimax_same': pred_sarimax_same
+                    'sarimax_same': pred_sarimax_same,
+                    'productivo': pred_productivo
                 }
                 year_actuals[month_key] = actual_value
+            
             results['predictions'].update(year_predictions)
             results['actuals'].update(year_actuals)
+        
         return results
 
     def calculate_metrics(self, results: list) -> pd.DataFrame:
@@ -536,7 +594,8 @@ class BacktestingComparison:
             'linear_all': [],
             'linear_same': [],
             'sarimax_all': [],
-            'sarimax_same': []
+            'sarimax_same': [],
+            'productivo': []  # Agregar el forecaster productivo
         }
         all_actuals = []
         for sku_result in results:
@@ -620,6 +679,20 @@ class BacktestingComparison:
         
         print(f"\n✅ Backtesting completado para {len(all_results)} SKUs")
         
+        # Mostrar estadísticas del forecaster productivo
+        total_attempts = sum(r['debug_info']['productivo_total_attempts'] for r in all_results)
+        total_successes = sum(r['debug_info']['productivo_success_count'] for r in all_results)
+        success_rate = total_successes / total_attempts if total_attempts > 0 else 0
+        
+        print(f"\n📊 ESTADÍSTICAS FORECASTER PRODUCTIVO:")
+        print(f"   🎯 Intentos totales: {total_attempts}")
+        print(f"   ✅ Éxitos: {total_successes}")
+        print(f"   📈 Tasa de éxito: {success_rate:.1%}")
+        
+        if success_rate < 0.5:
+            print(f"   ⚠️  ADVERTENCIA: Baja tasa de éxito del forecaster productivo!")
+            print(f"   💡 Esto explica por qué tiene métricas pobres en el backtesting")
+        
         # Calcular métricas
         metrics_df = self.calculate_metrics(all_results)
         
@@ -650,7 +723,10 @@ class BacktestingComparison:
                         'pred_sarima_all': preds.get('sarima_all'),
                         'pred_sarima_same': preds.get('sarima_same'),
                         'pred_linear_all': preds.get('linear_all'),
-                        'pred_linear_same': preds.get('linear_same')
+                        'pred_linear_same': preds.get('linear_same'),
+                        'pred_sarimax_all': preds.get('sarimax_all'),
+                        'pred_sarimax_same': preds.get('sarimax_same'),
+                        'pred_productivo': preds.get('productivo')
                     }
                     detailed_results.append(row)
         
@@ -676,11 +752,12 @@ class BacktestingComparison:
         
         print("\n🏆 RANKING POR VARIABILIDAD (menor es mejor):")
         print("-" * 60)
-        print(f"{'Rank':<4} {'Modelo':<15} {'N':<6} {'Variabilidad':<12} {'MAE':<8} {'RMSE':<8} {'MAPE':<8} {'R²':<8}")
+        print(f"{'Rank':<4} {'Modelo':<20} {'N':<6} {'Variabilidad':<12} {'MAE':<8} {'RMSE':<8} {'MAPE':<8} {'R²':<8}")
         print("-" * 60)
         
         for i, row in metrics_sorted.iterrows():
-            print(f"{i+1:<4} {row['model']:<15} {row['n_predictions']:<6.0f} {row['variability']:<12.2f} {row['mae']:<8.2f} {row['rmse']:<8.2f} {row['mape']:<8.1f}% {row['r2']:<8.3f}")
+            highlight = " ⭐️" if row['model'] == 'productivo' else ""
+            print(f"{i+1:<4} {row['model']:<20}{highlight} {row['n_predictions']:<6.0f} {row['variability']:<12.2f} {row['mae']:<8.2f} {row['rmse']:<8.2f} {row['mape']:<8.1f}% {row['r2']:<8.3f}")
         
         # Mejor modelo
         best_model = metrics_sorted.iloc[0]
@@ -704,22 +781,408 @@ class BacktestingComparison:
             best_linear = linear_models.iloc[0]
             print(f"   📏 Mejor Linear: {best_linear['model']} (variabilidad: {best_linear['variability']:.2f})")
         
+        # Resaltar el modelo productivo
+        prod = metrics_sorted[metrics_sorted['model'] == 'productivo']
+        if not prod.empty:
+            print(f"\n⭐️ Forecaster productivo: Variabilidad={prod.iloc[0]['variability']:.2f}, MAE={prod.iloc[0]['mae']:.2f}, RMSE={prod.iloc[0]['rmse']:.2f}, MAPE={prod.iloc[0]['mape']:.1f}%, R²={prod.iloc[0]['r2']:.3f}")
         print(f"\n💡 INTERPRETACIÓN:")
         print(f"   • Variabilidad mide la consistencia de las predicciones")
         print(f"   • MAE es el error promedio absoluto")
         print(f"   • MAPE es el error porcentual promedio")
         print(f"   • R² indica qué tan bien el modelo explica la varianza")
 
+    def display_january_2025_forecasts(self, detailed_df: pd.DataFrame, skus: list):
+        """Mostrar cómo cada modelo predijo enero 2025 para los SKUs indicados."""
+        print("\n📅 FORECASTS PARA ENERO 2025 (SKUs seleccionados)")
+        print("="*80)
+        
+        # Buscar datos para enero 2025 (2025-01)
+        target_month_key = "2025-01"
+        
+        results_found = False
+        
+        for sku in skus:
+            print(f"\n📦 SKU {sku}:")
+            print("-" * 40)
+            
+            # Filtrar datos para este SKU y enero 2025
+            sku_data = detailed_df[detailed_df['sku'] == str(sku)]
+            january_data = sku_data[sku_data['month'] == target_month_key]
+            
+            if january_data.empty:
+                print(f"   ❌ Sin datos para enero 2025")
+                continue
+                
+            results_found = True
+            actual_value = january_data['actual'].iloc[0]
+            
+            print(f"   📊 Valor real: {actual_value}")
+            print(f"   {'Modelo':<20} {'Forecast':<10} {'Error %':<10}")
+            print("   " + "-" * 40)
+            
+            # Mostrar predicciones de cada modelo
+            models = ['pred_sarima_all', 'pred_sarima_same', 'pred_linear_all', 
+                     'pred_linear_same', 'pred_sarimax_all', 'pred_sarimax_same', 'pred_productivo']
+            model_names = ['SARIMA (todos)', 'SARIMA (mismo)', 'Linear (todos)', 
+                          'Linear (mismo)', 'SARIMAX (todos)', 'SARIMAX (mismo)', 'Productivo']
+            
+            for model_col, model_name in zip(models, model_names):
+                if model_col in january_data.columns:
+                    forecast_val = january_data[model_col].iloc[0]
+                    if pd.notna(forecast_val) and forecast_val is not None:
+                        # Calcular error porcentual
+                        if actual_value != 0:
+                            error_pct = ((forecast_val - actual_value) / actual_value) * 100
+                        else:
+                            error_pct = float('inf') if forecast_val != 0 else 0
+                        
+                        print(f"   {model_name:<20} {forecast_val:<10.0f} {error_pct:<10.1f}%")
+                    else:
+                        print(f"   {model_name:<20} {'N/A':<10} {'N/A':<10}")
+        
+        if not results_found:
+            print("❌ No se encontraron datos para enero 2025 en los SKUs especificados")
+            print("💡 Esto puede indicar que estos SKUs no tuvieron ventas en enero 2025")
+            print("   o que no pasaron los filtros de backtesting")
+            
+            # Mostrar qué SKUs están disponibles
+            available_skus = detailed_df['sku'].unique()
+            print(f"\n📋 SKUs disponibles en el dataset: {list(available_skus)[:10]}...")  # Mostrar primeros 10
+
+    def generate_january_2025_forecasts(self, data: pd.DataFrame, target_skus: List[str]) -> pd.DataFrame:
+        """Generar forecasts para enero 2025 usando todos los datos históricos disponibles."""
+        print("\n🔮 GENERANDO FORECASTS PARA ENERO 2025")
+        print("="*60)
+        
+        results = []
+        
+        with self.forecaster:  # Context manager para el forecaster
+            for sku in target_skus:
+                print(f"\n📦 Procesando SKU {sku}:")
+                
+                sku_data = data[data['sku'] == str(sku)].copy()
+                if sku_data.empty:
+                    print(f"   ❌ SKU {sku} no encontrado en el dataset")
+                    continue
+                    
+                sku_data = sku_data.sort_values('month')
+                sku_data = self.add_covid_flag(sku_data)
+                
+                # Usar todos los datos históricos hasta diciembre 2024
+                all_historical = sku_data[sku_data['month'] <= '2024-12-31'].copy()
+                
+                if len(all_historical) < 24:
+                    print(f"   ❌ SKU {sku}: Datos insuficientes ({len(all_historical)} meses)")
+                    continue
+                
+                # Verificar si tenemos el valor real de enero 2025
+                january_2025_actual = None
+                january_2025_data = sku_data[sku_data['month'] == '2025-01-31']
+                if not january_2025_data.empty:
+                    january_2025_actual = january_2025_data['total_quantity'].iloc[0]
+                    print(f"   📊 Valor real enero 2025: {january_2025_actual}")
+                else:
+                    print(f"   ⚠️  Valor real enero 2025: No disponible")
+                
+                # Generar forecasts con cada modelo
+                forecasts = {}
+                
+                # 1. SARIMA todos los meses
+                try:
+                    sarima_forecast = self.forecast_sarima_all_months(all_historical, 1)
+                    forecasts['SARIMA (todos)'] = sarima_forecast.iloc[0] if sarima_forecast is not None else None
+                except:
+                    forecasts['SARIMA (todos)'] = None
+                
+                # 2. SARIMA mismo mes (enero)
+                try:
+                    forecasts['SARIMA (enero)'] = self.forecast_sarima_same_month(all_historical, 1)
+                except:
+                    forecasts['SARIMA (enero)'] = None
+                
+                # 3. Linear todos los meses
+                try:
+                    forecasts['Linear (todos)'] = self.forecast_linear_all_months(all_historical, 1, 2025)
+                except:
+                    forecasts['Linear (todos)'] = None
+                
+                # 4. Linear mismo mes
+                try:
+                    forecasts['Linear (enero)'] = self.forecast_linear_same_month(all_historical, 1, 2025)
+                except:
+                    forecasts['Linear (enero)'] = None
+                
+                # 5. SARIMAX todos los meses
+                try:
+                    sarimax_forecast = self.forecast_sarimax_all_months(all_historical, 1)
+                    forecasts['SARIMAX (todos)'] = sarimax_forecast.iloc[0] if sarimax_forecast is not None else None
+                except:
+                    forecasts['SARIMAX (todos)'] = None
+                
+                # 6. SARIMAX mismo mes
+                try:
+                    forecasts['SARIMAX (enero)'] = self.forecast_sarimax_same_month(all_historical, 1)
+                except:
+                    forecasts['SARIMAX (enero)'] = None
+                
+                # 7. Forecaster productivo
+                try:
+                    ts_data = all_historical.set_index('month')['total_quantity']
+                    prod_forecast = self.forecaster._forecast_single_sku(ts_data, steps=1)
+                    forecasts['Productivo'] = prod_forecast.iloc[0] if prod_forecast is not None else None
+                except Exception as e:
+                    print(f"   ❌ Error en forecaster productivo: {e}")
+                    forecasts['Productivo'] = None
+                
+                # Crear resultados para este SKU
+                for model_name, forecast_value in forecasts.items():
+                    error_pct = None
+                    if forecast_value is not None and january_2025_actual is not None:
+                        if january_2025_actual != 0:
+                            error_pct = ((forecast_value - january_2025_actual) / january_2025_actual) * 100
+                        else:
+                            error_pct = float('inf') if forecast_value != 0 else 0
+                    
+                    results.append({
+                        'sku': sku,
+                        'modelo': model_name,
+                        'forecast': forecast_value,
+                        'real': january_2025_actual,
+                        'error_pct': error_pct
+                    })
+        
+        return pd.DataFrame(results)
+    
+    def display_january_2025_analysis(self, results_df: pd.DataFrame):
+        """Mostrar análisis detallado de forecasts para enero 2025."""
+        print("\n📊 ANÁLISIS DE FORECASTS ENERO 2025")
+        print("="*80)
+        
+        if results_df.empty:
+            print("❌ No se generaron forecasts para los SKUs solicitados")
+            return
+        
+        for sku in results_df['sku'].unique():
+            sku_data = results_df[results_df['sku'] == sku]
+            
+            print(f"\n📦 SKU {sku}:")
+            print("-" * 50)
+            
+            # Mostrar valor real si existe
+            real_value = sku_data['real'].iloc[0]
+            if pd.notna(real_value):
+                print(f"   📊 Valor real enero 2025: {real_value:.0f} unidades")
+            else:
+                print(f"   ⚠️  Valor real enero 2025: No disponible")
+            
+            print(f"\n   {'Modelo':<20} {'Forecast':<12} {'Error %':<12} {'Estado'}")
+            print("   " + "-" * 55)
+            
+            # Mostrar forecasts ordenados por error absoluto (si hay valor real)
+            if pd.notna(real_value):
+                sku_sorted = sku_data.dropna(subset=['error_pct']).sort_values('error_pct', key=abs)
+            else:
+                sku_sorted = sku_data.dropna(subset=['forecast'])
+            
+            for _, row in sku_sorted.iterrows():
+                model = row['modelo']
+                forecast = row['forecast']
+                error = row['error_pct']
+                
+                if pd.isna(forecast):
+                    print(f"   {model:<20} {'N/A':<12} {'N/A':<12} ❌ Falló")
+                else:
+                    if pd.notna(error):
+                        status = "✅ Bueno" if abs(error) < 20 else "⚠️ Regular" if abs(error) < 50 else "❌ Malo"
+                        print(f"   {model:<20} {forecast:<12.0f} {error:<12.1f}% {status}")
+                    else:
+                        print(f"   {model:<20} {forecast:<12.0f} {'N/A':<12} ⚠️ Sin real")
+            
+            # Mejor modelo para este SKU
+            if pd.notna(real_value):
+                valid_forecasts = sku_sorted.dropna(subset=['error_pct'])
+                if not valid_forecasts.empty:
+                    best_model = valid_forecasts.iloc[0]
+                    print(f"\n   🏆 Mejor modelo: {best_model['modelo']} (error: {best_model['error_pct']:.1f}%)")
+        
+        # Resumen general
+        print(f"\n📈 RESUMEN GENERAL:")
+        print("-" * 30)
+        
+        # Contar éxitos/fallos por modelo
+        model_stats = results_df.groupby('modelo').agg({
+            'forecast': lambda x: x.notna().sum(),  # Forecasts exitosos
+            'error_pct': lambda x: x.notna().sum()   # Errores calculables
+        }).rename(columns={'forecast': 'exitos', 'error_pct': 'con_real'})
+        
+        total_skus = len(results_df['sku'].unique())
+        model_stats['tasa_exito'] = model_stats['exitos'] / total_skus * 100
+        
+        print(f"{'Modelo':<20} {'Éxitos':<8} {'Tasa':<8}")
+        print("-" * 36)
+        for model, stats in model_stats.iterrows():
+            print(f"{model:<20} {stats['exitos']:<8} {stats['tasa_exito']:<8.1f}%")
+        
+        # Promedio de errores (solo si hay valores reales)
+        errors_by_model = results_df.dropna(subset=['error_pct']).groupby('modelo')['error_pct'].agg(['mean', 'std'])
+        if not errors_by_model.empty:
+            print(f"\n📊 ERRORES PROMEDIO (solo SKUs con valor real):")
+            print(f"{'Modelo':<20} {'Error Medio':<12} {'Desv. Est.':<12}")
+            print("-" * 44)
+            for model, stats in errors_by_model.iterrows():
+                print(f"{model:<20} {stats['mean']:<12.1f}% {stats['std']:<12.1f}%")
+
+    def analyze_specific_skus_january_2025(self, data: pd.DataFrame) -> None:
+        """Análisis específico para SKUs 5851, 6434, 5958 en enero 2025."""
+        print("\n" + "="*80)
+        print("📅 ANÁLISIS ESPECÍFICO: ENERO 2025 - SKUs 5851, 6434, 5958")
+        print("="*80)
+        
+        target_skus = [5851, 6434, 5958]
+        
+        with self.forecaster:
+            for sku in target_skus:
+                print(f"\n📦 SKU {sku}:")
+                print("-" * 60)
+                
+                # Obtener datos del SKU
+                sku_data = data[data['sku'] == str(sku)].copy()
+                if sku_data.empty:
+                    print(f"   ❌ SKU {sku} no encontrado en el dataset")
+                    continue
+                
+                sku_data = sku_data.sort_values('month')
+                sku_data = self.add_covid_flag(sku_data)
+                
+                # Datos históricos hasta diciembre 2024
+                historical_data = sku_data[sku_data['month'] <= '2024-12-31'].copy()
+                
+                # Verificar valor real de enero 2025
+                january_2025_data = sku_data[sku_data['month'] == '2025-01-31']
+                actual_value = None
+                if not january_2025_data.empty:
+                    actual_value = january_2025_data['total_quantity'].iloc[0]
+                
+                if len(historical_data) < 24:
+                    print(f"   ❌ Datos insuficientes: {len(historical_data)} meses")
+                    continue
+                
+                print(f"   📊 Datos históricos: {len(historical_data)} meses")
+                print(f"   📊 Valor real enero 2025: {actual_value if actual_value is not None else 'No disponible'}")
+                
+                # Generar forecasts
+                print(f"\n   🔮 FORECASTS PARA ENERO 2025:")
+                print(f"   {'Modelo':<25} {'Predicción':<12} {'Real':<8} {'Error %':<10} {'Estado'}")
+                print("   " + "-" * 65)
+                
+                # 1. SARIMA (todos los meses)
+                try:
+                    sarima_forecast = self.forecast_sarima_all_months(historical_data, 1)
+                    pred_sarima = sarima_forecast.iloc[0] if sarima_forecast is not None else None
+                except:
+                    pred_sarima = None
+                
+                self._print_forecast_row("SARIMA (todos meses)", pred_sarima, actual_value)
+                
+                # 2. SARIMA (mismo mes)
+                try:
+                    pred_sarima_same = self.forecast_sarima_same_month(historical_data, 1)
+                except:
+                    pred_sarima_same = None
+                
+                self._print_forecast_row("SARIMA (enero)", pred_sarima_same, actual_value)
+                
+                # 3. Linear (todos los meses)
+                try:
+                    pred_linear = self.forecast_linear_all_months(historical_data, 1, 2025)
+                except:
+                    pred_linear = None
+                
+                self._print_forecast_row("Linear (todos meses)", pred_linear, actual_value)
+                
+                # 4. Linear (mismo mes)
+                try:
+                    pred_linear_same = self.forecast_linear_same_month(historical_data, 1, 2025)
+                except:
+                    pred_linear_same = None
+                
+                self._print_forecast_row("Linear (enero)", pred_linear_same, actual_value)
+                
+                # 5. SARIMAX (todos los meses)
+                try:
+                    sarimax_forecast = self.forecast_sarimax_all_months(historical_data, 1)
+                    pred_sarimax = sarimax_forecast.iloc[0] if sarimax_forecast is not None else None
+                except:
+                    pred_sarimax = None
+                
+                self._print_forecast_row("SARIMAX (todos meses)", pred_sarimax, actual_value)
+                
+                # 6. SARIMAX (mismo mes)
+                try:
+                    pred_sarimax_same = self.forecast_sarimax_same_month(historical_data, 1)
+                except:
+                    pred_sarimax_same = None
+                
+                self._print_forecast_row("SARIMAX (enero)", pred_sarimax_same, actual_value)
+                
+                # 7. Forecaster productivo
+                try:
+                    ts_data = historical_data.set_index('month')['total_quantity']
+                    prod_forecast = self.forecaster._forecast_single_sku(ts_data, steps=1)
+                    pred_productivo = prod_forecast.iloc[0] if prod_forecast is not None else None
+                except Exception as e:
+                    print(f"   ⚠️  Error en forecaster productivo: {e}")
+                    pred_productivo = None
+                
+                self._print_forecast_row("Productivo", pred_productivo, actual_value)
+                
+                # Resumen para este SKU
+                if actual_value is not None:
+                    forecasts = [
+                        ("SARIMA (todos)", pred_sarima),
+                        ("SARIMA (enero)", pred_sarima_same),
+                        ("Linear (todos)", pred_linear),
+                        ("Linear (enero)", pred_linear_same),
+                        ("SARIMAX (todos)", pred_sarimax),
+                        ("SARIMAX (enero)", pred_sarimax_same),
+                        ("Productivo", pred_productivo)
+                    ]
+                    
+                    valid_forecasts = [(name, pred) for name, pred in forecasts if pred is not None]
+                    if valid_forecasts:
+                        errors = [(name, abs((pred - actual_value) / actual_value * 100)) 
+                                for name, pred in valid_forecasts if actual_value != 0]
+                        if errors:
+                            best_model = min(errors, key=lambda x: x[1])
+                            print(f"\n   🏆 Mejor modelo para SKU {sku}: {best_model[0]} (error: {best_model[1]:.1f}%)")
+    
+    def _print_forecast_row(self, model_name: str, prediction: float, actual: float) -> None:
+        """Helper para imprimir una fila del forecast."""
+        if prediction is None:
+            print(f"   {model_name:<25} {'N/A':<12} {actual if actual is not None else 'N/A':<8} {'N/A':<10} ❌ Falló")
+        else:
+            if actual is not None:
+                if actual != 0:
+                    error_pct = ((prediction - actual) / actual) * 100
+                    status = "✅" if abs(error_pct) < 20 else "⚠️" if abs(error_pct) < 50 else "❌"
+                    print(f"   {model_name:<25} {prediction:<12.0f} {actual:<8} {error_pct:<10.1f}% {status}")
+                else:
+                    error_pct = float('inf') if prediction != 0 else 0
+                    print(f"   {model_name:<25} {prediction:<12.0f} {actual:<8} {'∞' if error_pct == float('inf') else '0':<10} ⚠️")
+            else:
+                print(f"   {model_name:<25} {prediction:<12.0f} {'N/A':<8} {'N/A':<10} ⚠️")
+
 
 def main():
     """Función principal."""
     print("🔬 BACKTESTING DE MODELOS DE FORECASTING")
     print("=" * 70)
-    print("Comparando 4 enfoques:")
+    print("Comparando 5 enfoques:")
     print("  1. SARIMA con todos los meses")
     print("  2. SARIMA específico al mes a predecir")
     print("  3. Regresión lineal con todos los meses")
     print("  4. Regresión lineal específica al mes a predecir")
+    print("  5. Forecaster productivo (SalesForecaster real)")
     print("=" * 70)
     
     try:
@@ -734,6 +1197,17 @@ def main():
         
         # Mostrar resultados
         backtester.display_results(metrics_df)
+        
+        # Análisis específico para SKUs 5851, 6434, 5958 en enero 2025
+        try:
+            # Reutilizar los datos ya cargados durante el backtesting
+            data = backtester.get_data()
+            backtester.analyze_specific_skus_january_2025(data)
+        except Exception as e:
+            print(f"⚠️  No se pudo generar el análisis específico de enero 2025: {e}")
+            print(f"Error details: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         print(f"\n" + "="*70)
         print("✅ BACKTESTING COMPLETADO")

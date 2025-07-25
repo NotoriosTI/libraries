@@ -18,11 +18,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Crear directorio de forecasts si no existe
-FORECASTS_DIR = Path(__file__).parent / "data" / "forecasts"
+FORECASTS_DIR = Path("data/forecasts")
 FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports
-from sales_engine.forecaster.sales_forcaster import SalesForecaster
+from sales_engine.forecaster import SalesForecaster
+
+# Si se usa PrettyLogger, importar correctamente
+# from dev_utils import PrettyLogger
 
 def generate_all_forecasts():
     """Generar forecasts para todos los productos."""
@@ -31,18 +34,15 @@ def generate_all_forecasts():
     print("=" * 60)
     
     try:
-        with SalesForecaster() as forecaster:
-            print("📊 Iniciando proceso de forecasting para todos los SKUs...")
-            
-            # Generar forecasts para todos los productos
-            all_forecasts = forecaster.run_forecasting_for_all_skus()
-            
-            if not all_forecasts:
-                print("❌ No se generaron forecasts")
-                return None
-            
-            print(f"✅ Forecasts generados para {len(all_forecasts)} productos")
-            return all_forecasts
+        forecaster = SalesForecaster()
+        print("📊 Iniciando proceso de forecasting para todos los SKUs...")
+        # Generar forecasts para todos los productos
+        all_forecasts = forecaster.run_forecasting_for_all_skus()
+        if not all_forecasts:
+            print("❌ No se generaron forecasts")
+            return None
+        print(f"✅ Forecasts generados para {len(all_forecasts)} productos")
+        return all_forecasts
             
     except Exception as e:
         print(f"❌ Error generando forecasts: {str(e)}")
