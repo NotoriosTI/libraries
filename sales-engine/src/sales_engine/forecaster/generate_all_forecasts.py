@@ -274,8 +274,9 @@ def generate_all_forecasts():
     print("=" * 60)
     
     try:
-        forecaster = SalesForecaster()
-        print("📊 Iniciando proceso de forecasting para todos los SKUs...")
+        # Habilitar validación mejorada de ciclo de vida
+        forecaster = SalesForecaster(enable_lifecycle_validation=True)
+        print("📊 Iniciando proceso de forecasting para todos los SKUs (con validación de ciclo de vida mejorada)...")
         # Generar forecasts para todos los productos
         all_forecasts = forecaster.run_forecasting_for_all_skus()
         if not all_forecasts:

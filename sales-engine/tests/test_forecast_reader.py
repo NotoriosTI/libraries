@@ -9,8 +9,8 @@ un mes como argumento y retorna un diccionario con SKUs y predicciones.
 import sys
 from pathlib import Path
 
-# Agregar src al path para imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Agregar src al path para imports (desde tests/ hacia src/)
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Importar función principal
 from sales_engine.db_client.forecast_reader import get_forecasts_by_month, ForecastReader
@@ -157,6 +157,34 @@ def demonstrate_usage():
         return False
 
 
+def test_simple_usage():
+    """Test simple para demostrar el uso básico de la función principal."""
+    
+    print("\n🎯 Test Simple - Uso Básico")
+    print("=" * 60)
+    
+    try:
+        # Obtener forecasts para enero
+        january_forecasts = get_forecasts_by_month(1)
+        
+        # Verificar que tenemos el SKU 6518
+        if '6518' in january_forecasts:
+            product_6518 = january_forecasts['6518']
+            print(f"✅ Forecast para SKU 6518 en enero: {product_6518} unidades")
+        else:
+            print("❌ SKU 6518 no encontrado en forecasts de enero")
+            return False
+        
+        print(f"📊 Total SKUs en enero: {len(january_forecasts)}")
+        print(f"📈 Total unidades proyectadas: {sum(january_forecasts.values()):.1f}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error en test simple: {e}")
+        return False
+
+
 def main():
     """Función principal para ejecutar todas las pruebas."""
     
@@ -169,7 +197,8 @@ def main():
     tests = [
         ("Función Principal", test_get_forecasts_by_month),
         ("Clase Completa", test_forecast_reader_class),
-        ("Casos de Uso", demonstrate_usage)
+        ("Casos de Uso", demonstrate_usage),
+        ("Uso Simple", test_simple_usage)
     ]
     
     passed = 0
@@ -197,14 +226,8 @@ def main():
     else:
         print("⚠️  Algunos tests fallaron")
         return 1
-# 
-# def main():
-    # january_forecasts = get_forecasts_by_month(1)
-    # product_6518 = january_forecasts['6518']
-    # print(f"Forecast para 6518 en enero: {product_6518}")
-    # return 0
 
 
 if __name__ == "__main__":
+    print("🔍 DEBUG: Ejecutando main...")
     sys.exit(main()) 
-

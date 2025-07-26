@@ -1,5 +1,5 @@
 """
-Sales Forecasting Module
+Enhanced Sales Forecasting Module with Lifecycle Validation
 
 This module provides functionalities to generate sales forecasts for each product
 based on historical sales data from the 'sales_items' table.
@@ -7,10 +7,13 @@ based on historical sales data from the 'sales_items' table.
 It uses the SARIMA (Seasonal AutoRegressive Integrated Moving Average) model
 to capture trends and seasonality in the sales data.
 
-Key Features:
+Enhanced Features:
 - Connects to the database using the existing DatabaseUpdater logic.
 - Fetches and processes historical sales data using pandas.
 - Generates monthly forecasts for each product SKU.
+- 🛑 Filtro de descontinuados: Si última venta > 12 meses → forecast = 0
+- 📅 Validación temporal: Verificar actividad reciente antes de generar forecast
+- 🎯 Clasificación inteligente de productos por estado de ciclo de vida
 - Handles products with insufficient data for forecasting.
 
 Author: Bastian Ibañez (con asistencia de Gemini)
@@ -18,7 +21,8 @@ Author: Bastian Ibañez (con asistencia de Gemini)
 import pandas as pd
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
+from datetime import datetime, timedelta
 
 # Importar la infraestructura existente
 # Asumimos que la estructura de carpetas permite esta importación relativa
@@ -36,17 +40,66 @@ except ImportError:
     logger = LoggerFallback()
 
 
+# Importar validación de ciclo de vida
+try:
+    from .product_lifecycle_validator import ProductLifecycleValidator, ProductStatus
+    LIFECYCLE_VALIDATION_AVAILABLE = True
+except ImportError:
+    logger.warning("ProductLifecycleValidator no disponible - usando filtros básicos")
+    LIFECYCLE_VALIDATION_AVAILABLE = False
+    
+    # Crear clases mock para mantener compatibilidad
+    class ProductStatus:
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+        DISCONTINUED = "discontinued"
+        NEW = "new"
+        UNKNOWN = "unknown"
+    
+    class ProductLifecycleValidator:
+        def __init__(self, *args, **kwargs):
+            pass
+        def batch_validate_products(self, *args, **kwargs):
+            return {}
+        def get_validation_summary(self, *args, **kwargs):
+            return {'by_status': {}}
+
+
 class SalesForecaster:
     """
-    Orchestrates the sales forecasting process.
+    Enhanced Sales Forecaster with Lifecycle Validation.
+    
+    Orchestrates the sales forecasting process with automatic validation
+    of product lifecycle to exclude discontinued and inactive products.
     """
 
-    def __init__(self, use_test_odoo: bool = False):
+    def __init__(self, use_test_odoo: bool = False, enable_lifecycle_validation: bool = True):
         """
         Initializes the forecaster and the database connection manager.
+        
+        Args:
+            use_test_odoo (bool): Si usar datos de test de Odoo
+            enable_lifecycle_validation (bool): Si habilitar validación de ciclo de vida
         """
         self.logger = logger
         self.db_updater = DatabaseUpdater(use_test_odoo=use_test_odoo)
+        self.enable_lifecycle_validation = enable_lifecycle_validation and LIFECYCLE_VALIDATION_AVAILABLE
+        
+        if self.enable_lifecycle_validation:
+            self.lifecycle_validator = ProductLifecycleValidator(
+                discontinued_threshold_days=365,  # 12 meses
+                inactive_threshold_days=180,      # 6 meses
+                minimum_historical_sales=10,
+                new_product_threshold_days=90     # 3 meses
+            )
+            self.logger.info("SalesForecaster initialized with lifecycle validation enabled.")
+        else:
+            self.lifecycle_validator = None
+            if not LIFECYCLE_VALIDATION_AVAILABLE:
+                self.logger.warning("SalesForecaster initialized with basic filtering (lifecycle validation not available).")
+            else:
+                self.logger.info("SalesForecaster initialized with lifecycle validation disabled.")
+        
         self.logger.info("SalesForecaster initialized.")
 
     def get_historical_sales_data(self) -> Optional[pd.DataFrame]:
@@ -92,9 +145,12 @@ class SalesForecaster:
         Aggregates transactional data into monthly time series for each SKU.
         """
         self.logger.info("Aggregating sales data into monthly time series...")
-        df.set_index('issueddate', inplace=True)
         
-        monthly_sales_df = df.groupby('items_product_sku').resample('ME').sum(numeric_only=True).reset_index()
+        # Hacer una copia para no modificar el DataFrame original
+        df_copy = df.copy()
+        df_copy.set_index('issueddate', inplace=True)
+        
+        monthly_sales_df = df_copy.groupby('items_product_sku').resample('ME').sum(numeric_only=True).reset_index()
         
         monthly_sales_df.rename(columns={
             'issueddate': 'month',
@@ -277,20 +333,181 @@ class SalesForecaster:
 
     def run_forecasting_for_all_skus(self) -> Optional[Dict[str, pd.Series]]:
         """
-        Main orchestration method to generate forecasts for all products.
+        Main orchestration method to generate forecasts for all products with lifecycle validation.
         """
+        self.logger.info("🚀 Starting enhanced forecasting process with lifecycle validation")
+        
+        # 1. Obtener datos históricos
         historical_data = self.get_historical_sales_data()
         if historical_data is None:
+            self.logger.error("No se pudieron obtener datos históricos")
             return None
-            
+        
+        # 2. Obtener SKUs únicos de datos históricos (antes de procesamiento)
+        unique_skus = list(historical_data['items_product_sku'].unique())
+        
+        # 3. Preparar series temporales mensuales
         monthly_data = self.prepare_monthly_time_series(historical_data)
         
-        all_forecasts: Dict[str, pd.Series] = {}
-        unique_skus = monthly_data['sku'].unique()
+        self.logger.info(f"Datos obtenidos para {len(unique_skus)} SKUs únicos")
         
-        self.logger.info(f"Starting forecasting process for {len(unique_skus)} SKUs...")
+        # 4. Validación de ciclo de vida (si está habilitada)
+        if self.enable_lifecycle_validation:
+            validation_results = self._validate_products_lifecycle(historical_data, unique_skus)
+            filtered_skus = self._filter_skus_by_lifecycle(unique_skus, validation_results)
+        else:
+            self.logger.warning("⚠️  Saltando validación de ciclo de vida - usando filtros básicos")
+            filtered_skus = self._apply_basic_filters(monthly_data, unique_skus)
+            validation_results = {}
         
-        # NUEVA VALIDACIÓN: Pre-filtrar SKUs problemáticos
+        self.logger.info(f"SKUs aprobados para forecasting: {len(filtered_skus)}")
+        
+        # 5. Generar forecasts solo para SKUs válidos
+        all_forecasts = self._generate_forecasts_for_valid_skus(
+            monthly_data, filtered_skus, validation_results
+        )
+        
+        # 6. Aplicar post-procesamiento basado en ciclo de vida
+        if self.enable_lifecycle_validation and all_forecasts:
+            all_forecasts = self._apply_lifecycle_adjustments(all_forecasts, validation_results)
+        
+        self.logger.success(f"Forecasting completado para {len(all_forecasts) if all_forecasts else 0} SKUs")
+        
+        return all_forecasts
+
+    def _validate_products_lifecycle(self, historical_data: pd.DataFrame, unique_skus: List[str]) -> Dict[str, Dict]:
+        """
+        Validar ciclo de vida de todos los productos.
+        
+        Args:
+            historical_data (pd.DataFrame): Datos históricos de ventas
+            unique_skus (List[str]): Lista de SKUs únicos
+            
+        Returns:
+            Dict[str, Dict]: Resultados de validación por SKU
+        """
+        self.logger.info("🔍 Validando ciclo de vida de productos")
+        
+        # Validar que los datos históricos tengan las columnas requeridas
+        required_columns = ['issueddate', 'items_product_sku', 'items_quantity']
+        missing_columns = [col for col in required_columns if col not in historical_data.columns]
+        
+        if missing_columns:
+            self.logger.error(f"Datos históricos faltantes columnas requeridas: {missing_columns}")
+            self.logger.error(f"Columnas disponibles: {list(historical_data.columns)}")
+            # Retornar resultados vacíos para todos los SKUs
+            return {sku: {
+                'status': ProductStatus.UNKNOWN,
+                'metadata': {
+                    'reason': f'Datos históricos incompletos: faltan {missing_columns}',
+                    'should_forecast': False,
+                    'recommended_forecast': 0
+                }
+            } for sku in unique_skus}
+        
+        # Agrupar historiales por SKU
+        skus_with_history = {}
+        skus_processed = 0
+        skus_with_data = 0
+        
+        for sku in unique_skus:
+            sku_data = historical_data[historical_data['items_product_sku'] == sku].copy()
+            
+            # Solo incluir columnas que necesita el validador
+            if not sku_data.empty:
+                sku_data = sku_data[['issueddate', 'items_quantity']].copy()
+                skus_with_data += 1
+            
+            skus_with_history[sku] = sku_data
+            skus_processed += 1
+        
+        self.logger.info(f"Preparados {skus_processed} SKUs para validación ({skus_with_data} con datos)")
+        
+        # Ejecutar validación en lote
+        validation_results = self.lifecycle_validator.batch_validate_products(skus_with_history)
+        
+        # Log estadísticas de validación
+        summary = self.lifecycle_validator.get_validation_summary(validation_results)
+        self.logger.info("Resumen de validación de ciclo de vida:", **summary['by_status'])
+        
+        return validation_results
+    
+    def _filter_skus_by_lifecycle(self, unique_skus: List[str], validation_results: Dict[str, Dict]) -> List[str]:
+        """
+        Filtrar SKUs basándose en resultados de validación de ciclo de vida.
+        
+        Args:
+            unique_skus (List[str]): SKUs originales
+            validation_results (Dict[str, Dict]): Resultados de validación
+            
+        Returns:
+            List[str]: SKUs que deben generar forecast
+        """
+        valid_skus = []
+        
+        stats = {
+            'total': len(unique_skus),
+            'approved': 0,
+            'discontinued': 0,
+            'inactive': 0,
+            'insufficient_data': 0
+        }
+        
+        for sku in unique_skus:
+            if sku in validation_results:
+                validation = validation_results[sku]
+                metadata = validation['metadata']
+                status = validation['status']
+                
+                if metadata.get('should_forecast', False):
+                    valid_skus.append(sku)
+                    stats['approved'] += 1
+                    
+                    # Log productos con advertencias
+                    if hasattr(status, 'value'):
+                        status_val = status.value
+                    else:
+                        status_val = str(status)
+                    
+                    if status_val == ProductStatus.NEW:
+                        self.logger.warning(f"SKU {sku}: Producto nuevo - usar forecasts con precaución")
+                    elif status_val == ProductStatus.INACTIVE:
+                        self.logger.info(f"SKU {sku}: Producto inactivo - forecast conservador")
+                else:
+                    # Log productos excluidos
+                    if hasattr(status, 'value'):
+                        status_val = status.value
+                    else:
+                        status_val = str(status)
+                    
+                    if status_val == ProductStatus.DISCONTINUED:
+                        stats['discontinued'] += 1
+                        self.logger.info(f"SKU {sku}: EXCLUIDO - {metadata.get('reason', 'Descontinuado')}")
+                    elif status_val == ProductStatus.INACTIVE:
+                        stats['inactive'] += 1
+                        self.logger.info(f"SKU {sku}: EXCLUIDO - {metadata.get('reason', 'Inactivo')}")
+                    else:
+                        stats['insufficient_data'] += 1
+            else:
+                # Sin validación, excluir por seguridad
+                stats['insufficient_data'] += 1
+                self.logger.warning(f"SKU {sku}: EXCLUIDO - Sin datos de validación")
+        
+        self.logger.info("Filtrado por ciclo de vida completado", **stats)
+        
+        return valid_skus
+    
+    def _apply_basic_filters(self, monthly_data: pd.DataFrame, unique_skus: List[str]) -> List[str]:
+        """
+        Aplicar filtros básicos cuando la validación de ciclo de vida está deshabilitada.
+        
+        Args:
+            monthly_data (pd.DataFrame): Datos mensuales
+            unique_skus (List[str]): SKUs únicos
+            
+        Returns:
+            List[str]: SKUs válidos usando filtros básicos
+        """
         valid_skus = []
         skipped_insufficient_data = 0
         skipped_poor_quality = 0
@@ -328,24 +545,141 @@ class SalesForecaster:
                 skipped_poor_quality += 1
                 continue
             
-            valid_skus.append((sku, ts_filled))
+            valid_skus.append(sku)
         
         self.logger.info(f"Pre-filtering results: {len(valid_skus)} valid SKUs, {skipped_insufficient_data} insufficient data, {skipped_poor_quality} poor quality")
         
-        # Procesar solo SKUs válidos
-        for i, (sku, ts_prepared) in enumerate(valid_skus):
-            self.logger.info(f"  ({i+1}/{len(valid_skus)}) Forecasting for SKU: {sku}")
+        return valid_skus
+    
+    def _generate_forecasts_for_valid_skus(self, 
+                                         monthly_data: pd.DataFrame, 
+                                         valid_skus: List[str],
+                                         validation_results: Dict[str, Dict]) -> Dict[str, pd.Series]:
+        """
+        Generar forecasts solo para SKUs válidos.
+        
+        Args:
+            monthly_data (pd.DataFrame): Datos mensuales
+            valid_skus (List[str]): SKUs válidos para forecasting
+            validation_results (Dict[str, Dict]): Resultados de validación
             
-            ts_prepared.name = sku  # Asignar nombre para logs
+        Returns:
+            Dict[str, pd.Series]: Forecasts generados
+        """
+        all_forecasts: Dict[str, pd.Series] = {}
+        
+        self.logger.info(f"Generando forecasts para {len(valid_skus)} SKUs válidos")
+        
+        for i, sku in enumerate(valid_skus):
+            self.logger.info(f"  ({i+1}/{len(valid_skus)}) Forecasting para SKU: {sku}")
             
-            # Generar proyección
-            forecast_result = self._forecast_single_sku(ts_prepared)
-            
-            if forecast_result is not None:
-                all_forecasts[sku] = forecast_result
+            try:
+                # Preparar serie temporal
+                ts_individual = monthly_data[monthly_data['sku'] == sku]
+                ts_prepared = ts_individual[['month', 'total_quantity']].set_index('month')['total_quantity']
+                ts_prepared = ts_prepared.resample('ME').sum().fillna(0)
+                ts_prepared.name = sku
                 
-        self.logger.success(f"Forecasting complete. Generated projections for {len(all_forecasts)} SKUs (processed {len(valid_skus)} valid SKUs).")
+                # Ajustar parámetros basándose en estado del producto
+                forecast_steps = 12  # Default
+                if sku in validation_results:
+                    status = validation_results[sku]['status']
+                    if hasattr(status, 'value'):
+                        status_val = status.value
+                    else:
+                        status_val = str(status)
+                    
+                    if status_val == ProductStatus.NEW:
+                        forecast_steps = 6  # Forecasts más cortos para productos nuevos
+                    elif status_val == ProductStatus.INACTIVE:
+                        forecast_steps = 3  # Forecasts muy cortos para inactivos
+                
+                # Generar forecast usando el método padre
+                forecast = self._forecast_single_sku(ts_prepared, steps=forecast_steps)
+                
+                if forecast is not None:
+                    all_forecasts[sku] = forecast
+                    self.logger.info(f"    ✅ Forecast generado: {forecast.min():.0f}-{forecast.max():.0f} unidades")
+                else:
+                    self.logger.warning(f"    ⚠️  Forecast falló para SKU {sku}")
+                
+            except Exception as e:
+                self.logger.error(f"    ❌ Error generando forecast para SKU {sku}: {e}")
+                continue
+        
         return all_forecasts
+    
+    def _apply_lifecycle_adjustments(self, 
+                                   forecasts: Dict[str, pd.Series], 
+                                   validation_results: Dict[str, Dict]) -> Dict[str, pd.Series]:
+        """
+        Aplicar ajustes post-forecasting basados en ciclo de vida.
+        
+        Args:
+            forecasts (Dict[str, pd.Series]): Forecasts originales
+            validation_results (Dict[str, Dict]): Resultados de validación
+            
+        Returns:
+            Dict[str, pd.Series]: Forecasts ajustados
+        """
+        adjusted_forecasts = {}
+        adjustments_made = 0
+        
+        for sku, forecast in forecasts.items():
+            if sku in validation_results:
+                status = validation_results[sku]['status']
+                metadata = validation_results[sku]['metadata']
+                
+                if hasattr(status, 'value'):
+                    status_val = status.value
+                else:
+                    status_val = str(status)
+                
+                # Aplicar ajustes conservadores para productos inactivos
+                if status_val == ProductStatus.INACTIVE:
+                    # Reducir forecast en 50% para productos inactivos
+                    adjusted_forecast = forecast * 0.5
+                    adjusted_forecasts[sku] = adjusted_forecast
+                    adjustments_made += 1
+                    self.logger.info(f"Forecast ajustado para SKU inactivo {sku}: reducido 50%")
+                
+                # Aplicar límites más estrictos para productos nuevos
+                elif status_val == ProductStatus.NEW:
+                    # Limitar forecasts de productos nuevos a máximo 20 unidades
+                    adjusted_forecast = forecast.clip(upper=20)
+                    adjusted_forecasts[sku] = adjusted_forecast
+                    
+                    if forecast.max() > 20:
+                        adjustments_made += 1
+                        self.logger.info(f"Forecast limitado para SKU nuevo {sku}: máximo 20 unidades")
+                    else:
+                        adjusted_forecasts[sku] = forecast
+                
+                else:
+                    # Mantener forecast original para productos activos
+                    adjusted_forecasts[sku] = forecast
+            else:
+                # Sin información de validación, mantener original
+                adjusted_forecasts[sku] = forecast
+        
+        self.logger.info(f"Ajustes post-forecasting aplicados: {adjustments_made} modificaciones")
+        
+        return adjusted_forecasts
+    
+    def get_lifecycle_summary(self, validation_results: Dict[str, Dict]) -> Dict:
+        """
+        Obtener resumen detallado de la validación de ciclo de vida.
+        
+        Args:
+            validation_results (Dict[str, Dict]): Resultados de validación
+            
+        Returns:
+            Dict: Resumen detallado
+        """
+        if not self.enable_lifecycle_validation or not validation_results:
+            return {}
+        
+        return self.lifecycle_validator.get_validation_summary(validation_results)
 
     def __enter__(self):
         return self
