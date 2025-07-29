@@ -82,9 +82,7 @@ class Settings:
             # Chatwoot
             self.CHATWOOT_BASE_URL = self._fetch_gcp_secret('CHATWOOT_BASE_URL', gcp_client)
             self.CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('CHATWOOT_ACCOUNT_ID', gcp_client)
-            self.CHATWOOT_USER_TOKEN = self._fetch_gcp_secret('CHATWOOT_USER_TOKEN', gcp_client)
-            self.CHATWOOT_BOT_TOKEN = self._fetch_gcp_secret('CHATWOOT_BOT_TOKEN', gcp_client)
-            self.CHATWOOT_WEBHOOK_TOKEN = self._fetch_gcp_secret('CHATWOOT_WEBHOOK_TOKEN', gcp_client)
+            self.CHATWOOT_TOKEN = self._fetch_gcp_secret('CHATWOOT_TOKEN', gcp_client)
 
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
@@ -133,9 +131,7 @@ class Settings:
             # Chatwoot
             self.CHATWOOT_BASE_URL = config('CHATWOOT_BASE_URL', default='')
             self.CHATWOOT_ACCOUNT_ID = config('CHATWOOT_ACCOUNT_ID', default='')
-            self.CHATWOOT_USER_TOKEN = config('CHATWOOT_USER_TOKEN', default='')
-            self.CHATWOOT_BOT_TOKEN = config('CHATWOOT_BOT_TOKEN', default='')
-            self.CHATWOOT_WEBHOOK_TOKEN = config('CHATWOOT_WEBHOOK_TOKEN', default='')
+            self.CHATWOOT_TOKEN = config('CHATWOOT_TOKEN', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -199,9 +195,7 @@ class Settings:
         return {
             'base_url': self.CHATWOOT_BASE_URL,
             'account_id': self.CHATWOOT_ACCOUNT_ID,
-            'user_token': self.CHATWOOT_USER_TOKEN,
-            'bot_token': self.CHATWOOT_BOT_TOKEN,
-            'webhook_token': self.CHATWOOT_WEBHOOK_TOKEN
+            'token': self.CHATWOOT_TOKEN
         }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
