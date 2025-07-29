@@ -8,6 +8,7 @@ un mes como argumento y retorna un diccionario con SKUs y predicciones.
 
 import sys
 from pathlib import Path
+from datetime import datetime
 
 # Agregar src al path para imports (desde tests/ hacia src/)
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -24,8 +25,8 @@ def test_get_forecasts_by_month():
     
     # Probar la función de conveniencia directa
     try:
-        # Ejemplo 1: Enero
-        print("\n📅 Obteniendo forecasts para ENERO (mes 1):")
+        # Ejemplo 1: Enero (año actual por defecto)
+        print("\n📅 Obteniendo forecasts para ENERO (mes 1, año actual por defecto):")
         january_forecasts = get_forecasts_by_month(1)
         
         print(f"   📦 Total SKUs: {len(january_forecasts)}")
@@ -36,8 +37,8 @@ def test_get_forecasts_by_month():
         for i, (sku, quantity) in enumerate(list(january_forecasts.items())[:5]):
             print(f"      {sku}: {quantity:.1f} unidades")
         
-        # Ejemplo 2: Diciembre (pico de demanda)
-        print("\n📅 Obteniendo forecasts para DICIEMBRE (mes 12):")
+        # Ejemplo 2: Diciembre (año actual por defecto)
+        print("\n📅 Obteniendo forecasts para DICIEMBRE (mes 12, año actual por defecto):")
         december_forecasts = get_forecasts_by_month(12)
         
         print(f"   📦 Total SKUs: {len(december_forecasts)}")
@@ -48,6 +49,13 @@ def test_get_forecasts_by_month():
         print(f"\n   🏆 Top 5 SKUs en diciembre:")
         for i, (sku, quantity) in enumerate(sorted_dec[:5]):
             print(f"      {i+1}. {sku}: {quantity:.1f} unidades")
+        
+        # Ejemplo 3: Especificando año (si hay datos disponibles)
+        current_year = datetime.now().year
+        print(f"\n📅 Obteniendo forecasts para ENERO {current_year} (año especificado):")
+        january_specific_year = get_forecasts_by_month(1, current_year)
+        print(f"   📦 Total SKUs: {len(january_specific_year)}")
+        print(f"   📊 Total unidades: {sum(january_specific_year.values()):.1f}")
         
         return True
         
@@ -190,8 +198,8 @@ def main():
     
     print("🎯 Test Script para ForecastReader")
     print("=" * 70)
-    print("Este script demuestra cómo usar la función get_forecasts_by_month(month: int)")
-    print("que retorna un Dict[str, float] con SKUs y predicciones para el mes dado.")
+    print("Este script demuestra cómo usar la función get_forecasts_by_month(month: int, year: Optional[int] = None)")
+    print("que retorna un Dict[str, float] con SKUs y predicciones para el mes y año dados.")
     print("=" * 70)
     
     tests = [
@@ -219,7 +227,8 @@ def main():
         print("🎉 ¡Todos los tests pasaron exitosamente!")
         print("\n💡 Uso básico de la función:")
         print("   from sales_engine.db_client import get_forecasts_by_month")
-        print("   forecasts = get_forecasts_by_month(1)  # Enero")
+        print("   forecasts = get_forecasts_by_month(1)  # Enero (año actual por defecto)")
+        print("   forecasts = get_forecasts_by_month(1, 2024)  # Enero 2024 específico")
         print("   print(f'Total SKUs: {len(forecasts)}')")
         print("   print(f'Total unidades: {sum(forecasts.values())}')")
         return 0

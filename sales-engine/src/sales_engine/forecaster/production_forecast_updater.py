@@ -427,12 +427,13 @@ def save_production_forecast(df: pd.DataFrame, year: int, month: int) -> Dict[st
 # FUNCIONES PARA CÁLCULO COMPLETO DE PRODUCCIÓN (como test_production_calculation)
 # ============================================================================
 
-def get_forecasts_by_month(month: int) -> Dict[str, float]:
+def get_forecasts_by_month(month: int, year: Optional[int] = None) -> Dict[str, float]:
     """
     Obtener forecasts para un mes específico desde la base de datos.
     
     Args:
         month: Mes (1-12)
+        year: Año específico. Si es None, calcula automáticamente basado en el mes actual.
         
     Returns:
         Dict con SKU -> forecast_quantity
@@ -441,19 +442,24 @@ def get_forecasts_by_month(month: int) -> Dict[str, float]:
         # Importar aquí para evitar dependencias circulares
         from sales_engine.db_client import get_forecasts_by_month as get_forecasts
         
-        # Obtener fecha actual para el año
-        current_year = datetime.now().year
-        
-        # Calcular fecha del forecast (próximo mes)
-        if month == 12:
-            forecast_year = current_year + 1
-            forecast_month = 1
+        # Si no se especifica año, calcular automáticamente
+        if year is None:
+            # Obtener fecha actual para el año
+            current_year = datetime.now().year
+            
+            # Calcular fecha del forecast (próximo mes)
+            if month == 12:
+                forecast_year = current_year + 1
+                forecast_month = 1
+            else:
+                forecast_year = current_year
+                forecast_month = month + 1
+            
+            # Obtener forecasts del mes específico
+            forecasts = get_forecasts(forecast_month, forecast_year)
         else:
-            forecast_year = current_year
-            forecast_month = month + 1
-        
-        # Obtener forecasts del mes específico
-        forecasts = get_forecasts(forecast_month)
+            # Usar el año especificado
+            forecasts = get_forecasts(month, year)
         
         return forecasts
         
@@ -571,8 +577,8 @@ def calculate_production_quantities(year: int = None, month: int = None, use_tes
     
     try:
         # 1. Obtener forecasts del mes
-        print(f"📈 Obteniendo forecasts para {month_names[month]}...")
-        forecasts = get_forecasts_by_month(month)
+        print(f"📈 Obteniendo forecasts para {month_names[month]} {year}...")
+        forecasts = get_forecasts_by_month(month, year)
         if not forecasts:
             print("❌ No se encontraron forecasts para el mes especificado")
             return None
