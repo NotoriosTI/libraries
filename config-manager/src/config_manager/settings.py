@@ -79,6 +79,12 @@ class Settings:
             self.PRODUCT_DB_USER = self._fetch_gcp_secret('PRODUCT_DB_USER', gcp_client)
             self.PRODUCT_DB_PASSWORD = self._fetch_gcp_secret('PRODUCT_DB_PASSWORD', gcp_client)
 
+            # Chatwoot
+            self.CHATWOOT_BASE_URL = self._fetch_gcp_secret('CHATWOOT_BASE_URL', gcp_client)
+            self.CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('CHATWOOT_ACCOUNT_ID', gcp_client)
+            self.CHATWOOT_USER_TOKEN = self._fetch_gcp_secret('CHATWOOT_USER_TOKEN', gcp_client)
+            self.CHATWOOT_BOT_TOKEN = self._fetch_gcp_secret('CHATWOOT_BOT_TOKEN', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -122,6 +128,12 @@ class Settings:
             self.PRODUCT_DB_NAME = config('PRODUCT_DB_NAME', default='productdb')
             self.PRODUCT_DB_USER = config('PRODUCT_DB_USER', default='automation_admin')
             self.PRODUCT_DB_PASSWORD = config('PRODUCT_DB_PASSWORD', default='password')
+
+            # Chatwoot
+            self.CHATWOOT_BASE_URL = config('CHATWOOT_BASE_URL', default='')
+            self.CHATWOOT_ACCOUNT_ID = config('CHATWOOT_ACCOUNT_ID', default='')
+            self.CHATWOOT_USER_TOKEN = config('CHATWOOT_USER_TOKEN', default='')
+            self.CHATWOOT_BOT_TOKEN = config('CHATWOOT_BOT_TOKEN', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -178,6 +190,15 @@ class Settings:
             'database': self.PRODUCT_DB_NAME,
             'user': self.PRODUCT_DB_USER,
             'password': self.PRODUCT_DB_PASSWORD
+        }
+    
+    def get_chatwoot_config(self) -> dict:
+        """Get chatwoot configuration for sales-engine."""
+        return {
+            'base_url': self.CHATWOOT_BASE_URL,
+            'account_id': self.CHATWOOT_ACCOUNT_ID,
+            'user_token': self.CHATWOOT_USER_TOKEN,
+            'bot_token': self.CHATWOOT_BOT_TOKEN
         }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
