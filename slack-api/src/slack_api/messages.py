@@ -89,14 +89,14 @@ class SlackBot:
         else:
             return filetype  # fallback to what Slack reported
 
-    def _add_reaction(self, channel, timestamp, emoji="white_check_mark"):
+    def _add_reaction(self, channel, timestamp, emoji="thought_balloon"):
         """
         Agrega una reacción a un mensaje específico.
         
         Args:
             channel (str): ID del canal donde está el mensaje.
             timestamp (str): Timestamp del mensaje.
-            emoji (str): Emoji a usar como reacción (default: ✅).
+            emoji (str): Emoji a usar como reacción (default: 💭).
         """
         try:
             if self.debug:
