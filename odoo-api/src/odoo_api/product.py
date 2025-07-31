@@ -812,7 +812,8 @@ class OdooProduct(OdooAPI):
             production_order_data['message'] = f'Error al crear el movimiento de stock'
             return production_order_data
         production_order_data['stock_transfer_data'] = stock_transfer_data
-
+        print(f"[DEBUG]: picking_data: {production_order_data['picking_data']}")
+        print(f"[DEBUG]: stock_transfer_data: {production_order_data['stock_transfer_data']}")
         return production_order_data
         
     def search_production_orders(self, sku):
