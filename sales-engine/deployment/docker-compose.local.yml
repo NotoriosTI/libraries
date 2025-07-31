@@ -1,77 +1,69 @@
 # -----------------------------------------------------------------------------
-# Docker Compose for LOCAL DEVELOPMENT
+# Docker Compose for LOCAL DEVELOPMENT with REMOTE TEST DB (Refactored)
 # -----------------------------------------------------------------------------
-# This file is optimized for local development and testing.
+# This file is optimized for running the sales-engine locally while connecting
+# to a remote PostgreSQL database (e.g., a test instance) on GCP.
 #
 # Key Features:
-#   - Mounts local source code for hot-reloading.
-#   - Uses an .env file for easy configuration.
-#   - Includes services for a local PostgreSQL DB and the Cloud SQL Proxy.
+#   - Mounts the local `src` directory for instant code changes (hot-reloading).
+#   - Uses the `.env` file from the project root for configuration.
+#   - Connects securely to your GCP database via the Cloud SQL Proxy.
+#   - Does NOT run a local database container.
 #
 # Usage:
-#   1. Make a copy of '.env.example' and name it '.env'.
-#   2. Fill in the values in the '.env' file.
-#   3. Run: docker-compose -f deployment/docker-compose.local.yml up --build
+#   1. Copy `.env.example` to `.env` in the `sales-engine/` root.
+#   2. In `.env`, set DB_HOST=cloud-sql-proxy and provide your INSTANCE_CONNECTION_NAME.
+#   3. Place your GCP service account key at 'deployment/credentials.json'.
+#   4. Run from the `sales-engine/` root directory:
+#      docker-compose -f deployment/docker-compose.local.yml up --build
 #
 version: '3.8'
 
 services:
-  # The main application service
+  # The main application service for the sales-engine
   sales-engine:
     build:
-      context: ../.. # Build context is the root of the monorepo
-      dockerfile: ./sales-engine/deployment/Dockerfile # Path to the Dockerfile
+      # The build context is the root of the sales-engine project
+      context: ..
+      # The Dockerfile is located in the deployment directory
+      dockerfile: ./deployment/Dockerfile
     container_name: sales-engine-local
-    # Load environment variables from the .env file in the sales-engine directory
+    # Load environment variables from the .env file at the project root
     env_file:
       - ../.env
-    # Mount the local source code into the container
-    # This allows for hot-reloading of code changes without rebuilding the image.
+    # Mount the local source code into the container.
+    # Changes you make in `src/` will be reflected inside the container instantly.
     volumes:
       - ../src:/app/src
-    # Depends on the database and proxy services to start first
+    # This service depends on the Cloud SQL Proxy to be healthy before starting.
+    # It will wait until the proxy has a stable connection to GCP.
     depends_on:
-      - db
-      - cloud-sql-proxy
-    # Use a custom command to install dev dependencies and keep the container running
+      cloud-sql-proxy:
+        condition: service_healthy
+    # A command to install any new dependencies and then keep the container
+    # running, so you can `docker exec` into it for tests or manual runs.
     command: >
       bash -c "poetry install && tail -f /dev/null"
 
-  # Local PostgreSQL database service
-  db:
-    image: postgres:14-alpine
-    container_name: local-postgres-db
-    environment:
-      POSTGRES_DB: ${DB_NAME:-sales_db}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
-    ports:
-      - "5433:5432" # Expose local DB on port 5433 to avoid conflict with proxy
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-sales_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Cloud SQL Auth Proxy service
-  # Connects securely to your production Cloud SQL instance
+  # Cloud SQL Auth Proxy to connect to your remote GCP database.
   cloud-sql-proxy:
     image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
     container_name: cloud-sql-proxy-local
-    # The command to start the proxy.
-    # Replace the INSTANCE_CONNECTION_NAME with your actual value.
-    command: /cloud_sql_proxy -instances=your-project-id:your-region:your-instance-name=tcp:0.0.0.0:5432
-    # Mount your local GCP service account key
-    # Ensure 'credentials.json' is in your 'deployment' directory
+    # The command uses an environment variable for the instance connection name.
+    # Set INSTANCE_CONNECTION_NAME in your .env file.
+    command: /cloud_sql_proxy -instances=${INSTANCE_CONNECTION_NAME}=tcp:0.0.0.0:5432
+    # Mount your local GCP service account key.
+    # Place your key file at 'sales-engine/deployment/credentials.json'.
     volumes:
       - ./credentials.json:/config/credentials.json:ro
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
     ports:
-      - "5432:5432" # Exposes the proxy on the default PostgreSQL port
-
-volumes:
-  postgres_data:
-    driver: local
+      # Exposes the proxy on the default PostgreSQL port for local access if needed.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      # This check ensures the proxy is up and listening before the app starts.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

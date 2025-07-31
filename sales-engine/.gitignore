@@ -1,4 +1,4 @@
 .env
 __pycache__/
-historic_sales_with_items.csv
+*.csv
 DS_Store

@@ -1,64 +1,58 @@
 """
-DatabaseUpdater
+Refactored DatabaseUpdater for Sales Engine
 
-Production-ready module for connecting Odoo sales data to PostgreSQL on GCP.
+This module is now responsible ONLY for database interactions. All data fetching
+and preparation logic has been moved to the 'odoo-api' library.
 
-This module provides a robust DatabaseUpdater class with comprehensive error
-handling, logging, Google Cloud integration, efficient database operations,
-and anti-duplication logic.
+Key Features:
+- Connects to and manages the PostgreSQL database connection pool.
+- Performs efficient, atomic bulk upserts using INSERT ... ON CONFLICT.
+- Determines the correct date range for incremental syncs.
+- Does NOT contain any Odoo-specific data transformation logic.
 
-Author: Bastian Ibañez
-
-Dependencies:
-    - pandas
-    - psycopg2-binary
-    - google-cloud-secret-manager
-    - structlog
-    - odoo-api
-    - config-manager
+Author: Bastian Ibañez (Refactored)
 """
-
-# Standard library imports
-import logging
-import io
 import os
-import time
-import traceback
-from datetime import datetime, date
-from typing import Dict, List, Optional, Any, Tuple, Iterator
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from contextlib import contextmanager
 from functools import wraps
 
-# Third-party imports
 import pandas as pd
 import psycopg2
 import psycopg2.pool
-from psycopg2.extras import execute_values
-from google.api_core import exceptions as gcp_exceptions
-import structlog
+from psycopg2.extras import RealDictCursor, execute_values
 
-# Local imports
-from .sales_integration import read_sales_by_date_range, cleanup_sales_provider
-from .secret_manager import SecretManagerClient, SecretManagerError
-# Assuming a setup_logging function exists in your config_manager
-from config_manager import secrets # Using the singleton instance
+# --- CORRECTED IMPORTS ---
+# Fetches data from the refactored, external odoo-api library
+from odoo_api.sales import OdooSales
+# Fetches configuration from the external config-manager library
+from config_manager import secrets
 
-# --- Custom Exceptions ---
+# Reemplazar structlog por pretty logger
+try:
+    from dev_utils import PrettyLogger
+    logger = PrettyLogger("sales-engine")
+except ImportError:
+    class LoggerFallback:
+        def info(self, msg, **kwargs): print(f"ℹ️  {msg}")
+        def error(self, msg, **kwargs): print(f"❌ {msg}")
+        def warning(self, msg, **kwargs): print(f"⚠️  {msg}")
+        def success(self, msg, **kwargs): print(f"✅ {msg}")
+    logger = LoggerFallback()
+
+
 class DatabaseUpdaterError(Exception):
     """Base exception for DatabaseUpdater operations."""
     pass
+
 
 class DatabaseConnectionError(DatabaseUpdaterError):
     """Raised when database connection fails."""
     pass
 
-class DataValidationError(DatabaseUpdaterError):
-    """Raised when data validation fails."""
-    pass
 
-
-# --- Data Structures ---
 @dataclass
 class UpdateResult:
     """Result of a database update operation."""
@@ -67,53 +61,22 @@ class UpdateResult:
     start_time: datetime
     end_time: datetime
     errors: List[str]
-
-    @property
-    def total_processed(self) -> int:
-        """Total number of records processed (successful + failed)."""
-        return self.success_count + self.failure_count
+    upserts_performed: int = 0
+    new_records: int = 0
+    updated_records: int = 0
 
     @property
     def duration_seconds(self) -> float:
-        """The total duration of the operation in seconds."""
         return (self.end_time - self.start_time).total_seconds()
 
 
-# --- Helper Classes & Decorators ---
-class StringIteratorIO(io.TextIOBase):
-    """
-    File-like object that reads from a string iterator for memory-efficient
-    bulk loading with psycopg2.copy_from.
-    """
-    def __init__(self, iter: Iterator[str]):
-        self._iter = iter
-        self._buff = ''
-
-    def readable(self) -> bool:
-        return True
-
-    def read(self, n: Optional[int] = None) -> str:
-        # Simplified and more efficient read implementation
-        try:
-            while n is None or len(self._buff) < n:
-                self._buff += next(self._iter)
-        except StopIteration:
-            pass
-        ret = self._buff[:n]
-        self._buff = self._buff[len(ret):]
-        return ret
-
-
 def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
-    """
-    Decorator for retrying database operations on transient errors with
-    exponential backoff.
-    """
+    """Decorator for retrying database operations with exponential backoff."""
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            logger = structlog.get_logger()
+            
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
@@ -129,104 +92,84 @@ def retry_on_db_error(max_retries: int = 3, delay: float = 1.0):
                             wait_seconds=wait_time,
                             error=str(e)
                         )
+                        import time
                         time.sleep(wait_time)
                     else:
-                        logger.error(
-                            "Database operation failed after all retries.",
-                            func_name=func.__name__,
-                            error=str(e)
-                        )
+                        logger.error("Database operation failed after all retries", 
+                                  func_name=func.__name__, error=str(e))
                         break
                 except Exception:
-                    # Don't retry on non-transient errors (e.g., SQL syntax error)
                     raise
+            
             raise DatabaseConnectionError("Max retries exceeded for database operation.") from last_exception
         return wrapper
     return decorator
 
 
-# --- Main Class ---
 class DatabaseUpdater:
     """
-    Production-ready database updater for connecting Odoo sales data to PostgreSQL on GCP.
+    Manages the synchronization of sales data from Odoo to the PostgreSQL database.
     """
 
     def __init__(self, use_test_odoo: bool = False):
-        """
-        Initialize DatabaseUpdater.
-
-        Args:
-            use_test_odoo: If True, connects to the test Odoo instance as
-                           defined in the config.
-        """
-        # Uses the singleton 'secrets' instance from config_manager
+        """Initialize DatabaseUpdater with centralized configuration."""
         self.config = secrets
-        self.logger = structlog.get_logger().bind(component="database_updater")
+        self.logger = logger
+        self.component = "sales_database_updater"
+        self.odoo_env = "test" if use_test_odoo else "production"
         self.use_test_odoo = use_test_odoo
         self._connection_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
-        self.secret_manager: Optional[SecretManagerClient] = None
         
-        # Only instantiate SecretManagerClient if in production environment
-        if self.config.ENVIRONMENT == 'production':
-            if not self.config.GCP_PROJECT_ID:
-                raise ValueError("GCP_PROJECT_ID is not set in production environment.")
-            self.secret_manager = SecretManagerClient(self.config.GCP_PROJECT_ID)
-
+        # --- NEW: Instantiate the OdooSales class ---
+        odoo_config = self.config.get_odoo_config(use_test=self.use_test_odoo)
+        self.odoo_api = OdooSales(
+            db=odoo_config['db'],
+            url=odoo_config['url'],
+            username=odoo_config['username'],
+            password=odoo_config['password']
+        )
+        
         self.logger.info(
             "DatabaseUpdater initialized",
             environment=self.config.ENVIRONMENT,
-            use_test_odoo=self.use_test_odoo
+            use_test_odoo=self.use_test_odoo,
+            component=self.component,
+            odoo_env=self.odoo_env
         )
 
     def _get_connection_params(self) -> Dict[str, Any]:
-        """Get database connection parameters from the central config."""
+        """Get database connection parameters from centralized config."""
         try:
             db_config = self.config.get_database_config()
-            # Ensure port is an integer
             db_config['port'] = int(db_config['port'])
-            
-            # Filter to only include valid PostgreSQL connection parameters
-            valid_params = {
-                'host', 'port', 'database', 'user', 'password', 'dbname',
-                'connect_timeout', 'sslmode', 'sslcert', 'sslkey', 'sslrootcert',
-                'sslcrl', 'application_name', 'fallback_application_name',
-                'keepalives', 'keepalives_idle', 'keepalives_interval', 
-                'keepalives_count', 'target_session_attrs', 'options'
-            }
-            
-            # Only include parameters that are valid for psycopg2
-            filtered_config = {k: v for k, v in db_config.items() if k in valid_params}
-            
-            self.logger.debug("Database connection parameters", 
-                            host=filtered_config.get('host'), 
-                            database=filtered_config.get('database'),
-                            filtered_params=list(filtered_config.keys()))
-            
-            return filtered_config
-        except (AttributeError, KeyError) as e:
-            self.logger.error("Database configuration is missing or incomplete.", error=str(e))
+            return db_config
+        except Exception as e:
+            self.logger.error("Database configuration error", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Database configuration is incomplete.") from e
 
     def _setup_connection_pool(self):
-        """Initialize the database connection pool."""
+        """Initialize database connection pool."""
         if self._connection_pool:
             return
+            
         try:
             params = self._get_connection_params()
             self._connection_pool = psycopg2.pool.ThreadedConnectionPool(
-                minconn=2, maxconn=10, **params, connect_timeout=30
+                minconn=2, maxconn=10, connect_timeout=30, **params
             )
-            self.logger.info(
-                "Database connection pool created",
-                host=params.get('host'), database=params.get('database')
-            )
+            self.logger.info("Database connection pool created", 
+                              host=params.get('host'), 
+                              database=params.get('database'),
+                              component=self.component, odoo_env=self.odoo_env)
         except Exception as e:
-            self.logger.error("Failed to create connection pool", error=str(e))
+            self.logger.error("Failed to create connection pool", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Failed to create connection pool.") from e
 
     @contextmanager
     def get_connection(self):
-        """Context manager for getting a pooled database connection."""
+        """Context manager for pooled database connections."""
         if not self._connection_pool:
             self._setup_connection_pool()
 
@@ -238,142 +181,208 @@ class DatabaseUpdater:
         except psycopg2.Error as e:
             if conn:
                 conn.rollback()
-            self.logger.error("Database transaction failed", error=str(e))
+            self.logger.error("Database transaction failed", error=str(e),
+                             component=self.component, odoo_env=self.odoo_env)
             raise DatabaseConnectionError("Database transaction failed.") from e
         finally:
             if conn:
                 self._connection_pool.putconn(conn)
 
     @retry_on_db_error()
-    def get_latest_date_records(self) -> Tuple[Optional[date], set]:
-        """Get the most recent date and existing records for anti-duplication."""
-        with self.get_connection() as conn, conn.cursor() as cursor:
-            cursor.execute("SELECT MAX(issueddate) FROM sales_items WHERE issueddate IS NOT NULL")
-            latest_date = (result := cursor.fetchone()) and result[0]
-
-            if not latest_date:
-                self.logger.info("No existing records found.")
-                return None, set()
-
-            cursor.execute(
-                "SELECT salesinvoiceid, items_product_sku FROM sales_items WHERE issueddate = %s",
-                (latest_date,)
-            )
-            existing_pairs = set(cursor.fetchall())
-            self.logger.info(
-                "Retrieved anti-duplication data",
-                latest_date=str(latest_date),
-                existing_pairs_count=len(existing_pairs)
-            )
-            return latest_date, existing_pairs
-
-    def filter_duplicate_records(self, df: pd.DataFrame, existing_pairs: set) -> pd.DataFrame:
-        """Filter out records that already exist for the latest date."""
-        if not existing_pairs or df.empty:
-            return df
-            
-        initial_count = len(df)
-        # Use a more efficient method than apply/zip for creating composite keys
-        composite_key = df['salesinvoiceid'].astype(str) + '|' + df['items_product_sku'].astype(str)
-        mask = ~composite_key.isin({f"{inv}|{sku}" for inv, sku in existing_pairs})
-        
-        filtered_df = df[mask]
-        duplicates_removed = initial_count - len(filtered_df)
-        if duplicates_removed > 0:
-            self.logger.info("Filtered duplicate records", duplicates_removed=duplicates_removed)
-        return filtered_df
-
-    def _clean_csv_value(self, value: Any) -> str:
-        """Clean and escape values for PostgreSQL COPY."""
-        if pd.isna(value):
-            return r'\N'
-        return str(value).replace('\\', r'\\').replace('\n', r'\n').replace('\r', r'\r').replace('\t', r'\t').replace('|', r'\|')
+    def get_last_sync_time(self) -> Optional[datetime]:
+        """
+        Get the most recent updated_at timestamp for incremental sync.
+        """
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("SELECT MAX(updated_at) as last_sync_time FROM sales_items WHERE updated_at IS NOT NULL")
+                result = cursor.fetchone()
+                last_sync_time = result['last_sync_time'] if result else None
+                
+                if last_sync_time:
+                    self.logger.info("Last sync time retrieved", 
+                                     last_sync_time=last_sync_time.isoformat(),
+                                     component=self.component,
+                                     odoo_env=self.odoo_env)
+                else:
+                    self.logger.info("No previous sync time found - will perform full sync")
+                
+                return last_sync_time
 
     @retry_on_db_error()
-    def bulk_load_data(self, df: pd.DataFrame) -> int:
-        """Efficiently load data using psycopg2.copy_from."""
+    def bulk_upsert_sales_data(self, df: pd.DataFrame) -> Tuple[int, int, int]:
+        """
+        Perform bulk upsert using INSERT ... ON CONFLICT DO UPDATE SET.
+        """
         if df.empty:
-            return 0
+            return 0, 0, 0
 
-        columns = [
-            'salesinvoiceid', 'doctype_name', 'docnumber', 'customer_customerid',
-            'customer_name', 'customer_vatid', 'salesman_name', 'term_name',
-            'warehouse_name', 'totals_net', 'totals_vat', 'total_total',
-            'items_product_description', 'items_product_sku', 'items_quantity',
-            'items_unitprice', 'issueddate', 'sales_channel'
-        ]
-        df_reordered = df.reindex(columns=columns)
+        # --- IMPROVEMENT: Deduplicate DataFrame before upsert ---
+        original_count = len(df)
+        df_deduped = df.drop_duplicates(subset=['salesinvoiceid', 'items_product_sku'], keep='last').copy()
+        deduped_count = len(df_deduped)
+        duplicates_removed = original_count - deduped_count
+        
+        if duplicates_removed > 0:
+            self.logger.info("Duplicates removed from DataFrame before upsert",
+                           duplicates_removed=duplicates_removed,
+                           original_count=original_count,
+                           deduped_count=deduped_count)
 
-        def data_iterator():
-            for row in df_reordered.itertuples(index=False, name=None):
-                yield '|'.join(self._clean_csv_value(field) for field in row) + '\n'
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                self.logger.info("Starting bulk upsert operation", record_count=len(df_deduped))
+                
+                upsert_sql = """
+                INSERT INTO sales_items (
+                    salesinvoiceid, doctype_name, docnumber, customer_customerid,
+                    customer_name, customer_vatid, salesman_name, term_name,
+                    warehouse_name, totals_net, totals_vat, total_total,
+                    items_product_description, items_product_sku, items_quantity,
+                    items_unitprice, issueddate, sales_channel
+                ) VALUES %s
+                ON CONFLICT (salesinvoiceid, items_product_sku) 
+                DO UPDATE SET
+                    doctype_name = EXCLUDED.doctype_name,
+                    docnumber = EXCLUDED.docnumber,
+                    customer_customerid = EXCLUDED.customer_customerid,
+                    customer_name = EXCLUDED.customer_name,
+                    customer_vatid = EXCLUDED.customer_vatid,
+                    salesman_name = EXCLUDED.salesman_name,
+                    term_name = EXCLUDED.term_name,
+                    warehouse_name = EXCLUDED.warehouse_name,
+                    totals_net = EXCLUDED.totals_net,
+                    totals_vat = EXCLUDED.totals_vat,
+                    total_total = EXCLUDED.total_total,
+                    items_product_description = EXCLUDED.items_product_description,
+                    items_quantity = EXCLUDED.items_quantity,
+                    items_unitprice = EXCLUDED.items_unitprice,
+                    issueddate = EXCLUDED.issueddate,
+                    sales_channel = EXCLUDED.sales_channel,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING 
+                    salesinvoiceid, 
+                    items_product_sku,
+                    (xmax = 0) AS was_inserted
+                """
 
-        with self.get_connection() as conn, conn.cursor() as cursor:
-            self.logger.info("Starting bulk data load", record_count=len(df_reordered))
-            cursor.copy_from(
-                StringIteratorIO(data_iterator()),
-                'sales_items', sep='|', null=r'\N', columns=columns
-            )
-            return cursor.rowcount
+                # Convert data to tuples using deduplicated DataFrame
+                data_tuples = []
+                for _, row in df_deduped.iterrows():
+                    data_tuple = (
+                        row['salesinvoiceid'], row['doctype_name'], row['docnumber'],
+                        int(row['customer_customerid']), row['customer_name'], row['customer_vatid'],
+                        row['salesman_name'], row['term_name'], row['warehouse_name'],
+                        float(row['totals_net']), float(row['totals_vat']), float(row['total_total']),
+                        row['items_product_description'], row['items_product_sku'],
+                        float(row['items_quantity']), float(row['items_unitprice']),
+                        row['issueddate'], row['sales_channel']
+                    )
+                    data_tuples.append(data_tuple)
 
-    def run_update(self, start_date_override: Optional[date] = None) -> UpdateResult:
-        """Main orchestration method to run the complete update process."""
+                execute_values(
+                    cursor, upsert_sql, data_tuples,
+                    template=None, page_size=1000
+                )
+
+                results = cursor.fetchall()
+                total_upserts = len(results)
+                new_records = sum(1 for result in results if result[2])
+                updated_records = total_upserts - new_records
+
+                self.logger.info("Bulk upsert completed",
+                                 total_upserts=total_upserts,
+                                 new_records=new_records,
+                                 updated_records=updated_records,
+                                 duplicates_removed_before_upsert=duplicates_removed)
+
+                return total_upserts, new_records, updated_records
+
+    def run_update(self, start_date_override: Optional[date] = None, 
+                   force_full_sync: bool = False) -> UpdateResult:
+        """
+        Main orchestration method for the sales data sync process.
+        """
         run_start_time = datetime.now()
-        self.logger.info("Database update process starting...")
+        self.logger.info("Sales data sync process starting...",
+                         force_full_sync=force_full_sync,
+                         start_date_override=str(start_date_override) if start_date_override else None)
 
         try:
-            latest_date, existing_pairs = self.get_latest_date_records()
-
-            start_date = start_date_override
-            if start_date is None:
-                start_date = (latest_date + pd.Timedelta(days=1)) if latest_date else (date.today() - pd.Timedelta(days=30))
+            # Step 1: Determine sync start date
+            if force_full_sync or start_date_override:
+                start_date = start_date_override or (date.today() - timedelta(days=90))
+            else:
+                last_sync_time = self.get_last_sync_time()
+                if last_sync_time:
+                    start_date = (last_sync_time - timedelta(hours=1)).date()
+                else:
+                    start_date = date.today() - timedelta(days=30)
+            
             end_date = date.today()
+            self.logger.info("Determined sync date range", start_date=str(start_date), end_date=str(end_date))
 
             if start_date > end_date:
-                self.logger.info("Database is already up-to-date.", latest_synced_date=str(latest_date))
+                self.logger.info("Database is already up-to-date")
                 return UpdateResult(0, 0, run_start_time, datetime.now(), [])
 
-            self.logger.info("Fetching new sales data", start_date=str(start_date), end_date=str(end_date))
+            # --- STEP 2: SIMPLIFIED DATA FETCHING ---
+            self.logger.info("Fetching prepared sales data from Odoo...")
+            sales_data_df = self.odoo_api.read_sales_by_date_range(start_date, end_date)
 
-            # CORRECTED: Pass the use_test_odoo flag to the integration layer
-            orders_df, lines_df = read_sales_by_date_range(start_date, end_date, use_test=self.use_test_odoo)
-
-            if orders_df.empty:
-                self.logger.info("No new sales data found in the specified date range.")
+            if sales_data_df.empty:
+                self.logger.info("No new sales data found or no valid records to sync.")
                 return UpdateResult(0, 0, run_start_time, datetime.now(), [])
 
-            combined_df = pd.merge(orders_df, lines_df, on='order_id', how='inner')
-            
-            # Map DataFrame columns to database table column names (PostgreSQL lowercase)
-            column_mapping = {
-                'salesInvoiceId': 'salesinvoiceid',
-                'items_unitPrice': 'items_unitprice', 
-                'issuedDate': 'issueddate'
-            }
-            combined_df = combined_df.rename(columns=column_mapping)
-            
-            if latest_date and latest_date >= start_date:
-                combined_df = self.filter_duplicate_records(combined_df, existing_pairs)
+            # --- STEP 3: PERFORM BULK UPSERT ---
+            # The preparation step is no longer needed.
+            total_upserts, new_records, updated_records = self.bulk_upsert_sales_data(sales_data_df)
 
-            if combined_df.empty:
-                self.logger.info("No new records to insert after deduplication.")
-                return UpdateResult(0, 0, run_start_time, datetime.now(), [])
+            # Step 4: Create result summary
+            run_end_time = datetime.now()
+            result = UpdateResult(
+                success_count=total_upserts, failure_count=0,
+                start_time=run_start_time, end_time=run_end_time,
+                errors=[], upserts_performed=total_upserts,
+                new_records=new_records, updated_records=updated_records
+            )
 
-            records_loaded = self.bulk_load_data(combined_df)
-            self.logger.info("Database update completed successfully.", records_loaded=records_loaded)
-            return UpdateResult(records_loaded, 0, run_start_time, datetime.now(), [])
+            self.logger.info("Sales data sync completed successfully", **result.__dict__)
+            return result
 
         except Exception as e:
-            self.logger.error("Database update failed.", error=str(e), exc_info=True)
-            return UpdateResult(0, 1, run_start_time, datetime.now(), [str(e)])
+            run_end_time = datetime.now()
+            error_msg = str(e)
+            self.logger.error("Sales data sync failed", error=error_msg, exc_info=True)
+            return UpdateResult(0, 1, run_start_time, run_end_time, [error_msg])
+
+    def test_connection(self) -> bool:
+        """Test database connectivity."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT version()")
+                    result = cursor.fetchone()
+                    self.logger.info("Database connection test successful", 
+                                     version=result[0] if result else "Unknown")
+                    return True
+        except Exception as e:
+            self.logger.error("Database connection test failed", error=str(e))
+            return False
 
     def close(self):
-        """Clean up database connections and other resources."""
+        """Clean up database and Odoo connections."""
         try:
             if self._connection_pool:
                 self._connection_pool.closeall()
-                self.logger.info("Database connection pool closed.")
-            cleanup_sales_provider()
+                self.logger.info("Database connection pool closed")
+            
+            # --- NEW: Cleanup Odoo API connection ---
+            if self.odoo_api:
+                # The OdooAPI uses context manager with __exit__ for cleanup
+                # Manual cleanup is handled automatically by the parent class
+                self.logger.info("Odoo API connection cleanup completed")
+
         except Exception as e:
             self.logger.error("Error during cleanup", error=str(e))
 
@@ -382,35 +391,3 @@ class DatabaseUpdater:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
-
-def main():
-    """Main entry point to run the database updater from the command line."""
-    # Assuming setup_application_logging() is called from config_manager
-    # or a main application entry point.
-    main_logger = structlog.get_logger().bind(component="main")
-    main_logger.info("Database updater application starting...")
-
-    try:
-        # Determine if we should use the test Odoo instance from environment
-        use_test = os.getenv('USE_TEST_ODOO', 'false').lower() == 'true'
-
-        with DatabaseUpdater(use_test_odoo=use_test) as updater:
-            result = updater.run_update()
-            main_logger.info(
-                "Run complete.",
-                status="SUCCESS" if not result.errors else "FAILURE",
-                records_processed=result.total_processed,
-                duration_sec=round(result.duration_seconds, 2),
-                errors=result.errors
-            )
-
-    except Exception as e:
-        main_logger.error("An unhandled exception occurred.", error=str(e), exc_info=True)
-        exit(1)
-
-
-if __name__ == "__main__":
-    # In a real application, you might have a single entry point that
-    # configures logging before calling this main function.
-    main()

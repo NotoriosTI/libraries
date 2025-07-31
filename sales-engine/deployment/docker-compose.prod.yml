@@ -1,25 +1,25 @@
 # -----------------------------------------------------------------------------
-# Docker Compose for PRODUCTION SIMULATION
+# Docker Compose for PRODUCTION DEPLOYMENT (Sales Engine Refactored)
 # -----------------------------------------------------------------------------
-# This file is designed to mimic a production environment.
+# This file is designed for production environment deployment.
 #
 # Key Features:
-#   - Uses the pre-built production Docker image.
-#   - Passes environment variables directly (no .env file).
-#   - Connects to the shared Cloud SQL Auth Proxy.
+#   - Uses the pre-built production Docker image with refactored code
+#   - Connects to Cloud SQL via shared proxy using host networking
+#   - Uses proper upsert logic with composite primary key
+#   - Timestamp-based incremental sync using updated_at column
+#   - Depends on shared-cloud-sql-proxy service
 #
 # Usage:
-#   This file is typically used by deployment scripts or CI/CD pipelines.
+#   This file is used by deployment scripts or CI/CD pipelines.
 #   To run manually:
-#   docker-compose -f deployment/docker-compose.prod.yml up
-#
-# IMPORTANT: This service requires the shared-cloud-sql-proxy to be running
-# Use the shared proxy from product-engine: docker-compose -f /opt/product-engine/docker-compose.shared-proxy.yml up -d
+#   docker-compose -f deployment/docker-compose.shared-proxy.yml up -d
+#   docker-compose -f deployment/docker-compose.prod.yml run --rm sales-engine
 #
 version: '3.8'
 
 services:
-  # The main application service, using the production-ready image
+  # The main application service, using the production-ready refactored image
   sales-engine:
     # Use an image from a container registry (e.g., GCR)
     # Replace with your actual image path
@@ -30,10 +30,12 @@ services:
     environment:
       - ENVIRONMENT=production
       - GCP_PROJECT_ID=${PROJECT_ID}
-      - DB_HOST=127.0.0.1  # Connect to shared proxy via localhost
+      - DB_HOST=127.0.0.1 # Connect to shared proxy
       - DB_PORT=5432
-      - USE_TEST_ODOO=false  # Ensures we use odoo_prod
+      - USE_TEST_ODOO=${USE_TEST_ODOO:-false}  # Ensures we use odoo_prod by default
+      - FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}  # Normal incremental sync by default
+      - TEST_CONNECTIONS_ONLY=${TEST_CONNECTIONS_ONLY:-false}  # Full sync operation by default
       # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
-    # Use host network for direct access to shared proxy
+    # Use host network for direct proxy access
     network_mode: "host"
     # No depends_on needed since we use host networking and shared proxy runs separately
