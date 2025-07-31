@@ -693,7 +693,7 @@ class OdooProduct(OdooAPI):
         """
         # Hardcoded values
         source_location_id = 8
-        destination_location_id = 29
+        destination_location_id = 20
         picking_type_id_internal = 5 # ID para 'transferencia-interna'
 
         picking_data = {
