@@ -1116,25 +1116,36 @@ class OdooProduct(OdooAPI):
             "product_qty": product_qty
         }
     
-    def confirm_production_order(self, production_order_id: int):
+    def confirm_production_order(self, production_order_id: int, picking_id: int):
         """
         Confirms a draft Manufacturing order(MO) using it's id
         :param mo_id: ID of the MO to confirm
+        :param picking_id: ID of the picking to confirm
         :return: True if correctly confirmed False if error occurs
         """
 
         production_order_confirmation_data = {
             "status": None,
             "production_order_id": production_order_id,
+            "picking_id": picking_id,
             "message": None,
         }
 
         try:
-            result = self.models.execute_kw(
+            order_result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'mrp.production', 'action_confirm',
                 [[production_order_id]]
             )
+            production_order_confirmation_data["order_result"] = order_result
+
+            picking_result = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'stock.picking', 'action_confirm',
+                [[picking_id]]
+            )
+            production_order_confirmation_data["picking_result"] = picking_result
+
         except Exception as e:
             production_order_confirmation_data["status"] = "error"
             production_order_confirmation_data["message"] = f"Error al confirmar la orden de producción: {e}"
