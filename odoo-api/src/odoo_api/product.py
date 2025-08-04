@@ -241,7 +241,6 @@ class OdooProduct(OdooAPI):
         product_ids = self.models.execute_kw(self.db, self.uid, self.password, 'product.product', 'search', [[['default_code', '=', sku]]])
         if product_ids:
             # Si el producto se encuentra, actualizar los campos
-            print('El producto ha sido ubicado exitosamente')
             product_id = product_ids[0]
 
             # Buscar el quant para el producto y la ubicación
@@ -268,8 +267,6 @@ class OdooProduct(OdooAPI):
         """
         Verifica si el producto ya existe en Odoo basándose en el SKU y que el producto esté habilitado para la venta (sale_ok=True).
         """
-        print(f"[DEBUG-product_exists] sku: {sku}")
-        print(f"[DEBUG-product_exists] type: {type(sku)}")
         product_ids = self.models.execute_kw(
             self.db, self.uid, self.password,
             'product.product', 'search',
@@ -278,7 +275,6 @@ class OdooProduct(OdooAPI):
                 ['sale_ok', '=', True]
             ]]
         )
-        print(f"[DEBUG-product_exists] {product_ids} ")
         return bool(product_ids)
 
     def process_field_value(self, value, command_type='add'):
@@ -503,7 +499,6 @@ class OdooProduct(OdooAPI):
 
             # 2a. Intentar buscar BOM activa por product.product (variante específica)
             if product_variant_id:
-                # print(f"DEBUG: Buscando BOM para SKU {sku} por product_id (variante): {product_variant_id}") # Para depuración
                 bom_search_result_ids = self.models.execute_kw(
                     self.db, self.uid, self.password,
                     'mrp.bom', 'search',
@@ -730,7 +725,7 @@ class OdooProduct(OdooAPI):
             picking_data['message'] = f'Error al crear el picking'
             return picking_data
     
-    def create_single_production_order(self, product_data: dict):
+    def create_single_production_order(self, product_sku:str, product_qty:int, picking_qty:int, debug=False):
         """
         Crea una orden de poducción en Odoo basándose en el DataFrame de ordenes de producción.
         args: df_orden: DataFrame con las columnas 'SKU', 'TOTAL PRODUCCIÓN', 'A PRODUCIR PICKING (1 MES)'
@@ -741,44 +736,56 @@ class OdooProduct(OdooAPI):
             'status': None,
             'message': None,
             'production_order_id': None,
-            'product_data': product_data,
+            'product_data': None,
             'bom_data': None,
             'picking_data': None,
             'stock_transfer_data': None,
+            'product_name': None,
+            'product_sku': product_sku, 
+            'product_qty': product_qty,
+            'picking_qty': picking_qty,
         }
 
         # 1. Verificar si el producto existe
-        if not self.product_exists(product_data['product_sku']):
+        if debug:
+            print(f"[ODOO_PRODUCT]: Verificando SKU {product_sku}")
+        if not self.product_exists(product_sku):
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'El producto no existe'
             return production_order_data
 
         # 2. Obtener el ID del producto
-        product_info = self.get_id_by_sku(product_data['product_sku'])
+        if debug:
+            print(f"[ODOO_PRODUCT]: Obteniendo ID")
+        product_info = self.get_id_by_sku(product_sku)
+        print(f"PROD_INFO_POST_ID = {product_info}")
         if product_info['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
             return production_order_data
-        production_order_data['product_data']['product_id'] = product_info['product_id']
+        production_order_data['product_data'] = product_info
+        print(f"PROD_ORDER_DATA = {production_order_data}")
 
         # 3. Obtener el ID de la BOM
-        bom_data = self.get_bom_id_by_product_id(product_data['product_id'])
+        if debug:
+            print(f"[ODOO_PRODUCT]: Obteniendo ID de BOM")
+        bom_data = self.get_bom_id_by_product_id(production_order_data['product_data']['product_id'])
         if bom_data['status'] == 'error':
             # Continuar sin BOM en lugar de detener el flujo
-            bom_data = {'status': 'warning', 'message': 'BOM no encontrada, continuando sin BOM', 'product_id': product_data['product_id'], 'bom_id': None}
+            bom_data = {'status': 'warning', 'message': 'BOM no encontrada, continuando sin BOM', 'product_id': production_order_data['product_id'], 'bom_id': None}
         production_order_data['bom_data'] = bom_data
         
         # 4. Crear la orden de producción
+        if debug:
+            print(f"[ODOO_PRODUCT]: Creando orden de producción")
         production_order_vals = {
-            'product_id': product_data['product_id'],
-            'product_qty': product_data['product_qty'],
+            'product_id': production_order_data['product_data']['product_id'],
+            'product_qty': product_qty,
             'location_dest_id': 8,
         }
         # Solo agregar bom_id si existe
-        if bom_data.get('bom_id'):
+        if bom_data['bom_id'] is not None:
             production_order_vals['bom_id'] = bom_data['bom_id']
-
-        logging.info(f"[DEBUG-create_single_production_order] production_order_vals: {production_order_vals}")
         try:
             production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
         except Exception as e:
@@ -790,7 +797,7 @@ class OdooProduct(OdooAPI):
             production_order_data['status'] = 'success'
             production_order_data['message'] = f'Orden de producción creada'
             production_order_data['production_order_id'] = production_order_id
-            production_order_data['product_data'] = product_data
+            production_order_data['product_data'] = product_info
             production_order_data['bom_data'] = bom_data
         else:
             production_order_data['status'] = 'error'
@@ -798,7 +805,9 @@ class OdooProduct(OdooAPI):
             return production_order_data
 
         # 5. Crear el picking
-        picking_data = self.create_product_picking(product_data, product_data['picking_qty'])
+        if debug:
+            print(f"[ODOO_PRODUCT]: Creando picking")
+        picking_data = self.create_product_picking(product_info, picking_qty)
         if picking_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al crear el picking'
@@ -806,14 +815,20 @@ class OdooProduct(OdooAPI):
         production_order_data['picking_data'] = picking_data
 
         # 6. Crear el movimiento de stock
+        if debug:
+            print(f"[ODOO_PRODUCT]: Creando movimiento de stock")
         stock_transfer_data = self.create_stock_move(picking_data)
         if stock_transfer_data['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al crear el movimiento de stock'
             return production_order_data
         production_order_data['stock_transfer_data'] = stock_transfer_data
-        print(f"[DEBUG]: picking_data: {production_order_data['picking_data']}")
-        print(f"[DEBUG]: stock_transfer_data: {production_order_data['stock_transfer_data']}")
+        if debug:
+            print(f"Orden de producción creada con éxito")
+
+        print(f"[ODOO PRODUCTION ORDER DATA]: {production_order_data}")
+        picking_id = production_order_data['picking_data']['picking_id']
+        print(f"[ODOO PICKING ID]: {picking_id}")
         return production_order_data
         
     def search_production_orders(self, sku):
@@ -998,7 +1013,6 @@ class OdooProduct(OdooAPI):
             dict: Diccionario con SKUs como claves y listas de atributos como valores.
         """
         try:
-            print(f"[DEBUG] SKUs de entrada: {skus}")
             # 1. Buscar los productos por SKU para obtener sus IDs y los IDs de sus atributos de variante
             product_info_list = self.models.execute_kw(
                 self.db, self.uid, self.password,
@@ -1007,15 +1021,12 @@ class OdooProduct(OdooAPI):
                 {'fields': ['id', 'name', 'default_code', 'product_template_attribute_value_ids']}
             )
 
-            print(f"[DEBUG] product_info_list: {product_info_list}")
-
             if not product_info_list:
                 print("[DEBUG] No se encontraron productos para los SKUs dados.")
                 return {sku: [] for sku in skus}
 
             # 2. Crear diccionario de productos por SKU
             product_dict = {p['default_code']: p for p in product_info_list}
-            print(f"[DEBUG] product_dict.keys(): {list(product_dict.keys())}")
 
             # 3. Obtener todos los IDs de atributos de variante únicos (aplanar listas)
             all_attribute_value_ids = []
@@ -1025,29 +1036,21 @@ class OdooProduct(OdooAPI):
                     all_attribute_value_ids.extend(attr_ids)
                 elif attr_ids:
                     all_attribute_value_ids.append(attr_ids)
-                print(f"[DEBUG] SKU: {product.get('default_code')}, product_template_attribute_value_ids: {attr_ids}")
 
             # Eliminar duplicados
             all_attribute_value_ids = list(set(all_attribute_value_ids))
-            print(f"[DEBUG] all_attribute_value_ids: {all_attribute_value_ids}")
 
             # 4. Obtener los nombres de todos los atributos en una sola llamada
             attribute_names_dict = {}
             if all_attribute_value_ids:
-                print(f"[DEBUG] Consultando atributos con IDs: {all_attribute_value_ids}")
-                print(f"[DEBUG] Tipo de IDs: {[type(id) for id in all_attribute_value_ids]}")
                 
                 attribute_value_data = self.models.execute_kw(
                     self.db, self.uid, self.password,
                     'product.template.attribute.value', 'read',
                     [all_attribute_value_ids], {'fields': ['id', 'name']}
                 )
-                print(f"[DEBUG] Respuesta de atributos: {attribute_value_data}")
-                print(f"[DEBUG] Número de atributos encontrados: {len(attribute_value_data)}")
                 
                 attribute_names_dict = {attr['id']: attr['name'] for attr in attribute_value_data if 'name' in attr}
-                print(f"[DEBUG] attribute_names_dict: {attribute_names_dict}")
-                print(f"[DEBUG] Claves del diccionario: {list(attribute_names_dict.keys())}")
             else:
                 print("[DEBUG] No hay IDs de atributos para consultar")
 
@@ -1071,7 +1074,6 @@ class OdooProduct(OdooAPI):
                 attribute_names = [attribute_names_dict.get(attr_id) for attr_id in attribute_value_ids if attribute_names_dict.get(attr_id)]
                 results[sku] = attribute_names
 
-            print(f"[DEBUG] results: {results}")
             return results
 
         except Exception as e:
