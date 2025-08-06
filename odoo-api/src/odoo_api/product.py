@@ -772,7 +772,7 @@ class OdooProduct(OdooAPI):
         bom_data = self.get_bom_id_by_product_id(production_order_data['product_data']['product_id'])
         if bom_data['status'] == 'error':
             # Continuar sin BOM en lugar de detener el flujo
-            bom_data = {'status': 'warning', 'message': 'BOM no encontrada, continuando sin BOM', 'product_id': production_order_data['product_id'], 'bom_id': None}
+            bom_data = {'status': 'warning', 'message': 'BOM no encontrada, continuando sin BOM', 'product_id': production_order_data['product_data']['product_id'], 'bom_id': None}
         production_order_data['bom_data'] = bom_data
         
         # 4. Crear la orden de producción

@@ -1,7 +1,7 @@
 """
 ProductionForecastReader para Sales Engine
 
-Cliente para leer datos de la tabla production_forecast en base de datos.
+Cliente para leer datos de la tabla production_forecast con filtrado por prioridad.
 Actualizado para nueva estructura sin current_sales.
 """
 
@@ -10,7 +10,7 @@ import pandas as pd
 import psycopg2
 import psycopg2.pool
 from datetime import date, datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal
 from contextlib import contextmanager
 
 try:
@@ -32,7 +32,14 @@ except ImportError:
 
 
 class ProductionForecastReader:
-    """Cliente para leer datos desde la tabla production_forecast."""
+    """Cliente para leer datos desde la tabla production_forecast con filtrado por prioridad."""
+    
+    # Priority hierarchy mapping
+    PRIORITY_LEVELS = {
+        'ALTA': 3,
+        'MEDIA': 2,
+        'BAJA': 1
+    }
     
     def __init__(self, use_test_odoo: bool = False):
         self.use_test_odoo = use_test_odoo
@@ -80,9 +87,27 @@ class ProductionForecastReader:
         finally:
             self._connection_pool.putconn(conn)
     
-    def get_production_forecasts_by_month(self, month: int, year: int) -> pd.DataFrame:
+    def _get_priority_filter(self, minimum_priority: str) -> tuple:
+        """Generate priority filter SQL and valid priorities list."""
+        if minimum_priority.upper() not in self.PRIORITY_LEVELS:
+            raise ValueError(f"Invalid priority: {minimum_priority}. Must be one of: {list(self.PRIORITY_LEVELS.keys())}")
+        
+        min_level = self.PRIORITY_LEVELS[minimum_priority.upper()]
+        valid_priorities = [p for p, level in self.PRIORITY_LEVELS.items() if level >= min_level]
+        
+        priority_placeholders = ','.join(['%s'] * len(valid_priorities))
+        priority_filter = f"AND priority IN ({priority_placeholders})"
+        
+        return priority_filter, valid_priorities
+    
+    def get_production_forecasts_by_month(self, month: int, year: int, minimum_priority: Literal['baja', 'media', 'alta'] = 'baja') -> pd.DataFrame:
         """
-        Obtener todos los datos de production_forecast para un mes y año específico.
+        Obtener production_forecast data filtrado por prioridad mínima.
+        
+        Args:
+            month: Mes (1-12)
+            year: Año
+            minimum_priority: Prioridad mínima ('alta', 'media', 'baja'). Default: 'baja' (todos)
         """
         if not isinstance(month, int) or month < 1 or month > 12:
             raise ValueError(f"El mes debe ser un entero entre 1 y 12, recibido: {month}")
@@ -90,25 +115,38 @@ class ProductionForecastReader:
         if not isinstance(year, int) or year < 2000 or year > 2100:
             raise ValueError(f"El año debe ser un entero válido, recibido: {year}")
         
-        logger.info(f"Obteniendo production_forecasts para {month}/{year}")
+        # Convert to uppercase for robustness
+        minimum_priority = minimum_priority.upper()
+        priority_filter, valid_priorities = self._get_priority_filter(minimum_priority)
         
-        query = """
+        logger.info(f"Obteniendo production_forecasts para {month}/{year} con prioridad >= {minimum_priority}")
+        
+        query = f"""
         SELECT 
             id, sku, product_name, year, month, month_name,
             forecast_quantity, inventory_available, production_needed,
             priority, is_valid_product, created_at, updated_at
         FROM production_forecast 
-        WHERE month = %s AND year = %s
-        ORDER BY production_needed DESC, sku
+        WHERE month = %s AND year = %s {priority_filter}
+        ORDER BY 
+            CASE priority 
+                WHEN 'ALTA' THEN 1 
+                WHEN 'MEDIA' THEN 2 
+                WHEN 'BAJA' THEN 3 
+            END,
+            production_needed DESC, sku
         """
+        
+        params = [month, year] + valid_priorities
         
         try:
             with self.get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=(month, year))
+                df = pd.read_sql_query(query, conn, params=params)
                 
                 logger.success(f"Production forecasts obtenidos exitosamente", 
                              month=month, 
                              year=year,
+                             minimum_priority=minimum_priority,
                              total_records=len(df),
                              unique_skus=df['sku'].nunique() if not df.empty else 0)
                 
@@ -121,9 +159,9 @@ class ProductionForecastReader:
             logger.error(f"Error inesperado obteniendo production_forecasts para {month}/{year}: {e}")
             raise
     
-    def get_production_forecast_summary(self, month: int, year: int) -> Dict[str, Any]:
+    def get_production_forecast_summary(self, month: int, year: int, minimum_priority: Literal['baja', 'media', 'alta'] = 'baja') -> Dict[str, Any]:
         """
-        Obtener resumen de production_forecast para un mes y año específico.
+        Obtener resumen filtrado por prioridad mínima.
         """
         if not isinstance(month, int) or month < 1 or month > 12:
             raise ValueError(f"El mes debe ser un entero entre 1 y 12, recibido: {month}")
@@ -131,9 +169,13 @@ class ProductionForecastReader:
         if not isinstance(year, int) or year < 2000 or year > 2100:
             raise ValueError(f"El año debe ser un entero válido, recibido: {year}")
         
-        logger.info(f"Obteniendo resumen de production_forecasts para {month}/{year}")
+        # Convert to uppercase for robustness
+        minimum_priority = minimum_priority.upper()
+        priority_filter, valid_priorities = self._get_priority_filter(minimum_priority)
         
-        query = """
+        logger.info(f"Obteniendo resumen de production_forecasts para {month}/{year} con prioridad >= {minimum_priority}")
+        
+        query = f"""
         SELECT 
             COUNT(*) as total_records,
             COUNT(DISTINCT sku) as unique_skus,
@@ -149,13 +191,15 @@ class ProductionForecastReader:
             COUNT(CASE WHEN is_valid_product = true THEN 1 END) as valid_products_count,
             COUNT(CASE WHEN is_valid_product = false THEN 1 END) as invalid_products_count
         FROM production_forecast 
-        WHERE month = %s AND year = %s
+        WHERE month = %s AND year = %s {priority_filter}
         """
+        
+        params = [month, year] + valid_priorities
         
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(query, (month, year))
+                    cursor.execute(query, params)
                     result = cursor.fetchone()
                     
                     summary = {
@@ -173,7 +217,8 @@ class ProductionForecastReader:
                         'valid_products_count': result[11],
                         'invalid_products_count': result[12],
                         'month': month,
-                        'year': year
+                        'year': year,
+                        'minimum_priority': minimum_priority
                     }
                     
                     logger.success("Resumen de production_forecasts obtenido exitosamente", **summary)
@@ -190,6 +235,7 @@ class ProductionForecastReader:
     def get_production_forecast_for_sku(self, sku: str, month: Optional[int] = None, year: Optional[int] = None) -> Dict[str, Any]:
         """
         Obtener production_forecast para un SKU específico.
+        Note: No priority filter since this is for a specific SKU.
         """
         if year is None:
             year = datetime.now().year
@@ -285,13 +331,17 @@ class ProductionForecastReader:
             logger.error(f"Error inesperado obteniendo meses disponibles: {e}")
             raise
     
-    def get_production_forecast_summary_all(self, year: Optional[int] = None) -> Dict[str, Any]:
+    def get_production_forecast_summary_all(self, year: Optional[int] = None, minimum_priority: Literal['baja', 'media', 'alta'] = 'baja') -> Dict[str, Any]:
         """
-        Obtener resumen general de todos los production_forecasts.
+        Obtener resumen general filtrado por prioridad mínima.
         """
+        # Convert to uppercase for robustness
+        minimum_priority = minimum_priority.upper()
+        priority_filter, valid_priorities = self._get_priority_filter(minimum_priority)
+        
         if year is None:
-            logger.info("Obteniendo resumen general de production_forecasts (todos los años)")
-            query = """
+            logger.info(f"Obteniendo resumen general de production_forecasts (todos los años) con prioridad >= {minimum_priority}")
+            query = f"""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(DISTINCT sku) as unique_skus,
@@ -310,11 +360,12 @@ class ProductionForecastReader:
                 COUNT(CASE WHEN is_valid_product = true THEN 1 END) as valid_products_count,
                 COUNT(CASE WHEN is_valid_product = false THEN 1 END) as invalid_products_count
             FROM production_forecast
+            WHERE 1=1 {priority_filter}
             """
-            params = ()
+            params = valid_priorities
         else:
-            logger.info(f"Obteniendo resumen general de production_forecasts para el año {year}")
-            query = """
+            logger.info(f"Obteniendo resumen general de production_forecasts para el año {year} con prioridad >= {minimum_priority}")
+            query = f"""
             SELECT 
                 COUNT(*) as total_records,
                 COUNT(DISTINCT sku) as unique_skus,
@@ -333,9 +384,9 @@ class ProductionForecastReader:
                 COUNT(CASE WHEN is_valid_product = true THEN 1 END) as valid_products_count,
                 COUNT(CASE WHEN is_valid_product = false THEN 1 END) as invalid_products_count
             FROM production_forecast
-            WHERE year = %s
+            WHERE year = %s {priority_filter}
             """
-            params = (year,)
+            params = [year] + valid_priorities
         
         try:
             with self.get_connection() as conn:
@@ -360,7 +411,8 @@ class ProductionForecastReader:
                         'baja_priority_count': result[13],
                         'valid_products_count': result[14],
                         'invalid_products_count': result[15],
-                        'year': year if year else "todos"
+                        'year': year if year else "todos",
+                        'minimum_priority': minimum_priority
                     }
                     
                     logger.success("Resumen de production_forecasts obtenido exitosamente", **summary)
@@ -375,10 +427,10 @@ class ProductionForecastReader:
             raise
 
 
-def get_production_forecasts_by_month(month: int, year: int) -> pd.DataFrame:
-    """Función de conveniencia para obtener production_forecasts por mes."""
+def get_production_forecasts_by_month(month: int, year: int, minimum_priority: Literal['baja', 'media', 'alta'] = 'baja') -> pd.DataFrame:
+    """Función de conveniencia para obtener production_forecasts filtrados por prioridad."""
     reader = ProductionForecastReader()
-    return reader.get_production_forecasts_by_month(month, year)
+    return reader.get_production_forecasts_by_month(month, year, minimum_priority)
 
 
 if __name__ == "__main__":
@@ -389,11 +441,11 @@ if __name__ == "__main__":
         current_year = datetime.now().year
         current_month = datetime.now().month
         
-        # Resumen general
-        print(f"\n🏭 Resumen de Production Forecasts ({current_year}):")
+        # Resumen solo productos ALTA prioridad
+        print(f"\n🚨 Resumen de Production Forecasts - prioridad >= MEDIA ({current_year}):")
         print("=" * 60)
-        summary = reader.get_production_forecast_summary_all(current_year)
-        for key, value in summary.items():
+        summary_media = reader.get_production_forecast_summary_all(current_year, minimum_priority='media')
+        for key, value in summary_media.items():
             if isinstance(value, float):
                 print(f"   {key}: {value:.2f}")
             else:
@@ -403,14 +455,14 @@ if __name__ == "__main__":
         months = reader.get_available_months(current_year)
         print(f"\n📅 Meses Disponibles ({current_year}): {months}")
         
-        # Datos del mes actual si disponible
+        # Solo productos de MEDIA prioridad para el mes actual
         if current_month in months:
-            current_data = reader.get_production_forecasts_by_month(current_month, current_year)
-            if not current_data.empty:
-                print(f"\n📈 Production Forecasts - {current_month}/{current_year}:")
-                print(f"   Registros: {len(current_data)}")
-                print(f"   SKUs únicos: {current_data['sku'].nunique()}")
-                print(f"   Producción total requerida: {current_data['production_needed'].sum():.2f}")
+            alta_data = reader.get_production_forecasts_by_month(current_month, current_year, minimum_priority='media')
+            if not alta_data.empty:
+                print(f"\n🚨 Production Forecasts MEDIA prioridad - {current_month}/{current_year}:")
+                print(f"   Registros: {len(alta_data)}")
+                print(f"   SKUs únicos: {alta_data['sku'].nunique()}")
+                print(f"   Producción total requerida: {alta_data['production_needed'].sum():.2f}")
     
     except Exception as e:
         print(f"❌ Error: {e}")
