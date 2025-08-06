@@ -196,26 +196,19 @@ class ProductionForecastUpdater:
     
     def upsert_production_data(self, df: pd.DataFrame, year: int, month: int) -> Dict[str, int]:
         """
-        Insertar o actualizar datos de production_forecast usando UPSERT.
-        
-        Args:
-            df: DataFrame con datos de producción (debe incluir solo productos válidos)
-            year: Año del cálculo
-            month: Mes del cálculo
-            
-        Returns:
-            Dict con contadores de registros insertados/actualizados
+        Insert or update production_forecast data using UPSERT.
+        Updated to work without current_sales field.
         """
         self.ensure_table_exists()
         
-        # Validar DataFrame
-        required_columns = ['sku', 'product_name', 'forecast', 'current_sales', 'inventory', 'production_needed', 'priority']
+        # UPDATED: Remove 'current_sales' from required columns
+        required_columns = ['sku', 'product_name', 'forecast', 'inventory', 'production_needed', 'priority']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
             raise ValueError(f"DataFrame falta columnas requeridas: {missing_columns}")
         
-        # Agregar campos de fecha
+        # Add date fields
         month_names = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
         
@@ -223,16 +216,17 @@ class ProductionForecastUpdater:
         df_with_dates['year'] = year
         df_with_dates['month'] = month
         df_with_dates['month_name'] = month_names[month] if 1 <= month <= 12 else f"Mes_{month}"
-        df_with_dates['is_valid_product'] = True  # Solo productos válidos llegan aquí
+        df_with_dates['is_valid_product'] = True
         
+        # UPDATED: Remove current_sales from SQL
         upsert_sql = """
         INSERT INTO production_forecast (
             sku, product_name, year, month, month_name,
-            forecast_quantity, current_sales, inventory_available,
+            forecast_quantity, inventory_available,
             production_needed, priority, is_valid_product
         ) VALUES (
             %(sku)s, %(product_name)s, %(year)s, %(month)s, %(month_name)s,
-            %(forecast)s, %(current_sales)s, %(inventory)s,
+            %(forecast)s, %(inventory)s,
             %(production_needed)s, %(priority)s, %(is_valid_product)s
         )
         ON CONFLICT (sku, year, month) 
@@ -240,7 +234,6 @@ class ProductionForecastUpdater:
             product_name = EXCLUDED.product_name,
             month_name = EXCLUDED.month_name,
             forecast_quantity = EXCLUDED.forecast_quantity,
-            current_sales = EXCLUDED.current_sales,
             inventory_available = EXCLUDED.inventory_available,
             production_needed = EXCLUDED.production_needed,
             priority = EXCLUDED.priority,
@@ -312,26 +305,16 @@ class ProductionForecastUpdater:
             raise Exception(f"Error guardando production forecast: {str(e)}") from e
     
     def get_production_summary(self, year: int, month: int) -> Dict[str, Any]:
-        """
-        Obtener resumen de production forecast para un mes específico.
-        
-        Args:
-            year: Año
-            month: Mes
-            
-        Returns:
-            Dict con resumen de estadísticas
-        """
+        """Updated summary without current_sales field."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     
-                    # Estadísticas generales
+                    # UPDATED: Remove current_sales from statistics
                     cursor.execute("""
                         SELECT 
                             COUNT(*) as total_products,
                             SUM(forecast_quantity) as total_forecast,
-                            SUM(current_sales) as total_sales,
                             SUM(inventory_available) as total_inventory,
                             SUM(production_needed) as total_production_needed,
                             COUNT(CASE WHEN production_needed > 0 THEN 1 END) as products_need_production,
@@ -342,7 +325,7 @@ class ProductionForecastUpdater:
                     
                     general_stats = cursor.fetchone()
                     
-                    # Estadísticas por prioridad
+                    # Priority statistics remain the same
                     cursor.execute("""
                         SELECT 
                             priority,
@@ -549,21 +532,14 @@ def get_inventory_from_odoo(skus: list, use_test_odoo: bool = False) -> Dict[str
         print("💡 Nota: Se requiere configuración de Odoo en config_manager")
         return {}
 
-
 def calculate_production_quantities(year: int = None, month: int = None, use_test_odoo: bool = False) -> pd.DataFrame:
     """
-    Calcular la cantidad a producir por SKU basado en:
-    Cantidad a producir = Forecast - Ventas del mes actual - Inventario actual
+    SIMPLIFIED: Calculate production requirements based ONLY on:
+    Production Needed = Forecast - Current Inventory
     
-    Args:
-        year: Año (por defecto usa el año actual)
-        month: Mes (por defecto usa el mes actual)
-        use_test_odoo: Si usar el entorno de test de Odoo (por defecto False)
-    
-    Returns:
-        pd.DataFrame: Datos de producción requerida por SKU
+    NO monthly sales consideration (they're already reflected in forecast)
     """
-    # Usar fecha actual si no se especifica
+    # Use current date if not specified
     if year is None or month is None:
         current_date = datetime.now()
         year = year or current_date.year
@@ -572,56 +548,46 @@ def calculate_production_quantities(year: int = None, month: int = None, use_tes
     month_names = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
     
-    print(f"\n🏭 CÁLCULO DE PRODUCCIÓN REQUERIDA - {month_names[month]} {year}")
+    print(f"\n🏭 CÁLCULO DE PRODUCCIÓN SIMPLIFICADO - {month_names[month]} {year}")
+    print("💡 Fórmula: Producción = Forecast - Inventario Actual")
     print("=" * 70)
     
     try:
-        # 1. Obtener forecasts del mes
+        # 1. Get forecasts for the month
         print(f"📈 Obteniendo forecasts para {month_names[month]} {year}...")
         forecasts = get_forecasts_by_month(month, year)
         if not forecasts:
             print("❌ No se encontraron forecasts para el mes especificado")
             return None
         
-        # 2. Obtener ventas del mes actual
-        print(f"📊 Obteniendo ventas de {month_names[month]} {year}...")
-        sales_data = get_sales_by_month(year, month)
+        # 2. REMOVED: Monthly sales data collection entirely
+        # We no longer need this step!
         
-        if sales_data.empty or 'items_quantity' not in sales_data.columns:
-            print("❌ No se encontraron datos de ventas válidos")
-            return None
-        
-        sales_by_sku = sales_data.groupby('items_product_sku')['items_quantity'].sum()
-        
-        # 3. Obtener inventario actual desde Odoo
+        # 3. Get current inventory from Odoo
         print(f"📦 Obteniendo inventario actual desde Odoo...")
         
-        # Obtener todos los SKUs únicos de forecasts y ventas
-        all_skus = list(set(forecasts.keys()) | set(sales_by_sku.index))
+        # Get all unique SKUs from forecasts
+        all_skus = list(forecasts.keys())
         
-        # Filtrar SKUs ignorados
+        # Filter ignored SKUs
         if IGNORE_SKU:
             original_count = len(all_skus)
-            # Convertir SKUs ignorados a strings para comparación
             ignore_skus_str = [str(sku) for sku in IGNORE_SKU]
             all_skus = [sku for sku in all_skus if str(sku) not in ignore_skus_str]
             ignored_count = original_count - len(all_skus)
-            print(f"   🔍 Filtrando SKUs ignorados: {ignored_count} SKUs excluidos")
-            print(f"   📋 SKUs ignorados: {', '.join(str(sku) for sku in IGNORE_SKU)}")
+            print(f"   🔍 SKUs ignorados: {ignored_count} excluidos")
         
         print(f"   Consultando inventario para {len(all_skus)} SKUs...")
-        
         inventory_data = get_inventory_from_odoo(all_skus, use_test_odoo)
         
-        # 4. Crear DataFrame de análisis
-        print(f"🔢 Calculando cantidades de producción...")
+        # 4. SIMPLIFIED: Calculate production requirements
+        print(f"🔢 Calculando producción requerida (Forecast - Inventario)...")
         
         production_data = []
         for sku in all_skus:
             forecast_qty = forecasts.get(sku, 0)
-            sales_qty = sales_by_sku.get(sku, 0)
             
-            # Obtener inventario disponible
+            # Get inventory data
             inventory_info = inventory_data.get(sku, {})
             if inventory_info.get('found', False):
                 inventory_qty = inventory_info.get('qty_available', 0)
@@ -630,112 +596,71 @@ def calculate_production_quantities(year: int = None, month: int = None, use_tes
                 inventory_qty = 0
                 product_name = 'Producto no encontrado en Odoo'
             
-            # Calcular cantidad a producir
-            production_qty = forecast_qty - sales_qty - inventory_qty
+            # SIMPLIFIED CALCULATION: Only forecast minus inventory
+            production_qty = forecast_qty - inventory_qty
             
             production_data.append({
                 'sku': sku,
                 'product_name': product_name,
                 'forecast': forecast_qty,
-                'current_sales': sales_qty,
                 'inventory': inventory_qty,
                 'production_needed': production_qty,
                 'priority': 'ALTA' if production_qty > 100 else 'MEDIA' if production_qty > 20 else 'BAJA'
             })
         
-        # Crear DataFrame inicial
+        # Create DataFrame
         df_all_products = pd.DataFrame(production_data)
         
-        # Filtrar productos no encontrados en Odoo
-        print(f"🔍 Filtrando productos...")
-        products_not_found = df_all_products[df_all_products['product_name'] == 'Producto no encontrado en Odoo']
+        # Filter products not found in Odoo
         df_production = df_all_products[df_all_products['product_name'] != 'Producto no encontrado en Odoo'].copy()
         
-        # Mostrar estadísticas de filtrado
-        print(f"   📊 Total productos analizados: {len(df_all_products)}")
-        print(f"   ✅ Productos válidos (encontrados en Odoo): {len(df_production)}")
-        print(f"   ❌ Productos excluidos (no encontrados en Odoo): {len(products_not_found)}")
-        
-        # Mostrar información sobre SKUs ignorados
-        if IGNORE_SKU:
-            # Convertir SKUs ignorados a strings para búsqueda
-            ignore_skus_str = [str(sku) for sku in IGNORE_SKU]
-            ignored_forecast = sum(forecasts.get(str(sku), 0) for sku in IGNORE_SKU if str(sku) in forecasts)
-            ignored_sales = sum(sales_by_sku.get(str(sku), 0) for sku in IGNORE_SKU if str(sku) in sales_by_sku.index)
-            print(f"   🚫 SKUs ignorados por configuración: {len(IGNORE_SKU)}")
-            print(f"   📈 Forecast ignorado: {ignored_forecast:,.0f} unidades")
-            print(f"   📊 Ventas ignoradas: {ignored_sales:,.0f} unidades")
-        
-        if len(products_not_found) > 0:
-            excluded_forecast = products_not_found['forecast'].sum()
-            excluded_sales = products_not_found['current_sales'].sum()
-            print(f"   📈 Forecast excluido: {excluded_forecast:,.0f} unidades")
-            print(f"   📊 Ventas excluidas: {excluded_sales:,.0f} unidades")
-        
-        # Ordenar por cantidad de producción requerida
+        # Sort by production needed
         df_production = df_production.sort_values('production_needed', ascending=False)
         
-        # 5. Mostrar resultados (solo productos válidos)
-        print(f"\n📋 RESUMEN DE PRODUCCIÓN (Solo productos válidos):")
+        # 5. UPDATED: Show simplified results
+        print(f"\n📋 RESUMEN DE PRODUCCIÓN SIMPLIFICADO:")
         print("-" * 70)
         
         total_forecast = df_production['forecast'].sum()
-        total_sales = df_production['current_sales'].sum()
         total_inventory = df_production['inventory'].sum()
         total_production = df_production['production_needed'].sum()
         
-        print(f"   Total Forecast: {total_forecast:,.1f} unidades")
-        print(f"   Total Ventas del mes: {total_sales:,.1f} unidades")
+        print(f"   Total Forecast del mes: {total_forecast:,.1f} unidades")
         print(f"   Total Inventario actual: {total_inventory:,.1f} unidades")
         print(f"   Total Producción requerida: {total_production:,.1f} unidades")
+        print(f"   Cobertura actual: {(total_inventory/total_forecast*100):.1f}%" if total_forecast > 0 else "   Cobertura: N/A")
         
-        # Productos que requieren producción urgente
+        # Products requiring production
         urgent_production = df_production[df_production['production_needed'] > 0]
         
         if not urgent_production.empty:
             print(f"\n🚨 TOP 15 PRODUCTOS REQUIEREN PRODUCCIÓN:")
-            print("-" * 90)
-            print(f"{'SKU':<12} {'Forecast':<10} {'Ventas':<8} {'Stock':<8} {'Producir':<10} {'Prioridad':<10}")
-            print("-" * 90)
+            print("-" * 80)
+            print(f"{'SKU':<12} {'Forecast':<10} {'Stock':<8} {'Producir':<10} {'Prioridad':<10}")
+            print("-" * 80)
             
             for _, row in urgent_production.head(15).iterrows():
-                print(f"{row['sku']:<12} {row['forecast']:<10.1f} {row['current_sales']:<8.1f} "
-                      f"{row['inventory']:<8.1f} {row['production_needed']:<10.1f} {row['priority']:<10}")
+                print(f"{row['sku']:<12} {row['forecast']:<10.1f} {row['inventory']:<8.1f} "
+                      f"{row['production_needed']:<10.1f} {row['priority']:<10}")
         
-        # Productos con exceso de inventario
+        # Products with excess inventory
         excess_inventory = df_production[df_production['production_needed'] < -10]
         
         if not excess_inventory.empty:
             print(f"\n📦 PRODUCTOS CON EXCESO DE INVENTARIO:")
-            print("-" * 90)
-            print(f"{'SKU':<12} {'Forecast':<10} {'Ventas':<8} {'Stock':<8} {'Exceso':<10}")
-            print("-" * 90)
+            print("-" * 70)
+            print(f"{'SKU':<12} {'Forecast':<10} {'Stock':<8} {'Exceso':<10}")
+            print("-" * 70)
             
             for _, row in excess_inventory.head(10).iterrows():
                 excess = abs(row['production_needed'])
-                print(f"{row['sku']:<12} {row['forecast']:<10.1f} {row['current_sales']:<8.1f} "
-                      f"{row['inventory']:<8.1f} {excess:<10.1f}")
-        
-        # Estadísticas por prioridad
-        priority_stats = df_production[df_production['production_needed'] > 0].groupby('priority').agg({
-            'production_needed': ['count', 'sum']
-        }).round(1)
-        
-        if not priority_stats.empty:
-            print(f"\n📊 ESTADÍSTICAS POR PRIORIDAD:")
-            print("-" * 40)
-            for priority in ['ALTA', 'MEDIA', 'BAJA']:
-                if priority in priority_stats.index:
-                    count = priority_stats.loc[priority, ('production_needed', 'count')]
-                    total = priority_stats.loc[priority, ('production_needed', 'sum')]
-                    print(f"   {priority:<6}: {count:3.0f} productos, {total:8,.1f} unidades")
+                print(f"{row['sku']:<12} {row['forecast']:<10.1f} {row['inventory']:<8.1f} {excess:<10.1f}")
         
         return df_production
         
     except Exception as e:
         print(f"❌ Error calculando producción: {e}")
         return None
-
 
 def save_to_database(production_df: pd.DataFrame, year: int, month: int) -> bool:
     """
