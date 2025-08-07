@@ -152,7 +152,12 @@ elif [ -d "$TARGET" ]; then
     files_found=()
     while IFS= read -r -d '' file; do
         files_found+=("$file")
-    done < <(find "$TARGET" -name "pyproject.toml" -type f -print0)
+    done < <(find "$TARGET" -name "pyproject.toml" -type f \
+             -not -path "*/.venv/*" \
+             -not -path "*/venv/*" \
+             -not -path "*/__pycache__/*" \
+             -not -path "*/.*" \
+             -print0)
     
     if [ ${#files_found[@]} -eq 0 ]; then
         echo -e "${RED}❌ No pyproject.toml files found in $TARGET${NC}"
