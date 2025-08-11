@@ -1,6 +1,6 @@
 [project]
 name = "sales-engine"
-version = "1.1.2"
+version = "1.2.0"
 description = "Sales data engine for Odoo to PostgreSQL synchronization"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
@@ -12,9 +12,9 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "google-cloud-secret-manager>=2.16.0",
     "python-decouple>=3.8",
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@refactor/multi-agent#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@refactor/multi-agent#subdirectory=config-manager",
-    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@refactor/multi-agent#subdirectory=dev-utils",
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
+    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=dev-utils",
     "matplotlib (>=3.10.3,<4.0.0)",
     "statsmodels (>=0.14.5,<0.15.0)",
     "scikit-learn (>=1.7.1,<2.0.0)",
