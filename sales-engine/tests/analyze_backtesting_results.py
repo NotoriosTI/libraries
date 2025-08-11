@@ -18,7 +18,7 @@ import glob
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
 
-RESULTS_DIR = Path(__file__).parent / "data" / "backtesting"
+RESULTS_DIR = Path(__file__).parent.parent / "data" / "backtesting"
 
 class BacktestingAnalyzer:
     """Analizador de resultados de backtesting."""
@@ -218,7 +218,7 @@ class BacktestingAnalyzer:
         # 2. MAE vs MAPE
         ax2 = axes[0, 1]
         ax2.scatter(self.metrics_df['mae'], self.metrics_df['mape'], 
-                   s=100, alpha=0.7, c=['red', 'blue', 'green', 'orange'])
+                   s=100, alpha=0.7)
         
         for i, model in enumerate(self.metrics_df['model']):
             ax2.annotate(model, 

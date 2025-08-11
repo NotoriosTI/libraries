@@ -208,16 +208,16 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     # Make the run script executable
     chmod +x run_sales_engine.sh
     
-    # Create environment file for docker-compose
-    cat > .env << EOF
-PROJECT_ID=$PROJECT_ID
-REGION=$REGION
-INSTANCE_NAME=$INSTANCE_NAME
-ENVIRONMENT=production
-USE_TEST_ODOO=false
-FORCE_FULL_SYNC=false
-TEST_CONNECTIONS_ONLY=false
-EOF
+    # Export environment variables for docker-compose (no .env file needed)
+    export PROJECT_ID=$PROJECT_ID
+    export REGION=$REGION
+    export INSTANCE_NAME=$INSTANCE_NAME
+    export ENVIRONMENT=production
+    export USE_TEST_ODOO=false
+    export FORCE_FULL_SYNC=false
+    export TEST_CONNECTIONS_ONLY=false
+    export SKIP_FORECAST=false
+    export FORECAST_ONLY=false
     
     # Verify deployment environment
     echo '🔍 Deployment environment:'
@@ -226,6 +226,8 @@ EOF
     echo \"INSTANCE_NAME: $INSTANCE_NAME\"
     echo 'ENVIRONMENT: production'
     echo 'USE_TEST_ODOO: false (uses odoo_prod)'
+    echo 'FORECAST: enabled (runs after sales sync)'
+    echo 'CONFIG: environment variables (no .env file)'
     
     # Pull latest image
     echo \"🐳 Pulling image: $PROJECT_ID/sales-engine:latest\"
@@ -243,12 +245,12 @@ EOF
     elif [ -f '/opt/product-engine/docker-compose.shared-proxy.yml' ]; then
         echo '🚀 Starting shared proxy from product-engine...'
         cd /opt/product-engine
-        sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
+        sudo -E docker-compose -f docker-compose.shared-proxy.yml up -d
         echo '✅ Shared proxy started successfully'
         cd /opt/sales-engine
     else
         echo '⚠️  Shared proxy not found. Starting standalone proxy...'
-        sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
+        sudo -E docker-compose -f docker-compose.shared-proxy.yml up -d
         echo '✅ Standalone proxy started'
     fi
     
@@ -268,7 +270,7 @@ EOF
 
     # Start sales-engine service for verification (will stop after execution)
     echo '🚀 Starting sales-engine service for verification...'
-    sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
+    sudo -E docker-compose -f docker-compose.prod.yml up -d
     
     # Wait a moment for the container to start and then check logs
     echo '⏳ Waiting for sales-engine to start...'
@@ -329,11 +331,11 @@ EOF
     # Create systemd timer (every 4 hours) - optimized
     sudo tee /etc/systemd/system/sales-engine.timer > /dev/null << 'EOF'
 [Unit]
-Description=Run Sales Engine every 4 hours
+Description=Run Sales Engine every 6 hours
 Requires=sales-engine.service
 
 [Timer]
-OnCalendar=*-*-* 00,04,08,12,16,20:00:00
+OnCalendar=*-*-* 00,06,12,18:00:00
 Persistent=true
 RandomizedDelaySec=300
 
@@ -346,7 +348,7 @@ EOF
     sudo systemctl enable sales-engine.timer && \
     sudo systemctl start sales-engine.timer
     
-    echo '⏰ Scheduled execution configured (every 4 hours)'
+    echo '⏰ Scheduled execution configured (every 6 hours)'
     sudo systemctl list-timers sales-engine.timer --no-pager
 "
 
@@ -395,7 +397,14 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     echo '🧹 Cleaning up orphaned sales-engine containers and volumes...'
     sudo docker ps -a | grep sales-engine | awk '{print \$1}' | xargs -r sudo docker rm -f
     sudo docker volume prune -f
-    sudo docker-compose --env-file .env -f docker-compose.prod.yml up sales-engine
+    
+    # Export environment variables for immediate execution
+    export FORCE_FULL_SYNC=false
+    export TEST_CONNECTIONS_ONLY=false
+    export SKIP_FORECAST=false
+    export FORECAST_ONLY=false
+    
+    sudo -E docker-compose -f docker-compose.prod.yml up sales-engine
 "
 
 # Stop the verification container after execution but keep logs
@@ -403,19 +412,21 @@ echo "🛑 Stopping verification container after execution (keeping logs)..."
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     cd /opt/sales-engine
     sudo docker stop sales-engine-prod 2>/dev/null || true
-    echo '✅ Verification container stopped but logs preserved. Sales Engine will now only run via systemd timer every 4 hours.'
+    echo '✅ Verification container stopped but logs preserved. Sales Engine will now only run via systemd timer every 6 hours.'
 "
 
 echo ""
 echo "✅ Deployment completed successfully!"
 echo ""
 echo "🔍 Useful commands:"
-echo "View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml logs -f'"
-echo "Check status: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml ps'"
-echo "Check shared proxy: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml ps'"
+echo "View logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose -f docker-compose.prod.yml logs -f'"
+echo "Check status: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo docker-compose -f docker-compose.prod.yml ps'"
+echo "Check shared proxy: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/product-engine && sudo docker-compose -f docker-compose.shared-proxy.yml ps'"
 echo "Manual run: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo ./run_sales_engine.sh'"
 echo "Test connections: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo ./run_sales_engine.sh test'"
 echo "Force full sync: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo ./run_sales_engine.sh full-sync'"
+echo "Forecast only: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo ./run_sales_engine.sh forecast-only'"
+echo "Skip forecast: gcloud compute ssh $VM_NAME --zone=$ZONE --command='cd /opt/sales-engine && sudo ./run_sales_engine.sh --skip-forecast'"
 echo "Check timer: gcloud compute ssh $VM_NAME --zone=$ZONE --command='sudo systemctl status sales-engine.timer'"
 echo ""
 echo "⚡ Quick deploy options:"
@@ -427,7 +438,8 @@ echo ""
 echo "📋 Important notes:"
 echo "- The system is configured to use odoo_prod (production Odoo instance)"
 echo "- Sales data will be extracted from the production Odoo database"
-echo "- Scheduled to run every 4 hours automatically (00:00, 04:00, 08:00, 12:00, 16:00, 20:00)"
+echo "- Forecast pipeline runs automatically after each sales sync (unless disabled)"
+echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
 echo "- Connection tests and initial sync were run to verify everything works"
 echo "- All secrets are managed through Google Cloud Secret Manager"
 echo "- Uses proper upsert logic with composite primary key (salesinvoiceid, items_product_sku)"

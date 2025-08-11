@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 TARGET_SKU = "5958"
 
 # Imports
-from sales_engine.db_client.sales_forcaster import SalesForecaster
+from sales_engine.forecaster.sales_forcaster import SalesForecaster
 from sales_engine.db_client import DatabaseReader
 
 class LinearRegressionForecaster:
@@ -56,7 +56,7 @@ class LinearRegressionForecaster:
             data.set_index('issueddate', inplace=True)
             
             # Agrupar por mes y sumar cantidades
-            monthly_sales = data['items_quantity'].resample('ME').sum()
+            monthly_sales = data['items_quantity'].resample('ME', include_groups=False).sum()
             
             print(f"   ✅ {len(monthly_sales)} meses de datos desde {monthly_sales.index.min()} hasta {monthly_sales.index.max()}")
             print(f"   📦 Total vendido: {monthly_sales.sum():,.0f} unidades")

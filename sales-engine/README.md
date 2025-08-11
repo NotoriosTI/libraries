@@ -1,10 +1,12 @@
 # Sales Engine
 
-Motor de ventas para sincronización de datos entre Odoo y PostgreSQL.
+Motor de ventas y pronósticos para sincronización de datos desde Odoo hacia PostgreSQL y generación de stock necesario para producción.
 
 ## Descripción
 
-Este proyecto sincroniza datos de ventas desde Odoo hacia una base de datos PostgreSQL en Google Cloud Platform, proporcionando una solución robusta para análisis de datos de ventas.
+Este proyecto:
+- Sincroniza datos de ventas desde Odoo hacia una base de datos PostgreSQL en Google Cloud Platform.
+- Genera pronósticos de ventas por SKU y el stock necesario de producción comparando el forecast con el inventario disponible en Odoo.
 
 ## Características
 
@@ -12,9 +14,18 @@ Este proyecto sincroniza datos de ventas desde Odoo hacia una base de datos Post
 - ✅ Detección y prevención de duplicados
 - ✅ Manejo robusto de errores y reintentos
 - ✅ Logging estructurado con métricas
-- ✅ Deployment automatizado en GCP
-- ✅ Ejecución programada cada 6 horas
+- ✅ Generación de pronósticos de ventas por SKU (12 meses) y persistencia en tabla `forecast`
+- ✅ Cálculo de stock necesario para producción por mes objetivo y persistencia en tabla `production_forecast`
+- ✅ Priorización (ALTA/MEDIA/BAJA) basada en brecha Forecast − Inventario
+- ✅ Deployment automatizado en GCP y ejecución programada cada 6 horas
 - ✅ **Proxy compartido con Product Engine** para conexión a base de datos
+
+## Cómo funciona (alto nivel)
+
+1. Se sincronizan ventas a `sales_items` (incremental por `updated_at`).
+2. Se generan forecasts por SKU (serie futura) y se guardan en `forecast` (con índices y upsert).
+3. Se calcula el stock necesario para el mes objetivo: `production_needed = forecast_mes − inventory_odoo` y se guarda en `production_forecast`.
+4. Se asigna prioridad (ALTA/MEDIA/BAJA) en función de la magnitud de la brecha.
 
 ## 🔗 Proxy Compartido
 
@@ -127,7 +138,7 @@ El script realizará automáticamente:
 - ✅ Deployment en la VM
 - ✅ Configuración del scheduler (cada 6 horas)
 - ✅ Verificación del estado de los servicios
-- ✅ **Ejecución inmediata de prueba** (verifica conectividad y sincronización)
+- ✅ **Ejecución inmediata de prueba** (verifica conectividad, sincronización y generación de forecasts)
 
 ### Comandos Útiles Post-Deploy
 
@@ -159,6 +170,89 @@ gcloud compute ssh langgraph --zone=us-central1-c --command='sudo systemctl stat
 - Usa el comando de "Ejecutar manualmente" arriba
 - O espera a la próxima ejecución programada
 
+## Modos de ejecución y variables de entorno
+
+La imagen/servicio soporta los siguientes modos mediante variables de entorno:
+
+- `USE_TEST_ODOO` (default `false`): usa Odoo test si es `true`.
+- `FORCE_FULL_SYNC` (default `false`): fuerza sincronización completa de ventas.
+- `TEST_CONNECTIONS_ONLY` (default `false`): solo prueba conexiones.
+- `SKIP_FORECAST` (default `false`): si `true`, omite el pipeline de pronóstico y producción.
+- `FORECAST_ONLY` (default `false`): ejecuta solo el pipeline de pronóstico y producción (sin sincronización de ventas).
+
+Ejemplos (local con Poetry):
+
+```bash
+# Sync ventas + forecasts (default)
+poetry run run-updater
+
+# Solo sync de ventas (sin forecasts)
+SKIP_FORECAST=true poetry run run-updater
+
+# Solo pipeline de pronóstico + producción (sin sync de ventas)
+FORECAST_ONLY=true poetry run run-updater
+
+# Probar conexiones
+TEST_CONNECTIONS_ONLY=true poetry run run-updater
+```
+
+Ejemplos (en VM con script de ejecución):
+
+```bash
+# Sync + forecasts (default)
+./deployment/scripts/run_sales_engine.sh
+
+# Solo probar conexiones
+./deployment/scripts/run_sales_engine.sh test
+
+# Forzar sync completa + forecasts
+./deployment/scripts/run_sales_engine.sh full-sync
+
+# Solo pipeline de pronóstico
+./deployment/scripts/run_sales_engine.sh forecast-only
+
+# Sync sin forecasts
+./deployment/scripts/run_sales_engine.sh --skip-forecast
+```
+
+## CLI alternativa de pronósticos (reportes CSV o DB)
+
+Para generar únicamente los forecasts (sincronización aparte) también puedes usar el módulo dedicado:
+
+```bash
+# Guardar en base de datos (tabla forecast)
+python -m sales_engine.forecaster.generate_all_forecasts --mode db
+
+# Exportar archivos CSV a data/forecasts/
+python -m sales_engine.forecaster.generate_all_forecasts --mode report
+```
+
+Salidas principales:
+- Tabla `forecast` con registros mensuales por SKU (clave `sku, forecast_date`).
+- Archivos CSV en `data/forecasts/` cuando se usa `--mode report`.
+
+## Consultas rápidas
+
+Ejemplos útiles en PostgreSQL:
+
+```sql
+-- Forecast del mes objetivo (ejemplo: octubre 2024)
+SELECT sku, forecast_date, forecasted_quantity
+FROM forecast
+WHERE year = 2024 AND month = 10
+ORDER BY forecasted_quantity DESC
+LIMIT 20;
+
+-- Productos con mayor necesidad de producción del mes actual
+SELECT sku, product_name, production_needed, priority
+FROM production_forecast
+WHERE year = EXTRACT(YEAR FROM CURRENT_DATE)
+  AND month = EXTRACT(MONTH FROM CURRENT_DATE)
+  AND production_needed > 0
+ORDER BY production_needed DESC
+LIMIT 20;
+```
+
 ## Desarrollo Local
 
 ### Instalación
@@ -181,6 +275,10 @@ poetry run run-updater
 poetry run pytest
 ```
 
+Tips:
+- Los modos descritos arriba también aplican localmente exportando variables de entorno.
+- Para inspeccionar resultados, consulta tablas `sales_items`, `forecast` y `production_forecast`.
+
 ## Arquitectura
 
 ```
@@ -195,6 +293,11 @@ El sistema utiliza diferentes configuraciones según el entorno:
 
 - **Producción**: Secrets desde Google Cloud Secret Manager
 - **Local**: Variables desde archivo `.env`
+
+Tablas gestionadas automáticamente (creación/índices/upsert):
+- `sales_items` (sincronización de ventas)
+- `forecast` (series futuras por SKU con estadísticas por SKU)
+- `production_forecast` (brecha Forecast − Inventario por mes, con prioridad)
 
 ## Mejoras Implementadas
 

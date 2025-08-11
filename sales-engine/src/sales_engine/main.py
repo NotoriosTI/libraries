@@ -16,6 +16,7 @@ import sys
 
 # Imports from within the same package
 from .db_updater import DatabaseUpdater, UpdateResult
+from .forecaster.forecast_pipeline import run_pipeline
 
 # Import beautiful logging from dev-utils
 try:
@@ -62,11 +63,15 @@ def run_sync():
         use_test_odoo = os.getenv('USE_TEST_ODOO', 'false').lower() == 'true'
         force_full_sync = os.getenv('FORCE_FULL_SYNC', 'false').lower() == 'true'
         test_connections_only = os.getenv('TEST_CONNECTIONS_ONLY', 'false').lower() == 'true'
+        skip_forecast = os.getenv('SKIP_FORECAST', 'false').lower() == 'true'
+        forecast_only = os.getenv('FORECAST_ONLY', 'false').lower() == 'true'
 
         logger.info("📋 Configuration loaded from environment", 
                    use_test_odoo=use_test_odoo,
                    force_full_sync=force_full_sync,
-                   test_connections_only=test_connections_only)
+                   test_connections_only=test_connections_only,
+                   skip_forecast=skip_forecast,
+                   forecast_only=forecast_only)
 
         # The 'with' statement ensures the DatabaseUpdater's __exit__ method
         # is called, which cleanly closes the database connection pool.
@@ -84,6 +89,37 @@ def run_sync():
                 return 0
             else:
                 log_error("❌ Connection tests failed")
+                return 1
+        elif forecast_only:
+            # --- Execute Forecast Pipeline Only ---
+            logger.step("Starting forecast pipeline only", 1, 1)
+            
+            try:
+                with timer("forecast pipeline") as forecast_timer:
+                    forecast_result = run_pipeline()
+                
+                # Display forecast metrics
+                logger.metric("Total SKUs Forecasted", forecast_result.total_skus_forecasted, "SKUs")
+                logger.metric("Forecast Records Upserted", forecast_result.total_forecast_records_upserted, "records")
+                logger.metric("Production Records Upserted", forecast_result.total_production_records_upserted, "records")
+                
+                # Summary table for forecast
+                logger.table({
+                    "Status": "✅ FORECAST SUCCESS",
+                    "Target Period": f"{forecast_result.month:02d}/{forecast_result.year}",
+                    "SKUs Forecasted": f"{forecast_result.total_skus_forecasted:,}",
+                    "Forecast Records": f"{forecast_result.total_forecast_records_upserted:,}",
+                    "Production Records": f"{forecast_result.total_production_records_upserted:,}"
+                }, "📊 Forecast Pipeline Summary")
+                
+                log_success("🎯 Forecast pipeline completed successfully!")
+                return 0
+                
+            except Exception as forecast_error:
+                logger.error(f"❌ Forecast pipeline failed: {str(forecast_error)}")
+                if os.getenv('DEBUG', 'false').lower() == 'true':
+                    import traceback
+                    traceback.print_exc()
                 return 1
         else:
             # --- Execute the Main Sync Process ---
@@ -115,6 +151,42 @@ def run_sync():
                 }, "📊 Synchronization Summary")
                 
                 log_success("🎉 Sales data synchronization completed successfully!")
+                
+                # --- Execute Forecast Pipeline (if not skipped) ---
+                if not skip_forecast:
+                    logger.step("Starting forecast pipeline", 1, 2)
+                    
+                    try:
+                        with timer("forecast pipeline") as forecast_timer:
+                            forecast_result = run_pipeline()
+                        
+                        logger.step("Forecast pipeline completed", 2, 2)
+                        
+                        # Display forecast metrics
+                        logger.metric("Total SKUs Forecasted", forecast_result.total_skus_forecasted, "SKUs")
+                        logger.metric("Forecast Records Upserted", forecast_result.total_forecast_records_upserted, "records")
+                        logger.metric("Production Records Upserted", forecast_result.total_production_records_upserted, "records")
+                        
+                        # Summary table for forecast
+                        logger.table({
+                            "Status": "✅ FORECAST SUCCESS",
+                            "Target Period": f"{forecast_result.month:02d}/{forecast_result.year}",
+                            "SKUs Forecasted": f"{forecast_result.total_skus_forecasted:,}",
+                            "Forecast Records": f"{forecast_result.total_forecast_records_upserted:,}",
+                            "Production Records": f"{forecast_result.total_production_records_upserted:,}"
+                        }, "📊 Forecast Pipeline Summary")
+                        
+                        log_success("🎯 Forecast pipeline completed successfully!")
+                        
+                    except Exception as forecast_error:
+                        logger.error(f"❌ Forecast pipeline failed: {str(forecast_error)}")
+                        # Don't fail the entire process, just log the error
+                        if os.getenv('DEBUG', 'false').lower() == 'true':
+                            import traceback
+                            traceback.print_exc()
+                else:
+                    logger.info("⏭️  Forecast pipeline skipped as requested")
+                
                 return 0
             else:
                 logger.step("Sync completed with errors", 3, 3)
