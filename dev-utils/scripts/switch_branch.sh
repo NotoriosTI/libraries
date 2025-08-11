@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Quick Branch Switcher for pyproject.toml files
 # Simple bash version for common use cases
 
