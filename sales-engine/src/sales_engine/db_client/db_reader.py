@@ -126,7 +126,10 @@ class DatabaseReader:
                 params.append(limit)
             
             with self.get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=params)
+                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
+                from sqlalchemy import create_engine
+                engine = create_engine('postgresql://', creator=lambda: conn)
+                df = pd.read_sql_query(query, engine, params=params)
             
             logger.info("Datos de ventas obtenidos exitosamente",
                        records_count=len(df),
@@ -185,7 +188,10 @@ class DatabaseReader:
             query += f" ORDER BY {fields[0]} DESC"
             
             with self.get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=params)
+                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
+                from sqlalchemy import create_engine
+                engine = create_engine('postgresql://', creator=lambda: conn)
+                df = pd.read_sql_query(query, engine, params=params)
             
             logger.info("Resumen de ventas obtenido exitosamente",
                        records_count=len(df), group_by=group_by)
@@ -200,7 +206,10 @@ class DatabaseReader:
         """Ejecutar consulta SQL personalizada."""
         try:
             with self.get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=params or [])
+                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
+                from sqlalchemy import create_engine
+                engine = create_engine('postgresql://', creator=lambda: conn)
+                df = pd.read_sql_query(query, engine, params=params or [])
             
             logger.info("Consulta personalizada ejecutada exitosamente",
                        records_count=len(df))

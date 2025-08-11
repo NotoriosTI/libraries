@@ -233,10 +233,27 @@ def run_pipeline(year: Optional[int] = None, month: Optional[int] = None, use_te
         if forced_rows:
             df_forced = pd.DataFrame(forced_rows)
             # Evitar duplicados por clave (sku, forecast_date)
-            combined = pd.concat([df_with_stats, df_forced], ignore_index=True)
-            combined = combined.sort_values(['sku', 'forecast_date']).drop_duplicates(subset=['sku', 'forecast_date'], keep='last')
-            df_with_stats = combined.reset_index(drop=True)
-            logger.info("[4] Fila de mes objetivo asegurada en forecast", total_rows=len(df_with_stats))
+            # Filtrar entradas vacías antes de concatenar para evitar warnings
+            df_with_stats_clean = df_with_stats.dropna(how='all')
+            df_forced_clean = df_forced.dropna(how='all')
+            
+            # Excluir DataFrames vacíos o totalmente NA para evitar FutureWarning
+            frames = []
+            for _df in (df_with_stats_clean, df_forced_clean):
+                if not _df.empty and not _df.isna().all().all():
+                    frames.append(_df)
+            
+            if frames:
+                combined = pd.concat(frames, ignore_index=True)
+            else:
+                combined = pd.DataFrame()
+            
+            if not combined.empty:
+                combined = combined.sort_values(['sku', 'forecast_date']).drop_duplicates(subset=['sku', 'forecast_date'], keep='last')
+                df_with_stats = combined.reset_index(drop=True)
+                logger.info("[4] Fila de mes objetivo asegurada en forecast", total_rows=len(df_with_stats))
+            else:
+                logger.warning("[4] No se pudo combinar DataFrames - ambos están vacíos")
         else:
             logger.info("[4] No hay filas para forzar en mes objetivo (monthly_forecasts vacío)")
     except Exception as e:
@@ -271,5 +288,3 @@ if __name__ == "__main__":
         f"Forecast upserts: {result.total_forecast_records_upserted:,} | "
         f"Production upserts: {result.total_production_records_upserted:,}"
     )
-
-

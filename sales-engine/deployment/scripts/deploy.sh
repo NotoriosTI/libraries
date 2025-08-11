@@ -331,11 +331,11 @@ EOF
     # Create systemd timer (every 4 hours) - optimized
     sudo tee /etc/systemd/system/sales-engine.timer > /dev/null << 'EOF'
 [Unit]
-Description=Run Sales Engine every 4 hours
+Description=Run Sales Engine every 6 hours
 Requires=sales-engine.service
 
 [Timer]
-OnCalendar=*-*-* 00,04,08,12,16,20:00:00
+OnCalendar=*-*-* 00,06,12,18:00:00
 Persistent=true
 RandomizedDelaySec=300
 
@@ -348,7 +348,7 @@ EOF
     sudo systemctl enable sales-engine.timer && \
     sudo systemctl start sales-engine.timer
     
-    echo '⏰ Scheduled execution configured (every 4 hours)'
+    echo '⏰ Scheduled execution configured (every 6 hours)'
     sudo systemctl list-timers sales-engine.timer --no-pager
 "
 
@@ -412,7 +412,7 @@ echo "🛑 Stopping verification container after execution (keeping logs)..."
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     cd /opt/sales-engine
     sudo docker stop sales-engine-prod 2>/dev/null || true
-    echo '✅ Verification container stopped but logs preserved. Sales Engine will now only run via systemd timer every 4 hours.'
+    echo '✅ Verification container stopped but logs preserved. Sales Engine will now only run via systemd timer every 6 hours.'
 "
 
 echo ""
@@ -439,7 +439,7 @@ echo "📋 Important notes:"
 echo "- The system is configured to use odoo_prod (production Odoo instance)"
 echo "- Sales data will be extracted from the production Odoo database"
 echo "- Forecast pipeline runs automatically after each sales sync (unless disabled)"
-echo "- Scheduled to run every 4 hours automatically (00:00, 04:00, 08:00, 12:00, 16:00, 20:00)"
+echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
 echo "- Connection tests and initial sync were run to verify everything works"
 echo "- All secrets are managed through Google Cloud Secret Manager"
 echo "- Uses proper upsert logic with composite primary key (salesinvoiceid, items_product_sku)"

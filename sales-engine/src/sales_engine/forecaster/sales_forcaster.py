@@ -125,7 +125,10 @@ class SalesForecaster:
         try:
             # Usamos el pool de conexiones de DatabaseUpdater
             with self.db_updater.get_connection() as conn:
-                df = pd.read_sql(query, conn)
+                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
+                from sqlalchemy import create_engine
+                engine = create_engine('postgresql://', creator=lambda: conn)
+                df = pd.read_sql(query, engine)
             
             if df.empty:
                 self.logger.warning("No historical sales data found in the database.")
@@ -151,7 +154,7 @@ class SalesForecaster:
         df_copy = df.copy()
         df_copy.set_index('issueddate', inplace=True)
         
-        monthly_sales_df = df_copy.groupby('items_product_sku').resample('ME').sum(numeric_only=True).reset_index()
+        monthly_sales_df = df_copy.groupby('items_product_sku').resample('ME', include_groups=False).sum(numeric_only=True).reset_index()
         
         monthly_sales_df.rename(columns={
             'issueddate': 'month',
