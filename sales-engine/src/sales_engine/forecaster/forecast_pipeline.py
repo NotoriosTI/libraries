@@ -49,6 +49,18 @@ class PipelineResult:
     production_upsert_stats: Dict[str, Any]
 
 
+def _sanitize_forecast_keys(all_forecasts: Dict[Any, pd.Series]) -> Dict[str, pd.Series]:
+    """Normaliza las claves de SKU a string y filtra valores inválidos (false/true/none/nan/vacíos)."""
+    invalid_tokens = {"false", "true", "none", "nan", "null"}
+    cleaned: Dict[str, pd.Series] = {}
+    for raw_sku, series in all_forecasts.items():
+        sku_str = str(raw_sku).strip()
+        if not sku_str or sku_str.lower() in invalid_tokens:
+            continue
+        cleaned[sku_str] = series
+    return cleaned
+
+
 def _extract_monthly_forecast(all_forecasts: Dict[str, pd.Series], year: int, month: int) -> Dict[str, int]:
     """Extrae la cantidad pronosticada por SKU para (year, month) desde las series futuras.
 
@@ -78,9 +90,12 @@ def _build_production_df(
     inventory_data: Dict[str, Dict],
 ) -> pd.DataFrame:
     """Construye el DataFrame requerido por ProductionForecastUpdater.upsert_production_data()."""
+    # Normalizar claves de SKUs a string para evitar desalineación (int vs str)
+    monthly_forecasts_normalized: Dict[str, int] = {str(sku): qty for sku, qty in monthly_forecasts.items()}
+
     # Aplicar filtro de SKUs ignorados
     ignore_skus_str = {str(s) for s in IGNORE_SKU} if IGNORE_SKU else set()
-    valid_skus = [sku for sku in monthly_forecasts.keys() if str(sku) not in ignore_skus_str]
+    valid_skus = [sku for sku in monthly_forecasts_normalized.keys() if sku not in ignore_skus_str]
 
     # Heurística de prioridad: propuesta práctica
     # - Si forecast >= 60: usar porcentaje (35% y 15%)
@@ -93,8 +108,9 @@ def _build_production_df(
 
     rows: List[Dict[str, Any]] = []
     for sku in valid_skus:
-        forecast_qty = float(monthly_forecasts.get(sku, 0))
+        forecast_qty = float(monthly_forecasts_normalized.get(sku, 0))
 
+        # inventory_data debe tener claves string
         inv_info = inventory_data.get(sku, {})
         if inv_info.get('found', False):
             inventory_qty = float(inv_info.get('qty_available', 0) or 0)
@@ -161,7 +177,16 @@ def run_pipeline(year: Optional[int] = None, month: Optional[int] = None, use_te
     t0 = time.monotonic()
     logger.info("[1-2] Generando forecasts de ventas para todos los SKUs (esto puede tardar varios minutos)")
     all_forecasts = forecaster.run_forecasting_for_all_skus()
-    logger.info("[1-2] Forecasting completado", duration_seconds=round(time.monotonic() - t0, 1), total_skus=len(all_forecasts) if all_forecasts else 0)
+    # Sanitizar claves de SKU para evitar valores inválidos como 'false'
+    original_count = len(all_forecasts) if all_forecasts else 0
+    all_forecasts = _sanitize_forecast_keys(all_forecasts or {})
+    cleaned_count = len(all_forecasts)
+    logger.info(
+        "[1-2] Forecasting completado",
+        duration_seconds=round(time.monotonic() - t0, 1),
+        total_skus=cleaned_count,
+        removed_invalid_skus=max(original_count - cleaned_count, 0)
+    )
     if not all_forecasts:
         raise RuntimeError("No se pudieron generar forecasts de ventas")
 

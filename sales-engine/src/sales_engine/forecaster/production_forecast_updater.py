@@ -513,15 +513,19 @@ def get_inventory_from_odoo(skus: list, use_test_odoo: bool = False) -> Dict[str
             password=odoo_config['password']
         )
         
+        # Normalizar SKUs a string para alinear con Odoo (evita miss-match int vs str)
+        skus_str = [str(s) for s in skus]
+
         # Obtener inventario para todos los SKUs (usar batch para eficiencia)
         inventory_data = {}
         batch_size = 50  # Procesar en lotes para evitar timeouts
         
-        for i in range(0, len(skus), batch_size):
-            batch_skus = skus[i:i+batch_size]
+        for i in range(0, len(skus_str), batch_size):
+            batch_skus = skus_str[i:i+batch_size]
             try:
                 batch_inventory = odoo_warehouse.get_stock_by_sku(batch_skus)
-                inventory_data.update(batch_inventory)
+                # Asegurar claves string
+                inventory_data.update({str(k): v for k, v in batch_inventory.items()})
                 print(f"   Procesado lote {i//batch_size + 1}/{(len(skus)-1)//batch_size + 1}")
             except Exception as e:
                 print(f"   ⚠️  Error en lote {i//batch_size + 1}: {e}")

@@ -7,7 +7,8 @@ set -e  # Exit on any error
 
 # Configuration
 PROJECT_ID="notorios"
-REGION=${1:-"us-central1"}
+# Default region; can be overridden with --region flag
+REGION="us-central1"
 INSTANCE_NAME="app-temp"
 IMAGE_NAME="gcr.io/$PROJECT_ID/sales-engine:latest"
 
@@ -142,8 +143,12 @@ if [ -f "/opt/sales-engine/.env" ]; then
     export SKIP_FORECAST=$SKIP_FORECAST
     export FORECAST_ONLY=$FORECAST_ONLY
     
-    # Run on VM using docker-compose (keeps logs)
-    sudo -E docker-compose -f docker-compose.prod.yml up sales-engine
+    # Run on VM using docker compose v2 if available, fallback to v1
+    if docker compose version >/dev/null 2>&1; then
+        sudo -E docker compose -f docker-compose.prod.yml up sales-engine
+    else
+        sudo -E docker-compose -f docker-compose.prod.yml up sales-engine
+    fi
 else
     echo "📍 Running locally, connecting to VM..."
     
@@ -158,7 +163,11 @@ else
         export FORECAST_ONLY=$FORECAST_ONLY
         
         echo '🚀 Starting Sales Engine on VM...'
-        sudo -E docker-compose -f docker-compose.prod.yml up sales-engine
+        if docker compose version >/dev/null 2>&1; then
+            sudo -E docker compose -f docker-compose.prod.yml up sales-engine
+        else
+            sudo -E docker-compose -f docker-compose.prod.yml up sales-engine
+        fi
     "
 fi
 
