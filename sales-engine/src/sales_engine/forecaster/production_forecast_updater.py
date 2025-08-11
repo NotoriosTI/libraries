@@ -129,9 +129,9 @@ class ProductionForecastUpdater:
             month INTEGER NOT NULL,
             month_name VARCHAR(20) NOT NULL,
             forecast_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
-            current_sales DECIMAL(10,2) NOT NULL DEFAULT 0,
             inventory_available DECIMAL(10,2) NOT NULL DEFAULT 0,
             production_needed DECIMAL(10,2) NOT NULL,
+            product_excess DECIMAL(10,2) NOT NULL DEFAULT 0,
             priority VARCHAR(10) NOT NULL CHECK (priority IN ('ALTA', 'MEDIA', 'BAJA')),
             is_valid_product BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -168,7 +168,8 @@ class ProductionForecastUpdater:
             "CREATE INDEX IF NOT EXISTS idx_production_forecast_priority ON production_forecast (priority);",
             "CREATE INDEX IF NOT EXISTS idx_production_forecast_production_needed ON production_forecast (production_needed DESC);",
             "CREATE INDEX IF NOT EXISTS idx_production_forecast_created_at ON production_forecast (created_at);",
-            "CREATE INDEX IF NOT EXISTS idx_production_forecast_valid_products ON production_forecast (is_valid_product);"
+            "CREATE INDEX IF NOT EXISTS idx_production_forecast_valid_products ON production_forecast (is_valid_product);",
+            "CREATE INDEX IF NOT EXISTS idx_production_forecast_product_excess ON production_forecast (product_excess DESC);"
         ]
         
         try:
@@ -201,8 +202,8 @@ class ProductionForecastUpdater:
         """
         self.ensure_table_exists()
         
-        # UPDATED: Remove 'current_sales' from required columns
-        required_columns = ['sku', 'product_name', 'forecast', 'inventory', 'production_needed', 'priority']
+        # UPDATED: Remove 'current_sales' from required columns; add product_excess
+        required_columns = ['sku', 'product_name', 'forecast_quantity', 'inventory_available', 'production_needed', 'product_excess', 'priority']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
@@ -223,11 +224,11 @@ class ProductionForecastUpdater:
         INSERT INTO production_forecast (
             sku, product_name, year, month, month_name,
             forecast_quantity, inventory_available,
-            production_needed, priority, is_valid_product
+            production_needed, product_excess, priority, is_valid_product
         ) VALUES (
             %(sku)s, %(product_name)s, %(year)s, %(month)s, %(month_name)s,
-            %(forecast)s, %(inventory)s,
-            %(production_needed)s, %(priority)s, %(is_valid_product)s
+            %(forecast_quantity)s, %(inventory_available)s,
+            %(production_needed)s, %(product_excess)s, %(priority)s, %(is_valid_product)s
         )
         ON CONFLICT (sku, year, month) 
         DO UPDATE SET
@@ -236,6 +237,7 @@ class ProductionForecastUpdater:
             forecast_quantity = EXCLUDED.forecast_quantity,
             inventory_available = EXCLUDED.inventory_available,
             production_needed = EXCLUDED.production_needed,
+            product_excess = EXCLUDED.product_excess,
             priority = EXCLUDED.priority,
             is_valid_product = EXCLUDED.is_valid_product,
             updated_at = CURRENT_TIMESTAMP
@@ -317,8 +319,9 @@ class ProductionForecastUpdater:
                             SUM(forecast_quantity) as total_forecast,
                             SUM(inventory_available) as total_inventory,
                             SUM(production_needed) as total_production_needed,
+                            SUM(product_excess) as total_excess_inventory,
                             COUNT(CASE WHEN production_needed > 0 THEN 1 END) as products_need_production,
-                            COUNT(CASE WHEN production_needed < -10 THEN 1 END) as products_excess_inventory
+                            COUNT(CASE WHEN product_excess > 10 THEN 1 END) as products_excess_inventory
                         FROM production_forecast 
                         WHERE year = %s AND month = %s AND is_valid_product = TRUE
                     """, (year, month))

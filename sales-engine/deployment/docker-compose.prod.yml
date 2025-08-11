@@ -35,6 +35,8 @@ services:
       - USE_TEST_ODOO=${USE_TEST_ODOO:-false}  # Ensures we use odoo_prod by default
       - FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}  # Normal incremental sync by default
       - TEST_CONNECTIONS_ONLY=${TEST_CONNECTIONS_ONLY:-false}  # Full sync operation by default
+      - SKIP_FORECAST=${SKIP_FORECAST:-false}  # Run forecast pipeline by default
+      - FORECAST_ONLY=${FORECAST_ONLY:-false}  # Run only forecast pipeline if true
       # DB_NAME, DB_USER, DB_PASSWORD will be fetched from Secret Manager
     # Use host network for direct proxy access
     network_mode: "host"

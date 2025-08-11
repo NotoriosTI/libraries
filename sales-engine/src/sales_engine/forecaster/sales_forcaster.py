@@ -19,6 +19,7 @@ Enhanced Features:
 Author: Bastian Ibañez (con asistencia de Gemini)
 """
 import pandas as pd
+import numpy as np
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 from typing import Dict, Optional, List, Tuple
@@ -174,8 +175,8 @@ class SalesForecaster:
         """
         # Se necesita un mínimo de datos para que SARIMA funcione (ej: 2 ciclos estacionales)
         if len(sku_ts) < 24:
-            self.logger.warning(f"Skipping SKU {sku_ts.name}: insufficient data points ({len(sku_ts)}).")
-            return None
+            self.logger.warning(f"Skipping SARIMA for SKU {sku_ts.name}: insufficient data points ({len(sku_ts)}). Trying linear regression fallback.")
+            return self._forecast_with_linear_regression(sku_ts, steps)
         
         # NUEVA VALIDACIÓN: Verificar calidad de datos
         non_zero_count = (sku_ts > 0).sum()
@@ -209,8 +210,8 @@ class SalesForecaster:
             
             # Verificar convergencia del modelo
             if not results.mle_retvals['converged']:
-                self.logger.warning(f"Model didn't converge for SKU {sku_ts.name}")
-                return None
+                self.logger.warning(f"Model didn't converge for SKU {sku_ts.name}. Trying linear regression fallback.")
+                return self._forecast_with_linear_regression(sku_ts, steps)
             
             # Generar forecast
             forecast = results.get_forecast(steps=steps)
@@ -268,7 +269,71 @@ class SalesForecaster:
             if "singular" in str(e).lower() or "invertibility" in str(e).lower():
                 self.logger.warning(f"Model instability for SKU {sku_ts.name}: {error_type}")
             else:
-                self.logger.error(f"Failed to generate forecast for SKU {sku_ts.name}: {error_type} - {str(e)}")
+                self.logger.error(f"Failed to generate forecast for SKU {sku_ts.name}: {error_type} - {str(e)}. Trying linear regression fallback.")
+            return self._forecast_with_linear_regression(sku_ts, steps)
+
+    def _forecast_with_linear_regression(self, sku_ts: pd.Series, steps: int = 12) -> Optional[pd.Series]:
+        """
+        Fallback simple usando regresión lineal sobre la serie mensual.
+        Requiere al menos 6 puntos. Aplica los mismos límites y suavizado que SARIMA.
+        """
+        try:
+            # Requerir al menos 6 observaciones reales
+            if len(sku_ts) < 6:
+                self.logger.warning(f"Skipping Linear Regression for SKU {sku_ts.name}: too few points ({len(sku_ts)}).")
+                return None
+
+            # Preparar X,Y
+            y = sku_ts.astype(float).values
+            x = np.arange(len(y), dtype=float)
+
+            # Ajustar recta y = a*x + b
+            slope, intercept = np.polyfit(x, y, 1)
+
+            # Generar predicciones futuras
+            future_x = np.arange(len(y), len(y) + steps, dtype=float)
+            future_y = intercept + slope * future_x
+
+            # Crear índice de meses futuros (fin de mes)
+            last_idx = sku_ts.index[-1]
+            if isinstance(last_idx, pd.Timestamp):
+                future_periods = pd.period_range(last_idx, periods=steps + 1, freq='M')[1:]
+                future_index = future_periods.to_timestamp('M')
+            else:
+                # Fallback genérico a fechas con frecuencia mensual fin de mes
+                last_ts = pd.to_datetime(last_idx)
+                future_index = pd.date_range(last_ts, periods=steps + 1, freq='M')[1:]
+
+            predicted_values = pd.Series(future_y, index=future_index)
+
+            # Aplicar límites similares a SARIMA
+            historical_max = sku_ts.max()
+            historical_mean = sku_ts.mean()
+            historical_q95 = sku_ts.quantile(0.95)
+            upper_candidate1 = historical_max * 2
+            upper_candidate2 = historical_q95 * 3
+            upper_candidate3 = historical_mean * 15
+            upper_limit = max(max(upper_candidate1, upper_candidate2, upper_candidate3), 50)
+            upper_limit = min(upper_limit, 50000)
+            lower_limit = 0
+            original_max = predicted_values.max()
+            predicted_values = predicted_values.clip(lower=lower_limit, upper=upper_limit)
+            if original_max > upper_limit:
+                self.logger.info(f"[LR] SKU {sku_ts.name}: Limited forecast from {original_max:.0f} to {upper_limit:.0f}")
+
+            # Limitar variación mes a mes 40%
+            predicted_values = self._apply_month_to_month_variation_limit(sku_ts, predicted_values, max_variation=0.40)
+
+            # Redondear a enteros y validar
+            predicted_values = predicted_values.round().astype(int)
+            if predicted_values.max() > 100000 or predicted_values.min() < 0:
+                self.logger.warning(f"[LR] Unrealistic predictions for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
+                return None
+
+            self.logger.info(f"[LR] Forecast generated for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
+            return predicted_values
+        except Exception as e:
+            self.logger.error(f"Linear Regression fallback failed for SKU {sku_ts.name}: {e}")
             return None
 
     def _apply_month_to_month_variation_limit(self, historical_ts: pd.Series, predicted_values: pd.Series, max_variation: float = 0.40) -> pd.Series:
