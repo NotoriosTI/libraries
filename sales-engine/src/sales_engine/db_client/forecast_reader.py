@@ -118,7 +118,9 @@ class ForecastReader:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
+                    print(f"[Cursor-execute] {query}")
                     cursor.execute(query, (month, year))
+                    print(f"[Cursor-fetchall]")
                     results = cursor.fetchall()
                     
                     # Convertir resultados a diccionario

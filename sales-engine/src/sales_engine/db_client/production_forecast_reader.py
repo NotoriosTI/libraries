@@ -137,7 +137,8 @@ class ProductionForecastReader:
             production_needed DESC, sku
         """
         
-        params = [month, year] + valid_priorities
+        params = tuple([month, year] + valid_priorities)
+        print(f"[Params] {params}")
         
         try:
             with self.get_connection() as conn:
