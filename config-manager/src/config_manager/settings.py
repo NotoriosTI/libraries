@@ -79,6 +79,13 @@ class Settings:
             self.PRODUCT_DB_USER = self._fetch_gcp_secret('PRODUCT_DB_USER', gcp_client)
             self.PRODUCT_DB_PASSWORD = self._fetch_gcp_secret('PRODUCT_DB_PASSWORD', gcp_client)
 
+            # Emilia Database
+            self.EMILIA_DB_HOST = self._fetch_gcp_secret('EMILIA_DB_HOST', gcp_client)
+            self.EMILIA_DB_PORT = self._fetch_gcp_secret('EMILIA_DB_PORT', gcp_client)
+            self.EMILIA_DB_NAME = self._fetch_gcp_secret('EMILIA_DB_NAME', gcp_client)
+            self.EMILIA_DB_USER = self._fetch_gcp_secret('EMILIA_DB_USER', gcp_client)
+            self.EMILIA_DB_PASSWORD = self._fetch_gcp_secret('EMILIA_DB_PASSWORD', gcp_client)
+
             # Chatwoot
             self.CHATWOOT_BASE_URL = self._fetch_gcp_secret('CHATWOOT_BASE_URL', gcp_client)
             self.CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('CHATWOOT_ACCOUNT_ID', gcp_client)
@@ -128,10 +135,19 @@ class Settings:
             self.PRODUCT_DB_USER = config('PRODUCT_DB_USER', default='automation_admin')
             self.PRODUCT_DB_PASSWORD = config('PRODUCT_DB_PASSWORD', default='password')
 
+            # Emilia Database
+            self.EMILIA_DB_HOST = config('EMILIA_DB_HOST', default='127.0.0.1')
+            self.EMILIA_DB_PORT = config('EMILIA_DB_PORT', default='5432')
+            self.EMILIA_DB_NAME = config('EMILIA_DB_NAME', default='emiliadb')
+            self.EMILIA_DB_USER = config('EMILIA_DB_USER', default='automation_admin')
+            self.EMILIA_DB_PASSWORD = config('EMILIA_DB_PASSWORD', default='password')
+
             # Chatwoot
             self.CHATWOOT_BASE_URL = config('CHATWOOT_BASE_URL', default='')
             self.CHATWOOT_ACCOUNT_ID = config('CHATWOOT_ACCOUNT_ID', default='')
             self.CHATWOOT_TOKEN = config('CHATWOOT_TOKEN', default='')
+
+            
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -188,6 +204,16 @@ class Settings:
             'database': self.PRODUCT_DB_NAME,
             'user': self.PRODUCT_DB_USER,
             'password': self.PRODUCT_DB_PASSWORD
+        }
+    
+    def get_emilia_database_config(self) -> dict:
+        """Get Emilia database configuration."""
+        return {
+            'host': self.EMILIA_DB_HOST,
+            'port': self.EMILIA_DB_PORT,
+            'database': self.EMILIA_DB_NAME,
+            'user': self.EMILIA_DB_USER,
+            'password': self.EMILIA_DB_PASSWORD
         }
     
     def get_chatwoot_config(self) -> dict:
