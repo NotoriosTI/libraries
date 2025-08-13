@@ -277,3 +277,42 @@ class ProductReader:
         except Exception as e:
             self.logger.error("Failed to check if product exists", error=str(e), sku=sku)
             return False 
+        
+    def filter_products_purchase_ok(self, skus: list[str]) -> list[str]:
+        """
+        Filtra los productos por la columna purchase_ok.
+        
+        Args:
+            skus: Lista de SKUs del producto (default_code)
+            
+        Returns:
+            Lista de SKUs de los productos que tienen purchase_ok = True
+        """
+        if not skus:
+            return []
+
+        try:
+            # Normalizamos a mayúsculas por consistencia
+            upper_skus = [sku.upper() for sku in skus]
+
+            # Construimos placeholders dinámicos para el IN
+            placeholders = ','.join(['%s'] * len(upper_skus))
+
+            query = f"""
+                SELECT sku
+                FROM products
+                WHERE sku IN ({placeholders})
+                  AND purchase_ok = true
+            """
+
+            results = database.execute_query(query, tuple(upper_skus))
+
+            return [row['sku'] for row in (results or [])]
+
+        except Exception as e:
+            self.logger.error(
+                "Failed to filter products by purchase_ok",
+                error=str(e),
+                sku_count=len(skus)
+            )
+            return []

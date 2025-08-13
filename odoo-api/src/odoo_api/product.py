@@ -1358,3 +1358,196 @@ class OdooProduct(OdooAPI):
         
         return df
     
+    def get_product_suppliers_by_skus(self, skus: list[str]) -> dict[str, dict[str, dict[str, str]]]:
+        """
+        Obtiene los proveedores por lista de SKUs usando DataFrames internamente y
+        devuelve un diccionario anidado con el formato:
+
+        {
+          sku: {
+            supplier_id: {
+              'supplier_name': str,
+              'supplier_vat': str,
+              'supplier_code': str,
+              'min_qty': float,
+              'price': float,
+              'currency_id': int|None,
+              'currency_name': str,
+              'currency_symbol': str,
+              'delay': int,
+              'date_start': str|None,
+              'date_end': str|None
+            },
+            ...
+          },
+          ...
+        }
+
+        Nota: La búsqueda de proveedores se hace por product_tmpl_id (template).
+        """
+        try:
+            if not skus:
+                return {}
+
+            # Buscar los productos por SKU y obtener sus templates
+            product_records = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search_read',
+                [[['default_code', 'in', skus]]],
+                {'fields': ['id', 'default_code', 'name', 'product_tmpl_id']}
+            )
+            if not product_records:
+                return {}
+
+            # Mapear template_id a info de producto
+            tmpl_to_product = {}
+            for prod in product_records:
+                tmpl_id = prod['product_tmpl_id'][0] if prod.get('product_tmpl_id') else None
+                if tmpl_id:
+                    tmpl_to_product[tmpl_id] = {
+                        'product_id': prod['id'],
+                        'product_sku': prod.get('default_code', ''),
+                        'product_name': prod.get('name', '')
+                    }
+            template_ids = list(tmpl_to_product.keys())
+            if not template_ids:
+                return {}
+
+            # Buscar supplierinfo por template
+            supplierinfo_ids = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.supplierinfo', 'search',
+                [[['product_tmpl_id', 'in', template_ids]]]
+            )
+            if not supplierinfo_ids:
+                return {}
+
+            # Leer los registros de supplierinfo
+            supplier_info = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.supplierinfo', 'read',
+                [supplierinfo_ids],
+                {'fields': [
+                    'product_tmpl_id',
+                    'partner_id',
+                    'product_code',
+                    'min_qty',
+                    'price',
+                    'currency_id',
+                    'delay',
+                    'date_start',
+                    'date_end'
+                ]}
+            )
+
+            # Obtener información de las monedas
+            currency_ids = list(set([
+                info['currency_id'][0] for info in supplier_info
+                if info.get('currency_id')
+            ]))
+            currencies = {}
+            if currency_ids:
+                currencies_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'res.currency', 'read',
+                    [currency_ids],
+                    {'fields': ['id', 'name', 'symbol']}
+                )
+                currencies = {
+                    currency['id']: {
+                        'name': currency.get('name', ''),
+                        'symbol': currency.get('symbol', '')
+                    }
+                    for currency in currencies_data
+                }
+
+            # Obtener todos los partner_ids únicos para leer VAT
+            partner_ids = list(set([
+                info['partner_id'][0] for info in supplier_info
+                if info.get('partner_id') and isinstance(info['partner_id'], list)
+            ]))
+            partners = {}
+            if partner_ids:
+                partners_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'res.partner', 'read',
+                    [partner_ids],
+                    {'fields': ['id', 'vat']}
+                )
+                partners = {p['id']: p.get('vat', '') for p in partners_data}
+
+            # Construir el DataFrame con toda la información
+            supplier_data = []
+            for info in supplier_info:
+                tmpl_id = info['product_tmpl_id'][0] if info.get('product_tmpl_id') else None
+                partner_id = info.get('partner_id')
+                if partner_id and isinstance(partner_id, list):
+                    supplier_id = partner_id[0]
+                    supplier_name = partner_id[1]
+                else:
+                    supplier_id = None
+                    supplier_name = None
+                currency_id = info['currency_id'][0] if info.get('currency_id') else None
+                supplier_vat = partners.get(supplier_id, '') if supplier_id else ''
+
+                if tmpl_id and tmpl_id in tmpl_to_product:
+                    row = {
+                        'product_id': tmpl_to_product[tmpl_id]['product_id'],
+                        'product_sku': tmpl_to_product[tmpl_id]['product_sku'],
+                        'product_name': tmpl_to_product[tmpl_id]['product_name'],
+                        'supplier_id': supplier_id,
+                        'supplier_name': supplier_name,
+                        'supplier_vat': supplier_vat,
+                        'supplier_code': info.get('product_code', ''),
+                        'min_qty': info.get('min_qty', 0.0),
+                        'price': info.get('price', 0.0),
+                        'currency_id': currency_id,
+                        'currency_name': currencies.get(currency_id, {}).get('name', '') if currency_id else '',
+                        'currency_symbol': currencies.get(currency_id, {}).get('symbol', '') if currency_id else '',
+                        'delay': info.get('delay', 0),
+                        'date_start': info.get('date_start'),
+                        'date_end': info.get('date_end')
+                    }
+                    supplier_data.append(row)
+
+            df = pd.DataFrame(supplier_data)
+            if df.empty:
+                return {}
+
+            # Ordenar y limpiar datos
+            df = df.sort_values(['product_sku', 'supplier_name'])
+
+            # Filtrar filas sin supplier_id
+            df = df[df['supplier_id'].notna()]
+
+            # Construir diccionario anidado {sku: {supplier_id: info}}
+            result: dict[str, dict[str, dict[str, object]]] = {}
+            for sku, sku_df in df.groupby('product_sku'):
+                suppliers_map: dict[str, dict[str, object]] = {}
+                for _, row in sku_df.iterrows():
+                    supplier_id_val = row['supplier_id']
+                    if pd.isna(supplier_id_val):
+                        continue
+                    supplier_key = str(int(supplier_id_val)) if isinstance(supplier_id_val, (int, float)) else str(supplier_id_val)
+
+                    suppliers_map[supplier_key] = {
+                        'supplier_name': row.get('supplier_name') or '',
+                        'supplier_vat': row.get('supplier_vat') or '',
+                        'supplier_code': row.get('supplier_code') or '',
+                        'min_qty': float(row.get('min_qty') or 0.0),
+                        'price': float(row.get('price') or 0.0),
+                        'currency_id': int(row.get('currency_id')) if pd.notna(row.get('currency_id')) and row.get('currency_id') is not None else None,
+                        'currency_name': row.get('currency_name') or '',
+                        'currency_symbol': row.get('currency_symbol') or '',
+                        'delay': int(row.get('delay') or 0),
+                        'date_start': row.get('date_start'),
+                        'date_end': row.get('date_end'),
+                    }
+                if suppliers_map:
+                    result[str(sku)] = suppliers_map
+
+            return result
+        except Exception as e:
+            raise RuntimeError(f"Error al obtener proveedores de productos por SKUs (por template): {str(e)}") from e
+
+    
