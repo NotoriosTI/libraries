@@ -87,10 +87,11 @@ def _calculate_priority(forecasted_qty: int, current_stock: float, max_monthly_s
         Prioridad: BAJA, MEDIA, ALTA, CRITICO
     """
     rotation_threshold = 50  # Umbral para distinguir alta/baja rotación
+    required_production = max(0, min(forecasted_qty, max_monthly_sales) - int(current_stock))
     
     if max_monthly_sales >= rotation_threshold:
         # PRODUCTO DE ALTA ROTACIÓN: usar porcentaje stock/forecast
-        if forecasted_qty > 0:
+        if forecasted_qty > 0 and required_production:
             stock_ratio = current_stock / forecasted_qty
             
             if stock_ratio >= 0.50:
