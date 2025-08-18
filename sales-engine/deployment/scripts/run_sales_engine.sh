@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # deployment/scripts/run_sales_engine.sh
-# Script to run Sales Engine using docker run directly
+# Script to run Sales Engine with unified forecast table structure
 
 set -e  # Exit on any error
 

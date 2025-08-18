@@ -1,5 +1,5 @@
 """
-Main Entry Point for the Refactored Sales Engine Service
+Main Entry Point for the Sales Engine Service (Unified Forecast Table)
 
 This script orchestrates the sales data synchronization process. It is the
 default command executed by the Docker container.
@@ -8,6 +8,7 @@ Key Responsibilities:
 - Reads configuration from environment variables.
 - Instantiates the DatabaseUpdater.
 - Runs the main sync process (`run_update`).
+- Executes the unified forecast pipeline.
 - Handles high-level logging and returns appropriate exit codes.
 """
 
@@ -56,7 +57,7 @@ def run_sync():
     # Initialize pretty logger for sales engine
     logger = PrettyLogger("sales-engine") if 'PrettyLogger' in globals() else FallbackLogger()
     
-    log_header("🚀 Refactored Sales Engine Service", char="=", width=70)
+    log_header("🚀 Sales Engine Service (Unified Forecast)", char="=", width=70)
     
     try:
         # --- Configuration from Environment Variables ---
@@ -100,16 +101,15 @@ def run_sync():
                 
                 # Display forecast metrics
                 logger.metric("Total SKUs Forecasted", forecast_result.total_skus_forecasted, "SKUs")
-                logger.metric("Forecast Records Upserted", forecast_result.total_forecast_records_upserted, "records")
-                logger.metric("Production Records Upserted", forecast_result.total_production_records_upserted, "records")
+                logger.metric("Total Records Upserted", forecast_result.total_records_upserted, "records")
                 
                 # Summary table for forecast
                 logger.table({
                     "Status": "✅ FORECAST SUCCESS",
                     "Target Period": f"{forecast_result.month:02d}/{forecast_result.year}",
                     "SKUs Forecasted": f"{forecast_result.total_skus_forecasted:,}",
-                    "Forecast Records": f"{forecast_result.total_forecast_records_upserted:,}",
-                    "Production Records": f"{forecast_result.total_production_records_upserted:,}"
+                    "Total Records": f"{forecast_result.total_records_upserted:,}",
+                    "Database": "Unified forecast table"
                 }, "📊 Forecast Pipeline Summary")
                 
                 log_success("🎯 Forecast pipeline completed successfully!")
@@ -164,16 +164,15 @@ def run_sync():
                         
                         # Display forecast metrics
                         logger.metric("Total SKUs Forecasted", forecast_result.total_skus_forecasted, "SKUs")
-                        logger.metric("Forecast Records Upserted", forecast_result.total_forecast_records_upserted, "records")
-                        logger.metric("Production Records Upserted", forecast_result.total_production_records_upserted, "records")
+                        logger.metric("Total Records Upserted", forecast_result.total_records_upserted, "records")
                         
                         # Summary table for forecast
                         logger.table({
                             "Status": "✅ FORECAST SUCCESS",
                             "Target Period": f"{forecast_result.month:02d}/{forecast_result.year}",
                             "SKUs Forecasted": f"{forecast_result.total_skus_forecasted:,}",
-                            "Forecast Records": f"{forecast_result.total_forecast_records_upserted:,}",
-                            "Production Records": f"{forecast_result.total_production_records_upserted:,}"
+                            "Total Records": f"{forecast_result.total_records_upserted:,}",
+                            "Database": "Unified forecast table"
                         }, "📊 Forecast Pipeline Summary")
                         
                         log_success("🎯 Forecast pipeline completed successfully!")

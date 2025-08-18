@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # deployment/scripts/deploy.sh
-# Deployment Script for Sales Engine (Refactored)
+# Deployment Script for Sales Engine (Unified Forecast Table)
 
 set -e  # Exit on any error
 
@@ -47,7 +47,7 @@ IMAGE_NAME="gcr.io/$PROJECT_ID/sales-engine"
 VERSION=${3:-$(date +%Y%m%d-%H%M%S)}
 INSTANCE_NAME="app-temp"  # Cloud SQL instance name
 
-echo "🚀 Deploying Sales Engine (Refactored)"
+echo "🚀 Deploying Sales Engine (Unified Forecast Table)"
 echo "Project: $PROJECT_ID"
 echo "VM: $VM_NAME"
 echo "Region: $REGION"
@@ -110,14 +110,24 @@ check_prerequisites() {
 setup_vm_environment() {
     echo "🔐 Setting up VM environment (optimized)..."
     
-    # Create directory structure on VM and setup permissions (parallel)
+    # Create directory structure on VM and setup permissions (robust)
     gcloud compute ssh $VM_NAME --zone=$ZONE --command="
-        # Create sales-engine directory and setup permissions in parallel
-        sudo mkdir -p /opt/sales-engine && \
-        sudo chown \$(whoami):\$(whoami) /opt/sales-engine && \
+        # Create sales-engine directory with proper permissions (step by step)
+        echo 'Creating /opt/sales-engine directory...'
+        sudo mkdir -p /opt/sales-engine
+        
+        echo 'Setting ownership permissions...'
+        sudo chown \$(whoami):\$(whoami) /opt/sales-engine
+        
+        echo 'Setting directory permissions...'
+        sudo chmod 755 /opt/sales-engine
+        
+        echo 'Verifying permissions...'
+        ls -la /opt/ | grep sales-engine
         
         # Add current user to docker group if not already (non-blocking)
         if ! groups \$(whoami) | grep -q docker; then
+            echo 'Adding user to docker group...'
             sudo usermod -aG docker \$(whoami) 2>/dev/null || true
         fi
         
@@ -185,14 +195,28 @@ setup_vm_environment
 # Deploy to VM
 echo "🚚 Deploying to VM (optimized)..."
 
-# Copy deployment files in parallel
+# Copy deployment files with error handling
 echo "📁 Copying deployment files..."
-gcloud compute scp deployment/docker-compose.prod.yml deployment/docker-compose.shared-proxy.yml deployment/scripts/run_sales_engine.sh $VM_NAME:/opt/sales-engine/ --zone=$ZONE &
-COPY_PID=$!
-
-# Wait for file copy to complete
-wait $COPY_PID
-echo "✅ Files copied successfully"
+if gcloud compute scp deployment/docker-compose.prod.yml deployment/docker-compose.shared-proxy.yml deployment/scripts/run_sales_engine.sh $VM_NAME:/opt/sales-engine/ --zone=$ZONE; then
+    echo "✅ Files copied successfully"
+else
+    echo "❌ File copy failed. Attempting to fix permissions and retry..."
+    
+    # Fix permissions and retry
+    gcloud compute ssh $VM_NAME --zone=$ZONE --command="
+        sudo chown -R \$(whoami):\$(whoami) /opt/sales-engine
+        sudo chmod -R 755 /opt/sales-engine
+        ls -la /opt/sales-engine
+    "
+    
+    echo "🔄 Retrying file copy..."
+    if gcloud compute scp deployment/docker-compose.prod.yml deployment/docker-compose.shared-proxy.yml deployment/scripts/run_sales_engine.sh $VM_NAME:/opt/sales-engine/ --zone=$ZONE; then
+        echo "✅ Files copied successfully on retry"
+    else
+        echo "❌ File copy failed after retry. Check VM permissions."
+        exit 1
+    fi
+fi
 
 # SSH into VM and deploy
 gcloud compute ssh $VM_NAME --zone=$ZONE --command="
@@ -209,9 +233,9 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     chmod +x run_sales_engine.sh
     
     # Export environment variables for docker-compose (no .env file needed)
-    export PROJECT_ID=$PROJECT_ID
-    export REGION=$REGION
-    export INSTANCE_NAME=$INSTANCE_NAME
+    export PROJECT_ID=\"$PROJECT_ID\"
+    export REGION=\"$REGION\"
+    export INSTANCE_NAME=\"$INSTANCE_NAME\"
     export ENVIRONMENT=production
     export USE_TEST_ODOO=false
     export FORCE_FULL_SYNC=false
@@ -221,9 +245,9 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     
     # Verify deployment environment
     echo '🔍 Deployment environment:'
-    echo \"PROJECT_ID: $PROJECT_ID\"
-    echo \"REGION: $REGION\"
-    echo \"INSTANCE_NAME: $INSTANCE_NAME\"
+    echo \"PROJECT_ID: \$PROJECT_ID\"
+    echo \"REGION: \$REGION\"
+    echo \"INSTANCE_NAME: \$INSTANCE_NAME\"
     echo 'ENVIRONMENT: production'
     echo 'USE_TEST_ODOO: false (uses odoo_prod)'
     echo 'FORECAST: enabled (runs after sales sync)'
@@ -319,9 +343,9 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/sales-engine
-Environment=PROJECT_ID=$PROJECT_ID
-Environment=REGION=$REGION
-Environment=INSTANCE_NAME=$INSTANCE_NAME
+Environment=PROJECT_ID=\"$PROJECT_ID\"
+Environment=REGION=\"$REGION\"
+Environment=INSTANCE_NAME=\"$INSTANCE_NAME\"
 ExecStart=/usr/bin/sudo /opt/sales-engine/run_sales_engine.sh
 
 [Install]
@@ -399,6 +423,9 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
     sudo docker volume prune -f
     
     # Export environment variables for immediate execution
+    export PROJECT_ID=\"$PROJECT_ID\"
+    export REGION=\"$REGION\"
+    export INSTANCE_NAME=\"$INSTANCE_NAME\"
     export FORCE_FULL_SYNC=false
     export TEST_CONNECTIONS_ONLY=false
     export SKIP_FORECAST=false
@@ -435,12 +462,14 @@ echo "Skip prerequisites only: ./deploy.sh --skip-prerequisites"
 echo "Skip secrets only: ./deploy.sh --skip-secrets"
 echo "Skip connection tests only: ./deploy.sh --skip-connection-check"
 echo ""
-echo "📋 Important notes:"
-echo "- The system is configured to use odoo_prod (production Odoo instance)"
-echo "- Sales data will be extracted from the production Odoo database"
-echo "- Forecast pipeline runs automatically after each sales sync (unless disabled)"
-echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
-echo "- Connection tests and initial sync were run to verify everything works"
-echo "- All secrets are managed through Google Cloud Secret Manager"
-echo "- Uses proper upsert logic with composite primary key (salesinvoiceid, items_product_sku)"
-echo "- Timestamp-based incremental sync using updated_at column"
+    echo "📋 Important notes:"
+    echo "- The system is configured to use odoo_prod (production Odoo instance)"
+    echo "- Sales data will be extracted from the production Odoo database"
+    echo "- Forecast pipeline runs automatically after each sales sync (unless disabled)"
+    echo "- Uses UNIFIED forecast table structure with simplified data model"
+    echo "- Scheduled to run every 6 hours automatically (00:00, 06:00, 12:00, 18:00)"
+    echo "- Connection tests and initial sync were run to verify everything works"
+    echo "- All secrets are managed through Google Cloud Secret Manager"
+    echo "- Uses proper upsert logic with composite primary key (salesinvoiceid, items_product_sku)"
+    echo "- Unified forecast table uses primary key (sku, year, month)"
+    echo "- Timestamp-based incremental sync using updated_at column"
