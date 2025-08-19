@@ -94,6 +94,9 @@ class Settings:
             # Emilia Google Docs IDs
             self.EMILIA_DOCS_SALES_ID = self._fetch_gcp_secret('EMILIA_DOCS_SALES_ID', gcp_client)
             self.EMILIA_DOCS_SUMMARY_ID = self._fetch_gcp_secret('EMILIA_DOCS_SUMMARY_ID', gcp_client)
+            
+            # Emilia Service Account Email (solo para producción)
+            self.EMILIA_SERVICE_ACCOUNT_EMAIL = self._fetch_gcp_secret('EMILIA_SERVICE_ACCOUNT_EMAIL', gcp_client)
 
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
@@ -243,6 +246,10 @@ class Settings:
         # Solo incluir credentials_path en entornos locales
         if self.ENVIRONMENT in ('local_container', 'local_machine'):
             config['credentials_path'] = self.EMILIA_CREDENTIALS_PATH
+        
+        # Solo incluir service_account_email en producción
+        if self.ENVIRONMENT == 'production':
+            config['service_account_email'] = self.EMILIA_SERVICE_ACCOUNT_EMAIL
             
         return config
 
