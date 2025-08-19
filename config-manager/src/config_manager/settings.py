@@ -91,6 +91,10 @@ class Settings:
             self.CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('CHATWOOT_ACCOUNT_ID', gcp_client)
             self.CHATWOOT_TOKEN = self._fetch_gcp_secret('CHATWOOT_TOKEN', gcp_client)
 
+            # Emilia Google Docs IDs
+            self.EMILIA_DOCS_SALES_ID = self._fetch_gcp_secret('EMILIA_DOCS_SALES_ID', gcp_client)
+            self.EMILIA_DOCS_SUMMARY_ID = self._fetch_gcp_secret('EMILIA_DOCS_SUMMARY_ID', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -147,7 +151,12 @@ class Settings:
             self.CHATWOOT_ACCOUNT_ID = config('CHATWOOT_ACCOUNT_ID', default='')
             self.CHATWOOT_TOKEN = config('CHATWOOT_TOKEN', default='')
 
+            # Emilia Google Docs IDs
+            self.EMILIA_DOCS_SALES_ID = config('EMILIA_DOCS_SALES_ID', default='')
+            self.EMILIA_DOCS_SUMMARY_ID = config('EMILIA_DOCS_SUMMARY_ID', default='')
             
+            # Emilia Credentials Path (solo para uso local)
+            self.EMILIA_CREDENTIALS_PATH = config('EMILIA_CREDENTIALS_PATH', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -223,6 +232,19 @@ class Settings:
             'account_id': self.CHATWOOT_ACCOUNT_ID,
             'token': self.CHATWOOT_TOKEN
         }
+
+    def get_emilia_docs_config(self) -> dict:
+        """Get Emilia Google Docs configuration."""
+        config = {
+            'sales_id': self.EMILIA_DOCS_SALES_ID,
+            'summary_id': self.EMILIA_DOCS_SUMMARY_ID
+        }
+        
+        # Solo incluir credentials_path en entornos locales
+        if self.ENVIRONMENT in ('local_container', 'local_machine'):
+            config['credentials_path'] = self.EMILIA_CREDENTIALS_PATH
+            
+        return config
 
 # --- Create a single, project-wide instance to be imported everywhere ---
 secrets = Settings()
