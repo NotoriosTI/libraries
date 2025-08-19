@@ -647,13 +647,11 @@ class OdooProduct(OdooAPI):
         if debug:
             print(f"[ODOO_PRODUCT]: Obteniendo ID")
         product_info = self.get_id_by_sku(product_sku)
-        print(f"PROD_INFO_POST_ID = {product_info}")
         if product_info['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
             return production_order_data
         production_order_data['product_data'] = product_info
-        print(f"PROD_ORDER_DATA = {production_order_data}")
 
         # 3. Obtener el ID de la BOM
         if debug:
@@ -715,9 +713,6 @@ class OdooProduct(OdooAPI):
         if debug:
             print(f"Orden de producción creada con éxito")
 
-        print(f"[ODOO PRODUCTION ORDER DATA]: {production_order_data}")
-        picking_id = production_order_data['picking_data']['picking_id']
-        print(f"[ODOO PICKING ID]: {picking_id}")
         return production_order_data
         
     def create_production_orders(self, production_orders: list[dict]) -> list[dict]:
@@ -727,26 +722,26 @@ class OdooProduct(OdooAPI):
         output: lista de diccionarios con los datos de las ordenes de producción creadas
         """
         created_orders = []
-        for i, order in enumerate(production_orders):
+        for i, order in enumerate(production_orders, start=1):
             product_sku = order.get('product_sku', None)
             product_qty = order.get('product_qty', None)
             picking_qty = order.get('picking_qty', None)
 
             if product_sku is None:
-                print(f"No se puede crear la orden de producción {i} porque no se proporcionó el SKU")
+                print(f"No se puede crear la orden de producción #{i} porque no se proporcionó el SKU")
                 continue
             if product_qty is None:
-                print(f"No se puede crear la orden de producción para el SKU {product_sku} porque no se proporcionó la cantidad de producto")
+                print(f"No se puede crear la orden de producción #{i} para el SKU {product_sku} porque no se proporcionó la cantidad de producto")
                 continue
             if picking_qty is None:
-                print(f"No se puede crear la orden de producción para el SKU {product_sku} porque no se proporcionó la cantidad de picking")
+                print(f"No se puede crear la orden de producción #{i} para el SKU {product_sku} porque no se proporcionó la cantidad de picking")
                 continue
             
             created_order = self.create_single_production_order(product_sku, product_qty, picking_qty)
             if created_order['status'] == 'success':
-                print(f"Orden de producción {i} creada con éxito")
+                print(f"Orden de producción #{i} creada con éxito")
             else:
-                print(f"Error al crear la orden de producción {i}: {created_order['message']}")
+                print(f"Error al crear la orden de producción #{i}: {created_order['message']}")
             created_orders.append(created_order)
         return created_orders
 
