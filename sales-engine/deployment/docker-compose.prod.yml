@@ -17,8 +17,6 @@
 #   docker-compose -f deployment/docker-compose.shared-proxy.yml up -d
 #   docker-compose -f deployment/docker-compose.prod.yml run --rm sales-engine
 #
-version: '3.8'
-
 services:
   # The main application service, using the unified forecast table structure
   sales-engine:

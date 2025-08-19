@@ -132,12 +132,21 @@ echo "Skip forecast: $SKIP_FORECAST"
 echo "Forecast only: $FORECAST_ONLY"
 echo ""
 
+# Ensure required env vars are exported for docker compose
+export PROJECT_ID="$PROJECT_ID"
+export REGION="$REGION"
+export INSTANCE_NAME="$INSTANCE_NAME"
+export USE_TEST_ODOO=${USE_TEST_ODOO:-false}
+
 # Check if we're running on the VM or locally
-if [ -f "/opt/sales-engine/.env" ]; then
+if [ -d "/opt/sales-engine" ]; then
     echo "📍 Running on VM, using local environment..."
     cd /opt/sales-engine
     
     # Export environment variables for docker-compose (no file modification)
+    export PROJECT_ID=$PROJECT_ID
+    export REGION=$REGION
+    export INSTANCE_NAME=$INSTANCE_NAME
     export FORCE_FULL_SYNC=$FORCE_FULL_SYNC
     export TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY
     export SKIP_FORECAST=$SKIP_FORECAST
@@ -157,6 +166,9 @@ else
         cd /opt/sales-engine
         
         # Export environment variables for docker-compose (no file modification)
+        export PROJECT_ID=$PROJECT_ID
+        export REGION=$REGION
+        export INSTANCE_NAME=$INSTANCE_NAME
         export FORCE_FULL_SYNC=$FORCE_FULL_SYNC
         export TEST_CONNECTIONS_ONLY=$TEST_CONNECTIONS_ONLY
         export SKIP_FORECAST=$SKIP_FORECAST
