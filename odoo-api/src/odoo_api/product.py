@@ -460,117 +460,6 @@ class OdooProduct(OdooAPI):
 
         except Exception as e:
             raise Exception(f"Error al procesar el archivo CSV o al validar el ajuste de inventario: {e}")
-
-# Este método debe reemplazar al existente en tu clase OdooProduct dentro de product.py
-
-    def create_production_orders(self, df_production):
-        """
-        Crea órdenes de producción en Odoo basándose en el DataFrame dado.
-        El SKU en el DataFrame debe corresponder al product.product (variante o producto sin variantes).
-        Busca BOMs de forma flexible: primero por variante específica, luego por plantilla genérica.
-        """
-        output = ''
-        for index, row in df_production.iterrows():
-            sku = str(row['SKU']).strip() # SKU del product.product
-            quantity = row['TOTAL PRODUCCIÓN']
-            picking_quantity = row['A PRODUCIR PICKING (1 MES)']
-
-            # 1. Obtener detalles del producto (product.product) y su plantilla asociada
-            #    El método read_product busca en product.product por default_code (SKU)
-            product_details_list = self.read_product(sku)
-
-            if isinstance(product_details_list, str) or not product_details_list:
-                output += f"SKU {sku}: Producto (variante) no encontrado o error al leer detalles ({product_details_list}). Se omite orden.\n"
-                continue
-            
-            product_data = product_details_list[0] # Tomamos el primer resultado
-
-            if 'id' not in product_data or 'product_tmpl_id' not in product_data:
-                output += f"SKU {sku}: No se pudieron obtener ID de producto o ID de plantilla. Detalles: {product_data}. Se omite orden.\n"
-                continue
-
-            product_variant_id = product_data['id'] # ID del product.product (variante)
-            product_template_info = product_data.get('product_tmpl_id') # Es una tupla [id, nombre_display]
-            product_template_id = product_template_info[0] if product_template_info else None
-
-            # 2. Lógica mejorada para buscar la BOM activa
-            bom_id_to_use = None
-            bom_search_result_ids = []
-
-            # 2a. Intentar buscar BOM activa por product.product (variante específica)
-            if product_variant_id:
-                bom_search_result_ids = self.models.execute_kw(
-                    self.db, self.uid, self.password,
-                    'mrp.bom', 'search',
-                    [[('product_id', '=', product_variant_id), ('active', '=', True)]],
-                    {'limit': 1} 
-                )
-            
-            if bom_search_result_ids:
-                bom_id_to_use = bom_search_result_ids[0]
-                # print(f"DEBUG: BOM encontrada por variante para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
-            else:
-                # 2b. Si no se encontró por variante, intentar por product.template (plantilla)
-                #     Asegurándose de que sea una BOM genérica de plantilla (product_id = False) y activa.
-                if product_template_id:
-                    # print(f"DEBUG: Buscando BOM para SKU {sku} por product_tmpl_id (plantilla): {product_template_id}") # Para depuración
-                    bom_search_result_ids = self.models.execute_kw(
-                        self.db, self.uid, self.password,
-                        'mrp.bom', 'search',
-                        [[('product_tmpl_id', '=', product_template_id),
-                          ('product_id', '=', False), 
-                          ('active', '=', True)]],
-                        {'limit': 1}
-                    )
-                
-                if bom_search_result_ids:
-                    bom_id_to_use = bom_search_result_ids[0]
-                    # print(f"DEBUG: BOM encontrada por plantilla para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
-
-            if not bom_id_to_use:
-                output += f"SKU {sku}: No se encontró una Lista de Materiales activa (ni por variante específica ni por plantilla genérica). Se omite creación de orden.\n"
-                continue
-            
-            # 4. Crear la orden de producción para la variante específica
-            production_order_vals = {
-                'product_id': product_variant_id, # MUY IMPORTANTE: la orden es para el product.product (variante)
-                'product_qty': quantity,
-                'bom_id': bom_id_to_use,
-                'location_dest_id': 8, # Ubicación destino hardcodeada (Stock Total Juan Sabaj)
-                # Considerar añadir 'company_id' si es un entorno multi-compañía
-            }
-
-            try:
-                production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
-                output += f"SKU {sku}: Orden de producción creada con ID: {production_order_id} para la variante ID: {product_variant_id}.\n"
-
-                # 5. Crear transferencia interna de picking (lógica existente)
-                source_location_id = 8
-                destination_location_id = 29
-                picking_type_id_internal = 5 # ID para 'transferencia-interna'
-                
-                picking_vals = {
-                    'location_id': source_location_id,
-                    'location_dest_id': destination_location_id,
-                    'picking_type_id': picking_type_id_internal,
-                }
-                picking_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'create', [picking_vals])
-
-                move_vals = {
-                    'product_id': product_variant_id, # El movimiento es para la variante
-                    'product_uom_qty': picking_quantity,
-                    'name': f'Picking para OP del SKU {sku}',
-                    'picking_id': picking_id,
-                    'location_id': source_location_id,
-                    'location_dest_id': destination_location_id,
-                }
-                self.models.execute_kw(self.db, self.uid, self.password, 'stock.move', 'create', [move_vals])
-                output += f"SKU {sku}: Transferencia interna (ID: {picking_id}) para picking creada.\n"
-
-            except Exception as e_create:
-                output += f"SKU {sku}: Error al crear orden de producción o picking: {str(e_create)}\n"
-            
-        return output
     
     # ---Lógica simplificada para Juan---
     def get_id_by_sku(self, sku):
@@ -830,6 +719,38 @@ class OdooProduct(OdooAPI):
         picking_id = production_order_data['picking_data']['picking_id']
         print(f"[ODOO PICKING ID]: {picking_id}")
         return production_order_data
+        
+    def create_production_orders(self, production_orders: list[dict]) -> list[dict]:
+        """
+        Crea varias ordenes de producción en Odoo.
+        args: production_orders: lista de diccionarios con los datos de las ordenes de producción
+        output: lista de diccionarios con los datos de las ordenes de producción creadas
+        """
+        created_orders = []
+        for i, order in enumerate(production_orders):
+            product_sku = order.get('product_sku', None)
+            product_qty = order.get('product_qty', None)
+            picking_qty = order.get('picking_qty', None)
+
+            if product_sku is None:
+                print(f"No se puede crear la orden de producción {i} porque no se proporcionó el SKU")
+                continue
+            if product_qty is None:
+                print(f"No se puede crear la orden de producción para el SKU {product_sku} porque no se proporcionó la cantidad de producto")
+                continue
+            if picking_qty is None:
+                print(f"No se puede crear la orden de producción para el SKU {product_sku} porque no se proporcionó la cantidad de picking")
+                continue
+            
+            created_order = self.create_single_production_order(product_sku, product_qty, picking_qty)
+            if created_order['status'] == 'success':
+                print(f"Orden de producción {i} creada con éxito")
+            else:
+                print(f"Error al crear la orden de producción {i}: {created_order['message']}")
+            created_orders.append(created_order)
+        return created_orders
+
+
         
     def search_production_orders(self, sku):
             # Use the read_product function to get the product ID
