@@ -1,7 +1,7 @@
 from .api import OdooAPI
 import pandas as pd
 from pprint import pprint
-from typing import List
+from typing import List, Tuple
 from config_manager import secrets
 
 class OdooWarehouse(OdooAPI):
@@ -499,32 +499,37 @@ class OdooWarehouse(OdooAPI):
 
         return df_inventory
     
-    def has_components(self, skus: List[str]):
+    def max_production_quantity(self, skus: List[str]):
+        """Retorna la cantidad máxima de producción que se puede hacer de un producto, a partir del stock de los componentes"""
         from odoo_api import OdooProduct
         odoo_product = OdooProduct(
-            db=secrets.ODOO_TEST_DB,
-            url=secrets.ODOO_TEST_URL,
-            username=secrets.ODOO_TEST_USERNAME,
-            password=secrets.ODOO_TEST_PASSWORD,
+            db=self.db,
+            url=self.url,
+            username=self.username,
+            password=self.password,
         )
 
-        product_ids = [odoo_product.get_id_by_sku(s) for s in skus]
-        bom_ids = [odoo_product.get_bom_id_by_product_id(pid) for pid in product_ids]
-        bom_lines = [odoo_product.get_bom_lines_by_bom_id(bom_id) for bom_id in bom_ids]
-        component_ids = [bom_line['product_id'][0] for bom_line in bom_lines]
-        component_skus = [odoo_product.get_sku_by_id(cid) for cid in component_ids]
+        class BomItem:
+            def __init__(self, sku: str, quantity: int, stock: int):
+                self.sku = sku
+                self.quantity = quantity
+                self.stock = stock
+                self.max_quantity = stock / quantity
+            
+            def __str__(self):
+                return f"BomItem(sku={self.sku}, quantity={self.quantity}, stock={self.stock}, max_quantity={self.max_quantity})"
 
-        stock_quants = odoo_product.get_stock_by_sku(component_skus)
-        available_components = []
-        unavailable_components = []
-        for sku, stock_quant in stock_quants.items():
-            if stock_quant['qty_available'] > 0:
-                available_components.append(sku)
-            else:
-                unavailable_components.append(sku)
-        
-        return {
-            'has_components': len(available_components) > 0,
-            'available_components': available_components,
-            'unavailable_components': unavailable_components,
-        }
+        product_bom_components = odoo_product.get_bom_components(skus)
+        max_quantities = {}
+        for sku, components in product_bom_components.items():
+            bom_items = []
+            for component in components:
+                component_sku = component['sku']
+                component_quantity = component['quantity']
+                component_stock = self.get_stock_by_sku(component_sku)['qty_available']
+                bom_items.append(BomItem(component_sku, component_quantity, component_stock))
+            max_quantity = min(bom_items, key=lambda x: x.max_quantity).max_quantity
+            max_quantities[sku] = max_quantity
+
+        return max_quantities
+
