@@ -5,7 +5,7 @@ import xmlrpc.client
 from pprint import pprint
 import csv
 import logging
-from typing import Literal
+from typing import Literal, List
 
 class OdooProduct(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
@@ -499,6 +499,23 @@ class OdooProduct(OdooAPI):
             product_data['message'] = f'Producto no encontrado'
             return product_data
         
+    def get_bom_component_skus(self, skus: List[str]):
+        product_ids = [self.get_id_by_sku(s) for s in skus]
+        bom_ids = [self.get_bom_id_by_product_id(pid) for pid in product_ids]
+        bom_lines = self.execute_odoo_query(
+            model='mrp.bom.line',
+            method='search_read',
+            args=[
+                [
+                    ('bom_id', 'in', bom_ids)
+                ]
+            ],
+            kwargs={'fields': ['product_id', 'product_qty', 'bom_id']}
+        )
+        print(bom_lines)
+        input()
+        return bom_lines
+
     def get_bom_id_by_product_id(self, product_id):
         """
         Obtiene el ID de la BOM activa para un producto específico.

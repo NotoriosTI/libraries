@@ -1,6 +1,8 @@
 from .api import OdooAPI
 import pandas as pd
 from pprint import pprint
+from typing import List
+from config_manager import secrets
 
 class OdooWarehouse(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
@@ -496,3 +498,33 @@ class OdooWarehouse(OdooAPI):
         df_inventory = pd.DataFrame(inventory_data)
 
         return df_inventory
+    
+    def has_components(self, skus: List[str]):
+        from odoo_api import OdooProduct
+        odoo_product = OdooProduct(
+            db=secrets.ODOO_TEST_DB,
+            url=secrets.ODOO_TEST_URL,
+            username=secrets.ODOO_TEST_USERNAME,
+            password=secrets.ODOO_TEST_PASSWORD,
+        )
+
+        product_ids = [odoo_product.get_id_by_sku(s) for s in skus]
+        bom_ids = [odoo_product.get_bom_id_by_product_id(pid) for pid in product_ids]
+        bom_lines = [odoo_product.get_bom_lines_by_bom_id(bom_id) for bom_id in bom_ids]
+        component_ids = [bom_line['product_id'][0] for bom_line in bom_lines]
+        component_skus = [odoo_product.get_sku_by_id(cid) for cid in component_ids]
+
+        stock_quants = odoo_product.get_stock_by_sku(component_skus)
+        available_components = []
+        unavailable_components = []
+        for sku, stock_quant in stock_quants.items():
+            if stock_quant['qty_available'] > 0:
+                available_components.append(sku)
+            else:
+                unavailable_components.append(sku)
+        
+        return {
+            'has_components': len(available_components) > 0,
+            'available_components': available_components,
+            'unavailable_components': unavailable_components,
+        }
