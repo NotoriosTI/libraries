@@ -514,7 +514,11 @@ class OdooWarehouse(OdooAPI):
                 self.sku = sku
                 self.quantity = quantity
                 self.stock = stock
-                self.max_quantity = stock / quantity
+                # Evitar división por cero y manejar cantidades inválidas
+                if quantity <= 0:
+                    self.max_quantity = 0.0
+                else:
+                    self.max_quantity = stock / quantity
             
             def __str__(self):
                 return f"BomItem(sku={self.sku}, quantity={self.quantity}, stock={self.stock}, max_quantity={self.max_quantity})"
@@ -523,11 +527,30 @@ class OdooWarehouse(OdooAPI):
         max_quantities = {}
         for sku, components in product_bom_components.items():
             bom_items = []
+            
+            # Verificar si hay componentes para este SKU
+            if not components or len(components) == 0:
+                print(f"⚠️ Producto {sku} no tiene componentes de BOM o no se encontró BOM")
+                max_quantities[sku] = 0.0
+                continue
+            
             for component in components:
                 component_sku = component['sku']
                 component_quantity = component['quantity']
-                component_stock = self.get_stock_by_sku(component_sku)['qty_available']
+                
+                # Obtener stock del componente
+                stock_info = self.get_stock_by_sku(component_sku)
+                component_stock = stock_info.get('qty_available', 0) if stock_info else 0
+                
                 bom_items.append(BomItem(component_sku, component_quantity, component_stock))
+            
+            # Verificar si se crearon items de BOM válidos
+            if not bom_items:
+                print(f"⚠️ No se pudieron crear items de BOM para el producto {sku}")
+                max_quantities[sku] = 0.0
+                continue
+            
+            # Calcular la cantidad máxima basada en el componente limitante
             max_quantity = min(bom_items, key=lambda x: x.max_quantity).max_quantity
             max_quantities[sku] = max_quantity
 
