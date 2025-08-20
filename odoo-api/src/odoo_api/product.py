@@ -5,6 +5,7 @@ import xmlrpc.client
 from pprint import pprint
 import csv
 import logging
+from typing import Literal
 
 class OdooProduct(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
@@ -1686,5 +1687,45 @@ class OdooProduct(OdooAPI):
             return result
         except Exception as e:
             raise RuntimeError(f"Error al obtener proveedores de productos por SKUs (por template): {str(e)}") from e
-
     
+    def execute_odoo_query(
+            self,  # Instancia de la clase OdooProduct
+            model: Literal[
+                'mrp.production', 
+                'product.product', 
+                'product.supplierinfo', 
+                'res.currency', 
+                'res.partner', 
+                'mrp.bom',
+                'mrp.bom.line',
+                'product.tag',
+                'stock.quant',
+                'product.category',
+                'stock.change.product.qty',
+                'mrp.routing.workcenter',
+                'stock.inventory',
+                'stock.inventory.line',
+                'stock.move',
+                'stock.picking',
+                'product.template.attribute.value'
+            ],
+            method: Literal[  # Método de Odoo a ejecutar
+                'search', 
+                'search_read', 
+                'read', 
+                'create', 
+                'write', 
+                'unlink',
+                'search_count',
+                'fields_get',
+                'action_confirm',
+                'action_assign',
+                'change_product_qty'
+            ],
+            args: list = [],  # Lista de argumentos para el método Odoo
+            kwargs: dict = {}  # Diccionario de argumentos nombrados para el método Odoo
+        ) -> list | dict | bool | int | None:
+            return self.models.execute_kw(
+                self.db, self.uid, self.password,
+                model, method, args, kwargs
+            )
