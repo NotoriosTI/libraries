@@ -530,7 +530,7 @@ class OdooWarehouse(OdooAPI):
             
             # Verificar si hay componentes para este SKU
             if not components or len(components) == 0:
-                print(f"⚠️ Producto {sku} no tiene componentes de BOM o no se encontró BOM")
+                # print(f"⚠️ Producto {sku} no tiene componentes de BOM o no se encontró BOM")
                 max_quantities[sku] = 0.0
                 continue
             
@@ -546,7 +546,7 @@ class OdooWarehouse(OdooAPI):
             
             # Verificar si se crearon items de BOM válidos
             if not bom_items:
-                print(f"⚠️ No se pudieron crear items de BOM para el producto {sku}")
+                # print(f"⚠️ No se pudieron crear items de BOM para el producto {sku}")
                 max_quantities[sku] = 0.0
                 continue
             
