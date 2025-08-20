@@ -1119,203 +1119,6 @@ class OdooProduct(OdooAPI):
         production_order_confirmation_data["message"] = f"Orden de producción{reference_text} confirmada correctamente con todos los componentes disponibles"
         return production_order_confirmation_data
     
-    def _get_unavailable_components(self, production_order_id: int, move_raw_ids: list) -> list:
-        """
-        Obtiene información detallada sobre los componentes que no están disponibles
-        para una orden de producción.
-        
-        :param production_order_id: ID de la orden de producción
-        :param move_raw_ids: Lista de IDs de movimientos de materias primas
-        :return: Lista de diccionarios con información de componentes no disponibles
-        """
-        unavailable_components = []
-        
-        try:
-            if not move_raw_ids:
-                return unavailable_components
-            
-            # Obtener información de los movimientos de materias primas
-            moves_data = self.models.execute_kw(
-                self.db, self.uid, self.password,
-                'stock.move', 'read',
-                [move_raw_ids], {
-                    'fields': [
-                        'product_id', 'product_uom_qty', 'reserved_availability', 
-                        'product_uom', 'state', 'name'
-                    ]
-                }
-            )
-            
-            for move in moves_data:
-                product_id = move['product_id'][0] if isinstance(move['product_id'], list) else move['product_id']
-                required_qty = move['product_uom_qty']
-                reserved_qty = move['reserved_availability']
-                missing_qty = required_qty - reserved_qty
-                
-                # Solo incluir componentes que tienen faltante
-                if missing_qty > 0:
-                    # Obtener información del producto
-                    product_data = self.models.execute_kw(
-                        self.db, self.uid, self.password,
-                        'product.product', 'read',
-                        [[product_id]], {'fields': ['name', 'default_code']}
-                    )
-                    
-                    # Obtener información de la unidad de medida
-                    uom_data = self.models.execute_kw(
-                        self.db, self.uid, self.password,
-                        'uom.uom', 'read',
-                        [[move['product_uom'][0]]], {'fields': ['name']}
-                    )
-                    
-                    product_name = product_data[0]['name'] if product_data else 'Producto desconocido'
-                    product_sku = product_data[0]['default_code'] if product_data and product_data[0]['default_code'] else 'N/A'
-                    uom_name = uom_data[0]['name'] if uom_data else 'ud'
-                    
-                    unavailable_components.append({
-                        'product_id': product_id,
-                        'product_name': product_name,
-                        'product_sku': product_sku,
-                        'required_qty': required_qty,
-                        'reserved_qty': reserved_qty,
-                        'missing_qty': missing_qty,
-                        'uom': uom_name
-                    })
-                    
-        except Exception as e:
-            print(f"Error al obtener información de componentes no disponibles: {e}")
-            # En caso de error, devolver información básica
-            unavailable_components.append({
-                'product_name': 'Error al obtener detalles',
-                'missing_qty': 'Desconocido',
-                'uom': '',
-                'error': str(e)
-            })
-        
-        return unavailable_components
-    
-    def check_components_availability(self, production_order_id: int) -> dict:
-        """
-        Verifica la disponibilidad de componentes para una orden de producción.
-        Intenta asignar componentes automáticamente y retorna el estado de disponibilidad.
-        
-        :param production_order_id: ID de la orden de producción a verificar
-        :return: Diccionario con información de disponibilidad y componentes faltantes
-        """
-        availability_data = {
-            "status": None,
-            "production_order_id": production_order_id,
-            "production_order_name": None,
-            "components_availability": None,
-            "unavailable_components": [],
-            "message": None
-        }
-        
-        try:
-            # Obtener información básica de la orden de producción
-            mo_data = self.models.execute_kw(
-                self.db, self.uid, self.password,
-                'mrp.production', 'read',
-                [[production_order_id]], {'fields': ['name', 'state', 'components_availability']}
-            )
-            
-            if not mo_data or len(mo_data) == 0:
-                availability_data["status"] = "error"
-                availability_data["message"] = "No se encontró la orden de producción"
-                return availability_data
-                
-            mo_info = mo_data[0]
-            production_order_name = mo_info.get('name')
-            availability_data["production_order_name"] = production_order_name
-            availability_data["components_availability"] = mo_info.get('components_availability')
-            
-            # Verificar que la orden esté en estado borrador
-            if mo_info.get('state') != 'draft':
-                availability_data["status"] = "error"
-                availability_data["message"] = f"La orden de producción [{production_order_name}] no está en estado borrador"
-                return availability_data
-            
-            # Intentar asignar/reservar componentes antes de verificar disponibilidad
-            try:
-                self.models.execute_kw(
-                    self.db, self.uid, self.password,
-                    'mrp.production', 'action_assign',
-                    [[production_order_id]]
-                )
-            except Exception as assign_error:
-                print(f"Warning: No se pudieron asignar automáticamente los componentes: {assign_error}")
-            
-            # Verificar disponibilidad de componentes después del intento de asignación
-            mo_data_updated = self.models.execute_kw(
-                self.db, self.uid, self.password,
-                'mrp.production', 'read',
-                [[production_order_id]], {'fields': ['components_availability', 'move_raw_ids']}
-            )
-            
-            updated_components_availability = mo_data_updated[0].get('components_availability')
-            availability_data["components_availability"] = updated_components_availability
-            
-            # Verificar si hay disponibilidad completa
-            if updated_components_availability == 'available':
-                availability_data["status"] = "success"
-                availability_data["message"] = f"Todos los componentes están disponibles para la orden [{production_order_name}]"
-            else:
-                # Obtener detalles de componentes faltantes
-                unavailable_components = self._get_unavailable_components(production_order_id, mo_data_updated[0]['move_raw_ids'])
-                availability_data["unavailable_components"] = unavailable_components
-                availability_data["status"] = "insufficient_stock"
-                
-                components_list = ", ".join([f"{comp['product_name']} (falta: {comp['missing_qty']} {comp['uom']})" 
-                                           for comp in unavailable_components])
-                availability_data["message"] = f"Componentes faltantes para [{production_order_name}]: {components_list}"
-                
-        except Exception as e:
-            availability_data["status"] = "error"
-            availability_data["message"] = f"Error al verificar disponibilidad de componentes: {e}"
-        
-        return availability_data
-    
-    # def confirm_production_order(self, production_order_id: int, picking_id: int):
-        # """
-        # Confirms a draft Manufacturing order(MO) using it's id
-        # :param mo_id: ID of the MO to confirm
-        # :param picking_id: ID of the picking to confirm
-        # :return: True if correctly confirmed False if error occurs
-        # """
-# 
-        # production_order_confirmation_data = {
-            # "status": None,
-            # "production_order_id": production_order_id,
-            # "picking_id": picking_id,
-            # "message": None,
-        # }
-# 
-        # try:
-            # order_result = self.models.execute_kw(
-                # self.db, self.uid, self.password,
-                # 'mrp.production', 'action_confirm',
-                # [[production_order_id]]
-            # )
-            # production_order_confirmation_data["order_result"] = order_result
-# 
-            # picking_result = self.models.execute_kw(
-                # self.db, self.uid, self.password,
-                # 'stock.picking', 'action_confirm',
-                # [[picking_id]]
-            # )
-            # production_order_confirmation_data["picking_result"] = picking_result
-# 
-        # except Exception as e:
-            # production_order_confirmation_data["status"] = "error"
-            # production_order_confirmation_data["message"] = f"Error al confirmar la orden de producción: {e}"
-            # return production_order_confirmation_data
-        # 
-        # production_order_confirmation_data["status"] = "success"
-        # production_order_confirmation_data["message"] = f"Orden de producción {production_order_id} confirmada correctamente"
-        # return production_order_confirmation_data
-    
-
-    
     def get_active_skus(self) -> set[str]:
         """
         Get a set of all active product SKUs (default_code).
@@ -1517,6 +1320,199 @@ class OdooProduct(OdooAPI):
         
         return df
     
+    def _get_unavailable_components(self, production_order_id: int, move_raw_ids: list) -> list:
+        """
+        Obtiene información detallada sobre los componentes que no están disponibles
+        para una orden de producción utilizando el stock directo del producto.
+        
+        :param production_order_id: ID de la orden de producción
+        :param move_raw_ids: Lista de IDs de movimientos de materias primas
+        :return: Lista de diccionarios con información de componentes no disponibles
+        """
+        unavailable_components = []
+        
+        try:
+            if not move_raw_ids:
+                return unavailable_components
+            
+            # Obtener información de los movimientos de materias primas sin usar reserved_availability
+            moves_data = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'stock.move', 'read',
+                [move_raw_ids], {
+                    'fields': [
+                        'product_id', 'product_uom_qty', 'quantity_done',
+                        'product_uom', 'state', 'name'
+                    ]
+                }
+            )
+            
+            for move in moves_data:
+                product_id = move['product_id'][0] if isinstance(move['product_id'], list) else move['product_id']
+                required_qty = move['product_uom_qty']
+                
+                # Obtener información del producto y su stock disponible
+                try:
+                    product_data = self.models.execute_kw(
+                        self.db, self.uid, self.password,
+                        'product.product', 'read',
+                        [[product_id]], {'fields': ['name', 'default_code', 'qty_available']}
+                    )
+                    
+                    if product_data and len(product_data) > 0:
+                        product_info = product_data[0]
+                        available_qty = product_info.get('qty_available', 0)
+                        product_name = product_info.get('name', 'Producto desconocido')
+                        product_sku = product_info.get('default_code', '')
+                        
+                        # Calcular cantidad faltante
+                        missing_qty = max(0, required_qty - available_qty)
+                        
+                        # Solo incluir componentes que tienen faltante
+                        if missing_qty > 0:
+                            # Obtener información de la unidad de medida
+                            uom_info = move.get('product_uom')
+                            uom = uom_info[1] if isinstance(uom_info, list) and len(uom_info) > 1 else 'unidad'
+                            
+                            unavailable_components.append({
+                                'product_id': product_id,
+                                'product_name': product_name,
+                                'product_sku': product_sku,
+                                'required_qty': required_qty,
+                                'available_qty': available_qty,
+                                'missing_qty': missing_qty,
+                                'uom': uom,
+                                'state': move.get('state', 'unknown')
+                            })
+                    else:
+                        # Si no se puede obtener información del producto, reportar como faltante total
+                        unavailable_components.append({
+                            'product_id': product_id,
+                            'product_name': 'Producto desconocido',
+                            'product_sku': '',
+                            'required_qty': required_qty,
+                            'available_qty': 0,
+                            'missing_qty': required_qty,
+                            'uom': 'unidad',
+                            'state': move.get('state', 'unknown'),
+                            'error': 'No se pudo obtener información del producto'
+                        })
+                        
+                except Exception as e:
+                    print(f"Error al obtener información de producto {product_id}: {e}")
+                    unavailable_components.append({
+                        'product_id': product_id,
+                        'product_name': 'Error al obtener información',
+                        'product_sku': '',
+                        'required_qty': required_qty,
+                        'available_qty': 0,
+                        'missing_qty': required_qty,
+                        'uom': 'unidad',
+                        'state': move.get('state', 'unknown'),
+                        'error': str(e)
+                    })
+                    
+        except Exception as e:
+            print(f"Error al obtener información de componentes no disponibles: {e}")
+            unavailable_components.append({
+                'product_id': None,
+                'product_name': 'Error general',
+                'product_sku': '',
+                'required_qty': 0,
+                'available_qty': 0,
+                'missing_qty': 0,
+                'uom': 'unidad',
+                'state': 'error',
+                'error': str(e)
+            })
+        
+        return unavailable_components
+    
+    def check_components_availability(self, production_order_id: int) -> dict:
+        """
+        Verifica la disponibilidad de componentes para una orden de producción.
+        Intenta asignar componentes automáticamente y retorna el estado de disponibilidad.
+        
+        :param production_order_id: ID de la orden de producción a verificar
+        :return: Diccionario con información de disponibilidad y componentes faltantes
+        """
+        availability_data = {
+            "status": None,
+            "production_order_id": production_order_id,
+            "production_order_name": None,
+            "components_availability": None,
+            "unavailable_components": [],
+            "message": None
+        }
+        
+        try:
+            # Obtener información básica de la orden de producción
+            mo_data = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'read',
+                [[production_order_id]], {'fields': ['name', 'state', 'components_availability']}
+            )
+            
+            if not mo_data or len(mo_data) == 0:
+                availability_data["status"] = "error"
+                availability_data["message"] = "No se encontró la orden de producción"
+                return availability_data
+                
+            mo_info = mo_data[0]
+            production_order_name = mo_info.get('name')
+            availability_data["production_order_name"] = production_order_name
+            availability_data["components_availability"] = mo_info.get('components_availability')
+            
+            # Verificar que la orden esté en estado borrador
+            if mo_info.get('state') != 'draft':
+                availability_data["status"] = "error"
+                availability_data["message"] = f"La orden de producción [{production_order_name}] no está en estado borrador"
+                return availability_data
+            
+            # Intentar asignar/reservar componentes antes de verificar disponibilidad
+            try:
+                self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'mrp.production', 'action_assign',
+                    [[production_order_id]]
+                )
+            except Exception as e:
+                print(f"Advertencia: No se pudieron asignar componentes automáticamente: {e}")
+            
+            # Obtener información actualizada después del intento de asignación
+            mo_data_updated = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'read',
+                [[production_order_id]], {'fields': ['components_availability', 'move_raw_ids']}
+            )
+            
+            updated_components_availability = mo_data_updated[0].get('components_availability')
+            availability_data["components_availability"] = updated_components_availability
+            
+            # Verificar si hay disponibilidad completa
+            if updated_components_availability == 'available':
+                availability_data["status"] = "success"
+                availability_data["message"] = f"Todos los componentes están disponibles para la orden [{production_order_name}]"
+            else:
+                # Obtener detalles de componentes faltantes
+                unavailable_components = self._get_unavailable_components(production_order_id, mo_data_updated[0]['move_raw_ids'])
+                availability_data["unavailable_components"] = unavailable_components
+                availability_data["status"] = "insufficient_stock"
+                
+                if unavailable_components:
+                    components_list = ", ".join([f"{comp['product_name']} (falta: {comp['missing_qty']} {comp['uom']})" 
+                                               for comp in unavailable_components])
+                    availability_data["message"] = f"Componentes insuficientes para la orden [{production_order_name}]: {components_list}"
+                else:
+                    availability_data["message"] = f"Sin stock suficiente para la orden [{production_order_name}] pero no se pudieron obtener detalles"
+                    
+        except Exception as e:
+            print(f"Error al verificar disponibilidad de componentes: {e}")
+            availability_data["status"] = "error"
+            availability_data["message"] = f"Error al verificar disponibilidad de componentes: {str(e)}"
+        
+        return availability_data
+
     def get_product_suppliers_by_skus(self, skus: list[str]) -> dict[str, dict[str, dict[str, str]]]:
         """
         Obtiene los proveedores por lista de SKUs usando DataFrames internamente y
