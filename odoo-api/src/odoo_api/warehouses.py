@@ -499,7 +499,7 @@ class OdooWarehouse(OdooAPI):
 
         return df_inventory
     
-    def max_production_quantity(self, skus: List[str]):
+    def get_max_production_quantity(self, skus: List[str]):
         """Retorna la cantidad máxima de producción que se puede hacer de un producto, a partir del stock de los componentes"""
         from odoo_api import OdooProduct
         odoo_product = OdooProduct(
