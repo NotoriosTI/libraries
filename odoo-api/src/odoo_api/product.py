@@ -1037,19 +1037,32 @@ class OdooProduct(OdooAPI):
     def confirm_production_order(self, production_order_id: int, picking_id: int):
         """
         Confirms a draft Manufacturing order(MO) using it's id
-        :param mo_id: ID of the MO to confirm
+        :param production_order_id: ID of the MO to confirm
         :param picking_id: ID of the picking to confirm
-        :return: True if correctly confirmed False if error occurs
+        :return: Dictionary with confirmation status and production order name
         """
 
         production_order_confirmation_data = {
             "status": None,
             "production_order_id": production_order_id,
             "picking_id": picking_id,
+            "production_order_name": None,
             "message": None,
         }
 
         try:
+            # Primero obtenemos el nombre de la orden de producción
+            mo_data = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'read',
+                [[production_order_id]],
+                {'fields': ['name']}
+            )
+            
+            if mo_data:
+                production_order_confirmation_data["production_order_name"] = mo_data[0]['name']
+
+            # Confirmamos la orden de producción
             order_result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'mrp.production', 'action_confirm',
@@ -1057,6 +1070,7 @@ class OdooProduct(OdooAPI):
             )
             production_order_confirmation_data["order_result"] = order_result
 
+            # Confirmamos el picking
             picking_result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.picking', 'action_confirm',
@@ -1070,7 +1084,7 @@ class OdooProduct(OdooAPI):
             return production_order_confirmation_data
         
         production_order_confirmation_data["status"] = "success"
-        production_order_confirmation_data["message"] = f"Orden de producción {production_order_id} confirmada correctamente"
+        production_order_confirmation_data["message"] = f"Orden de producción {production_order_confirmation_data['production_order_name']} confirmada correctamente"
         return production_order_confirmation_data
     
     def get_active_skus(self) -> set[str]:
