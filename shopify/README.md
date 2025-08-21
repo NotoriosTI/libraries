@@ -11,41 +11,20 @@ Librería Python para interactuar con las APIs de Shopify.
 
 ### 🔧 Variables de Entorno
 
-#### Variables Obligatorias
+#### Para Storefront API (Módulo Principal)
 ```bash
-# API Keys
-OPENAI_API_KEY=tu-clave-de-openai
-
-# Shopify Configuration
+# (*) OBLIGATORIO
 SHOPIFY_SHOP_URL=tu-tienda.myshopify.com
 SHOPIFY_TOKEN_API_STOREFRONT=tu-token-de-storefront
 
-# Security
-API_SECRET_KEY=tu-clave-secreta
+# OPCIONAL
+SHOPIFY_API_VERSION=2025-01
 ```
 
-#### Variables Opcionales
+#### Para Admin API (Opcional - Módulo separado)
 ```bash
-# Shopify Configuration
-SHOPIFY_API_KEY=tu-api-key
-SHOPIFY_API_SECRET=tu-api-secret
+# Solo si usas el módulo admin
 SHOPIFY_TOKEN_API_ADMIN=tu-token-de-admin
-SHOPIFY_API_VERSION=2025-01
-
-# Application Settings
-APP_TIMEZONE=UTC
-MAX_CONVERSATION_TOKENS=5000
-SUMMARY_CHUNK_SIZE=2000
-CONVERSATION_RETENTION_DAYS=30
-
-# Server Settings
-API_HOST=0.0.0.0
-API_PORT=8000
-WORKERS=1
-
-# Security
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
 
 ## 📚 Módulos
@@ -95,3 +74,4 @@ poetry install
 - **Variables Extra**: La librería ignora variables en tu `.env` que no necesita
 - **Configuración Mínima**: Solo necesitas configurar las variables obligatorias para usar Storefront API
 - **Admin API**: Opcional, solo si planeas usar funcionalidades administrativas
+- **Módulos Separados**: Storefront y Admin tienen configuraciones independientes
