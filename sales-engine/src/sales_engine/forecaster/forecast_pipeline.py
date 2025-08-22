@@ -24,6 +24,7 @@ from .sales_forcaster import SalesForecaster
 from .generate_all_forecasts import DatabaseForecastUpdater
 from .inventory_utils import get_inventory_from_odoo
 from config_manager import secrets
+from odoo_api.product import OdooProduct
 
 # Logger consistente con el resto del proyecto
 from dev_utils import PrettyLogger
@@ -123,6 +124,7 @@ def _build_unified_forecast_df(
     inventory_data: Dict[str, Dict],
     max_sales_data: Dict[str, int],
     unit_prices_data: Dict[str, float],
+    odoo_product: OdooProduct,
     year: int,
     month: int
 ) -> pd.DataFrame:
@@ -134,6 +136,7 @@ def _build_unified_forecast_df(
         inventory_data: Datos de inventario desde Odoo
         max_sales_data: Máximo de ventas históricas por SKU
         unit_prices_data: Precios unitarios por SKU
+        odoo_product: Instancia de OdooProduct para verificar BOMs
         year: Año del forecast
         month: Mes del forecast
         
@@ -166,6 +169,9 @@ def _build_unified_forecast_df(
         # Calcular prioridad
         priority = _calculate_priority(forecasted_qty, current_stock, max_monthly_sales)
         
+        # Verificar si el producto tiene BOM
+        has_bom = odoo_product.has_bom(sku)
+        
         rows.append({
             "sku": sku,
             "year": year,
@@ -175,7 +181,8 @@ def _build_unified_forecast_df(
             "forecasted_qty": forecasted_qty,
             "required_production": required_production,
             "unit_price": unit_price,
-            "priority": priority
+            "priority": priority,
+            "has_bom": has_bom
         })
     
     df = pd.DataFrame(rows)
@@ -256,18 +263,37 @@ def run_pipeline(year: Optional[int] = None, month: Optional[int] = None, use_te
     unit_prices_data = forecaster.get_unit_prices_for_skus(skus_for_month)
     logger.info("[5] Precios unitarios obtenidos", duration_seconds=round(time.monotonic() - t4, 1))
 
-    # 7) Construir DataFrame unificado
+    # 7) Inicializar conexión a Odoo para verificar BOMs
     t5 = time.monotonic()
-    logger.info("[6] Construyendo DataFrame unificado")
-    unified_df = _build_unified_forecast_df(monthly_forecasts, inventory_data, max_sales_data, unit_prices_data, year, month)
-    logger.info("[6] DataFrame unificado construido", rows=len(unified_df), duration_seconds=round(time.monotonic() - t5, 1))
+    logger.info("[6] Inicializando conexión a Odoo para BOMs")
+    if use_test_odoo:
+        odoo_product = OdooProduct(
+            db=secrets.ODOO_TEST_DB,
+            url=secrets.ODOO_TEST_URL,
+            username=secrets.ODOO_TEST_USERNAME,
+            password=secrets.ODOO_TEST_PASSWORD
+        )
+    else:
+        odoo_product = OdooProduct(
+            db=secrets.ODOO_PROD_DB,
+            url=secrets.ODOO_PROD_URL,
+            username=secrets.ODOO_PROD_USERNAME,
+            password=secrets.ODOO_PROD_PASSWORD
+        )
+    logger.info("[6] Conexión a Odoo inicializada", duration_seconds=round(time.monotonic() - t5, 1))
 
-    # 8) Upsert a tabla forecast unificada
+    # 8) Construir DataFrame unificado
     t6 = time.monotonic()
-    logger.info("[7] Iniciando upsert en tabla forecast unificada", total_rows=len(unified_df))
+    logger.info("[7] Construyendo DataFrame unificado con verificación de BOMs")
+    unified_df = _build_unified_forecast_df(monthly_forecasts, inventory_data, max_sales_data, unit_prices_data, odoo_product, year, month)
+    logger.info("[7] DataFrame unificado construido", rows=len(unified_df), duration_seconds=round(time.monotonic() - t6, 1))
+
+    # 9) Upsert a tabla forecast unificada
+    t7 = time.monotonic()
+    logger.info("[8] Iniciando upsert en tabla forecast unificada", total_rows=len(unified_df))
     forecast_db_updater = DatabaseForecastUpdater()
     forecast_upsert_stats = forecast_db_updater.upsert_unified_forecasts(unified_df)
-    logger.info("[7] Upsert unificado completado", duration_seconds=round(time.monotonic() - t6, 1), **forecast_upsert_stats)
+    logger.info("[8] Upsert unificado completado", duration_seconds=round(time.monotonic() - t7, 1), **forecast_upsert_stats)
 
     return PipelineResult(
         year=year,

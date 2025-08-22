@@ -330,7 +330,7 @@ class DatabaseForecastUpdater:
         
         Args:
             unified_df: DataFrame con estructura unificada (sku, year, month, max_monthly_sales, 
-                       current_stock, forecasted_qty, required_production, unit_price, priority)
+                       current_stock, forecasted_qty, required_production, unit_price, priority, has_bom)
             
         Returns:
             Dict con contadores de registros insertados/actualizados
@@ -338,10 +338,10 @@ class DatabaseForecastUpdater:
         upsert_sql = """
         INSERT INTO forecast (
             sku, year, month, max_monthly_sales, current_stock, 
-            forecasted_qty, required_production, unit_price, priority
+            forecasted_qty, required_production, unit_price, priority, has_bom
         ) VALUES (
             %(sku)s, %(year)s, %(month)s, %(max_monthly_sales)s, %(current_stock)s,
-            %(forecasted_qty)s, %(required_production)s, %(unit_price)s, %(priority)s
+            %(forecasted_qty)s, %(required_production)s, %(unit_price)s, %(priority)s, %(has_bom)s
         )
         ON CONFLICT (sku, year, month) 
         DO UPDATE SET
@@ -351,6 +351,7 @@ class DatabaseForecastUpdater:
             required_production = EXCLUDED.required_production,
             unit_price = EXCLUDED.unit_price,
             priority = EXCLUDED.priority,
+            has_bom = EXCLUDED.has_bom,
             updated_at = CURRENT_TIMESTAMP
         """
         
@@ -368,6 +369,8 @@ class DatabaseForecastUpdater:
                                 return ""
                             elif target_type in (int, float):
                                 return target_type(0)
+                            elif target_type == bool:
+                                return False
                             return target_type()
                         
                         # Conversión agresiva de tipos NumPy usando .item()
@@ -379,6 +382,8 @@ class DatabaseForecastUpdater:
                                 # Fallback para valores que no caben en el tipo objetivo
                                 if target_type == int:
                                     return int(float(value))  # Convertir via float primero
+                                elif target_type == bool:
+                                    return bool(value)
                                 return target_type(value)
                         
                         # Conversión directa para tipos Python nativos
@@ -390,6 +395,8 @@ class DatabaseForecastUpdater:
                                 return str(value)
                             elif target_type in (int, float):
                                 return target_type(0)
+                            elif target_type == bool:
+                                return bool(value)
                             return target_type()
                     
                     records = []
@@ -410,7 +417,8 @@ class DatabaseForecastUpdater:
                             'forecasted_qty': safe_convert(row['forecasted_qty'], int),
                             'required_production': safe_convert(row['required_production'], int),
                             'unit_price': safe_convert(row['unit_price'], float),
-                            'priority': safe_convert(row['priority'], str)
+                            'priority': safe_convert(row['priority'], str),
+                            'has_bom': safe_convert(row['has_bom'], bool)
                         }
                         records.append(record)
                     
