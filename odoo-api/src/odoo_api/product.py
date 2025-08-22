@@ -1899,6 +1899,34 @@ class OdooProduct(OdooAPI):
         except Exception as e:
             raise RuntimeError(f"Error al obtener proveedores de productos por SKUs (por template): {str(e)}") from e
     
+    def has_bom(self, sku: str) -> bool:
+        """
+        Verifica si un producto tiene un BOM (Bill of Materials) activo.
+        
+        Args:
+            sku: SKU del producto a verificar
+        
+        Returns:
+            bool: True si el producto tiene un BOM activo, False en caso contrario
+        """
+        try:
+            # Buscar directamente productos con BOMs activos que coincidan con el SKU
+            products_with_bom = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search',
+                [[
+                    ('default_code', '=', sku),
+                    ('bom_ids.active', '=', True)
+                ]],
+                {'limit': 1}
+            )
+            
+            return bool(products_with_bom)
+            
+        except Exception as e:
+            print(f"Error al verificar BOM para SKU {sku}: {e}")
+            return False
+    
     def execute_odoo_query(
             self,  # Instancia de la clase OdooProduct
             model: Literal[
