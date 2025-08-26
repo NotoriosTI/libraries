@@ -1,9 +1,8 @@
-import sys, re
-sys.path.append('/home/snparada/Spacionatural/Libraries')
-from shopify_graph_lib.api import ShopifyAPI
+import re
 import pandas as pd
 import requests
 import json
+from .api import ShopifyAPI
 
 class ShopifyOrders(ShopifyAPI):
     def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):

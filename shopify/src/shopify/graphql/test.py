@@ -1,12 +1,10 @@
-import sys
-sys.path.append('/home/snparada/Spacionatural/Libraries')
-from shopify_graph_lib.orders import ShopifyOrders
+from .orders import ShopifyOrders
 
 shopify_orders = ShopifyOrders()
 
 # Productos que el cliente desea comprar
 productos = [
-    {'variant_id': '44546989392041', 'quantity': 1},
+    {'variant_id': '50570543333675', 'quantity': 1},
 
 ]
 

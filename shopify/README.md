@@ -21,10 +21,10 @@ SHOPIFY_TOKEN_API_STOREFRONT=tu-token-de-storefront
 SHOPIFY_API_VERSION=2025-01
 ```
 
-#### Para Admin API (Opcional - Módulo separado)
+#### Para Admin API (GraphQL - Módulo separado)
 ```bash
-# Solo si usas el módulo admin
-SHOPIFY_TOKEN_API_ADMIN=tu-token-de-admin
+# Solo si usas el módulo GraphQL admin
+SHOPIFY_PASSWORD=tu-admin-access-token
 ```
 
 ## 📚 Módulos
@@ -38,9 +38,9 @@ search = StorefrontSearch()
 results = search.search_products(["aceite", "esencia"])
 ```
 
-### Admin API
+### Admin API (GraphQL)
 ```python
-from shopify.admin import ShopifyProducts, ShopifyOrders
+from shopify.graphql import ShopifyProducts, ShopifyOrders
 
 # Gestión de productos
 products = ShopifyProducts()

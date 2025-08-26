@@ -1,10 +1,10 @@
-import sys
-sys.path.append('/home/snparada/Spacionatural/Libraries')
-from shopify_graph_lib.api import ShopifyAPI
 import pandas as pd
 import requests
+import json
+import time
 from urllib.parse import urljoin
-from bs4 import BeautifulSoup 
+from bs4 import BeautifulSoup
+from .api import ShopifyAPI 
 
 class ShopifyProducts(ShopifyAPI):
     def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):

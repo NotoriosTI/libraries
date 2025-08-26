@@ -1,22 +1,33 @@
-from decouple import Config, RepositoryEnv
 import requests
-
-dotenv_path = '/home/snparada/Spacionatural/Libraries/shopify_graph_lib/creds/.env'
-config = Config(RepositoryEnv(dotenv_path))
+from .application_settings import settings
 
 class ShopifyAPI:
     def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):
-        # Leer las variables de entorno utilizando decouple
-        self.shop_url = shop_url if shop_url else config('SHOPIFY_SHOP_URL')
-        self.api_password = api_password if api_password else config('SHOPIFY_PASSWORD')
-        self.api_version = api_version if api_version else config('SHOPIFY_API_VERSION')
-        self.shop_url = self.shop_url.rstrip('/')
-        self.graphql_url = f"{self.shop_url}/admin/api/{self.api_version}/graphql.json"
-        self.base_url = f"{self.shop_url}/admin/api/{self.api_version}"
+        # Cargar configuración desde el archivo .env usando pydantic-settings
+        try:
+            self.shop_url = shop_url if shop_url else settings.SHOPIFY_SHOP_URL
+            self.api_password = api_password if api_password else settings.SHOPIFY_TOKEN_API_ADMIN
+            self.api_version = api_version if api_version else settings.SHOPIFY_API_VERSION
+        except Exception as e:
+            # Si hay error con el .env y no se proporcionaron credenciales, lanzar error
+            if not (shop_url and api_password):
+                raise Exception(f"Error cargando credenciales: {e}. Proporcione shop_url y api_password.")
+            # Si se proporcionaron credenciales directamente, usarlas
+            self.shop_url = shop_url
+            self.api_password = api_password
+            self.api_version = api_version
+        
+        # Asegurar que shop_url no termine con una barra y configurar URLs
+        if self.shop_url:
+            self.shop_url = self.shop_url.rstrip('/')
+            self.graphql_url = f"{self.shop_url}/admin/api/{self.api_version}/graphql.json"
+            self.base_url = f"{self.shop_url}/admin/api/{self.api_version}"
+        
+        # Inicializar last_response
         self.last_response = None
 
         # Asegúrate de que la base_url termine con una barra
-        if not self.base_url.endswith('/'):
+        if self.base_url and not self.base_url.endswith('/'):
             self.base_url += '/'
 
     def get_headers(self):
