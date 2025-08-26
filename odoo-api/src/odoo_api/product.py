@@ -1927,6 +1927,32 @@ class OdooProduct(OdooAPI):
             print(f"Error al verificar BOM para SKU {sku}: {e}")
             return False
     
+    def get_active_production_orders(self) -> list[dict]:
+        """
+        Obtiene los pedidos de producción activos.
+        
+        Returns:
+            Lista de pedidos de producción activos
+        """
+
+        try:
+            production_orders = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'search_read',
+                [[('state', 'in', ['confirmed', 'progress', 'to_close'])]],
+                {'fields': ['id', 'name', 'state', 'product_id', 'product_qty']}
+            )
+
+            for order in production_orders:
+                sku = order.get('product_id', {})[1]
+                sku = sku.split('[')[1]
+                sku = sku.split(']')[0]
+                order['product_sku'] = sku
+
+            return production_orders
+        except Exception as e:
+            raise RuntimeError(f"Error al obtener pedidos de producción activos: {str(e)}") from e
+    
     def execute_odoo_query(
             self,  # Instancia de la clase OdooProduct
             model: Literal[
@@ -1968,3 +1994,15 @@ class OdooProduct(OdooAPI):
                 self.db, self.uid, self.password,
                 model, method, args, kwargs
             )
+
+if __name__ == "__main__":
+    from config_manager import secrets
+    odoo_product = OdooProduct(
+        db=secrets.ODOO_PROD_DB,
+        url=secrets.ODOO_PROD_URL,
+        username=secrets.ODOO_PROD_USERNAME,
+        password=secrets.ODOO_PROD_PASSWORD
+    )
+
+    production_orders = odoo_product.get_active_production_orders()
+    print(production_orders)
