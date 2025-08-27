@@ -467,6 +467,47 @@ class ShopifyProducts(ShopifyAPI):
         
         return body_html
 
+    def read_variant_info_by_variant_id(self, variant_id, clean_html=True):
+        """
+        Busca y retorna el body_html del producto asociado a una variante por variant ID.
+        
+        Args:
+            variant_id (str): El ID de la variante a buscar
+            clean_html (bool): Si es True, limpia las etiquetas HTML y devuelve solo el texto
+            
+        Returns:
+            str: El body_html del producto (limpio o con HTML según el parámetro clean_html)
+        """
+        # Obtenemos la información de la variante directamente usando el variant_id
+        endpoint = f"variants/{variant_id}.json"
+        url = urljoin(self.base_url, endpoint)
+        response = requests.get(url, headers=self.get_headers())
+        
+        if response.status_code == 200:
+            variant_data = response.json()['variant']
+            # Obtenemos el product_id de la variante
+            product_id = variant_data['product_id']
+            
+            # Ahora obtenemos el producto para acceder al body_html
+            product_endpoint = f"products/{product_id}.json"
+            product_url = urljoin(self.base_url, product_endpoint)
+            product_response = requests.get(product_url, headers=self.get_headers())
+            
+            if product_response.status_code == 200:
+                product_data = product_response.json()['product']
+                body_html = product_data.get('body_html', '')
+                
+                # Si se solicita limpiar el HTML, usamos BeautifulSoup
+                if clean_html and body_html:
+                    soup = BeautifulSoup(body_html, 'html.parser')
+                    return soup.get_text(separator='\n', strip=True)
+                
+                return body_html
+        
+        # Si no encontramos la variante, retornamos None
+        print(f"No se encontró ninguna variante con el ID: {variant_id}")
+        return None
+
     def update_complementary_products(self, product_id, complementary_product_id):
         """
         Update complementary products metafield
