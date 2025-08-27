@@ -556,3 +556,18 @@ class OdooWarehouse(OdooAPI):
 
         return max_quantities
 
+if __name__ == "__main__":
+    warehouse_api = OdooWarehouse(
+        db=secrets.ODOO_PROD_DB,
+        url=secrets.ODOO_PROD_URL,
+        username=secrets.ODOO_PROD_USERNAME,
+        password=secrets.ODOO_PROD_PASSWORD,
+    )
+    
+    max_production_quantites = warehouse_api.get_max_production_quantity([
+        '5958',
+        '5959',
+        '5807',
+        '6473',
+    ])
+    print(max_production_quantites)
