@@ -1,30 +1,42 @@
 import requests
-from typing import Optional
 from .application_settings import settings
 
-
-class ShopifyAdminAPI:
-    """Service for interacting with Shopify Admin API"""
-    
-    def __init__(self, shop_url: Optional[str] = None, api_password: Optional[str] = None, api_version: Optional[str] = None):
-        self.shop_url = shop_url if shop_url else settings.SHOPIFY_SHOP_URL
-        self.api_password = api_password if api_password else settings.SHOPIFY_TOKEN_API_ADMIN
-        self.api_version = api_version if api_version else settings.SHOPIFY_API_VERSION
-        self.shop_url = self.shop_url.rstrip('/')
-        self.graphql_url = f"{self.shop_url}/admin/api/{self.api_version}/graphql.json"
-        self.base_url = f"{self.shop_url}/admin/api/{self.api_version}"
-        self.last_response = None
+class ShopifyAPI:
+    def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):
+        # Cargar configuración desde el archivo .env usando pydantic-settings
+        try:
+            self.shop_url = shop_url if shop_url else settings.SHOPIFY_SHOP_URL
+            self.api_password = api_password if api_password else settings.SHOPIFY_TOKEN_API_ADMIN
+            self.api_version = api_version if api_version else settings.SHOPIFY_API_VERSION
+        except Exception as e:
+            # Si hay error con el .env y no se proporcionaron credenciales, lanzar error
+            if not (shop_url and api_password):
+                raise Exception(f"Error cargando credenciales: {e}. Proporcione shop_url y api_password.")
+            # Si se proporcionaron credenciales directamente, usarlas
+            self.shop_url = shop_url
+            self.api_password = api_password
+            self.api_version = api_version
         
-        # Ensure base_url ends with a slash
-        if not self.base_url.endswith('/'):
+        # Asegurar que shop_url no termine con una barra y configurar URLs
+        if self.shop_url:
+            self.shop_url = self.shop_url.rstrip('/')
+            self.graphql_url = f"{self.shop_url}/admin/api/{self.api_version}/graphql.json"
+            self.base_url = f"{self.shop_url}/admin/api/{self.api_version}"
+        
+        # Inicializar last_response
+        self.last_response = None
+
+        # Asegúrate de que la base_url termine con una barra
+        if self.base_url and not self.base_url.endswith('/'):
             self.base_url += '/'
-            
+
     def get_headers(self):
         return {
             'Content-Type': 'application/json',
             'X-Shopify-Access-Token': self.api_password
         }
 
+    # GraphQL específico - ejecuta queries y mutations
     def execute_graphql(self, query, variables=None):
         """
         Execute a GraphQL query or mutation
@@ -51,17 +63,8 @@ class ShopifyAdminAPI:
         response.raise_for_status()
         return response.json()
 
+    # Mantener compatibilidad con métodos REST
     def read(self, resource, params={}):
-        """
-        Make a GET request to the Shopify API
-        
-        Args:
-            resource (str): API resource path
-            params (dict): Query parameters
-            
-        Returns:
-            dict: JSON response from the API
-        """
         url = f"{self.base_url}/{resource}"
         response = requests.get(url, headers=self.get_headers(), params=params)
         self.last_response = response
@@ -118,4 +121,3 @@ class ShopifyAdminAPI:
         self.last_response = response
         response.raise_for_status()
         return response.json() if response.text else None
-
