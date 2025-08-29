@@ -98,6 +98,12 @@ class Settings:
             # Emilia Service Account Email (solo para producción)
             self.EMILIA_SERVICE_ACCOUNT_EMAIL = self._fetch_gcp_secret('EMILIA_SERVICE_ACCOUNT_EMAIL', gcp_client)
 
+            # Shopify Configuration
+            self.EMILIA_SHOPIFY_SHOP_URL = self._fetch_gcp_secret('EMILIA_SHOPIFY_SHOP_URL', gcp_client)
+            self.EMILIA_SHOPIFY_TOKEN_API_ADMIN = self._fetch_gcp_secret('EMILIA_SHOPIFY_TOKEN_API_ADMIN', gcp_client)
+            self.EMILIA_SHOPIFY_API_VERSION = self._fetch_gcp_secret('EMILIA_SHOPIFY_API_VERSION', gcp_client)
+            self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = self._fetch_gcp_secret('EMILIA_SHOPIFY_TOKEN_API_STOREFRONT', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -160,6 +166,12 @@ class Settings:
             
             # Emilia Credentials Path (solo para uso local)
             self.EMILIA_CREDENTIALS_PATH = config('EMILIA_CREDENTIALS_PATH', default='')
+
+            # Shopify Configuration
+            self.EMILIA_SHOPIFY_SHOP_URL = config('EMILIA_SHOPIFY_SHOP_URL', default='')
+            self.EMILIA_SHOPIFY_TOKEN_API_ADMIN = config('EMILIA_SHOPIFY_TOKEN_API_ADMIN', default='')
+            self.EMILIA_SHOPIFY_API_VERSION = config('EMILIA_SHOPIFY_API_VERSION', default='2025-01')
+            self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = config('EMILIA_SHOPIFY_TOKEN_API_STOREFRONT', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -252,6 +264,20 @@ class Settings:
             config['service_account_email'] = self.EMILIA_SERVICE_ACCOUNT_EMAIL
             
         return config
+
+    def get_shopify_config(self, use_admin_api: bool = False) -> dict:
+        """Get Shopify configuration for both Admin and Storefront APIs."""
+        base_config = {
+            'shop_url': self.EMILIA_SHOPIFY_SHOP_URL,
+            'api_version': self.EMILIA_SHOPIFY_API_VERSION
+        }
+        
+        if use_admin_api:
+            base_config['admin_token'] = self.EMILIA_SHOPIFY_TOKEN_API_ADMIN
+        else:
+            base_config['storefront_token'] = self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT
+            
+        return base_config
 
 # --- Create a single, project-wide instance to be imported everywhere ---
 secrets = Settings()

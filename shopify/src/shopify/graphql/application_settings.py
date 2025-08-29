@@ -1,29 +1,26 @@
 # configuration/application_settings.py
-"""Application configuration settings for Shopify GraphQL API."""
+"""Application configuration settings for Shopify GraphQL API using config-manager."""
 
-from pydantic_settings import BaseSettings
-from typing import Optional
+from config_manager import secrets
 
 
-class GraphQLSettings(BaseSettings):
-    """GraphQL-specific settings with environment variable support."""
+class GraphQLSettings:
+    """GraphQL-specific settings using centralized config-manager."""
     
-    # Shopify Configuration - Solo las variables que realmente se usan en GraphQL
-    SHOPIFY_SHOP_URL: Optional[str] = None
-    SHOPIFY_API_VERSION: Optional[str] = "2025-01"
-    SHOPIFY_TOKEN_API_ADMIN: Optional[str] = None
-    
-    # Variables no utilizadas en GraphQL (descartadas):
-    # SHOPIFY_API_KEY - No se usa en la implementación GraphQL actual
-    # SHOPIFY_API_SECRET - No se usa en la implementación GraphQL actual  
-    # SINCE_ID - No se usa en la implementación GraphQL actual
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        # Configuración para permitir variables extra en .env sin errores
-        extra = "ignore"  # Ignora variables extra en lugar de fallar
-        case_sensitive = False  # Permite variaciones de mayúsculas/minúsculas
+    def __init__(self):
+        # Obtener configuración desde config-manager
+        shopify_config = secrets.get_shopify_config(use_admin_api=True)
+        
+        # Shopify Configuration
+        self.SHOPIFY_SHOP_URL = shopify_config.get('shop_url')
+        self.SHOPIFY_API_VERSION = shopify_config.get('api_version', '2025-01')
+        self.SHOPIFY_TOKEN_API_ADMIN = shopify_config.get('admin_token')
+        
+        # Validar configuración requerida
+        if not self.SHOPIFY_SHOP_URL:
+            raise ValueError("EMILIA_SHOPIFY_SHOP_URL no está configurado en config-manager")
+        if not self.SHOPIFY_TOKEN_API_ADMIN:
+            raise ValueError("EMILIA_SHOPIFY_TOKEN_API_ADMIN no está configurado en config-manager")
 
 
 # Create settings instance

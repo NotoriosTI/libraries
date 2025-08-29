@@ -1,24 +1,26 @@
 # configuration/application_settings.py
-"""Application configuration settings for Shopify Storefront API."""
+"""Application configuration settings for Shopify Storefront API using config-manager."""
 
-from pydantic_settings import BaseSettings
-from typing import Optional
+from config_manager import secrets
 
 
-class StorefrontSettings(BaseSettings):
-    """Storefront-specific settings with environment variable support."""
+class StorefrontSettings:
+    """Storefront-specific settings using centralized config-manager."""
     
-    # Shopify Configuration - Solo las variables que realmente se usan
-    SHOPIFY_SHOP_URL: Optional[str] = None
-    SHOPIFY_API_VERSION: Optional[str] = "2025-01"
-    SHOPIFY_TOKEN_API_STOREFRONT: Optional[str] = None
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        # Configuración para permitir variables extra en .env sin errores
-        extra = "ignore"  # Ignora variables extra en lugar de fallar
-        case_sensitive = False  # Permite variaciones de mayúsculas/minúsculas
+    def __init__(self):
+        # Obtener configuración desde config-manager
+        shopify_config = secrets.get_shopify_config(use_admin_api=False)
+        
+        # Shopify Configuration
+        self.SHOPIFY_SHOP_URL = shopify_config.get('shop_url')
+        self.SHOPIFY_API_VERSION = shopify_config.get('api_version', '2025-01')
+        self.SHOPIFY_TOKEN_API_STOREFRONT = shopify_config.get('storefront_token')
+        
+        # Validar configuración requerida
+        if not self.SHOPIFY_SHOP_URL:
+            raise ValueError("EMILIA_SHOPIFY_SHOP_URL no está configurado en config-manager")
+        if not self.SHOPIFY_TOKEN_API_STOREFRONT:
+            raise ValueError("EMILIA_SHOPIFY_TOKEN_API_STOREFRONT no está configurado en config-manager")
 
 
 # Create settings instance

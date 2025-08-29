@@ -23,22 +23,34 @@ poetry install
 
 ## 🔧 Configuración
 
-### Variables de Entorno
+### Variables de Entorno (via config-manager)
 
-#### Para Storefront API (Módulo Principal)
+Shopify ahora utiliza **config-manager** para la gestión centralizada de variables de entorno.
+
+#### Variables Requeridas en config-manager
+
 ```bash
 # (*) OBLIGATORIO
-SHOPIFY_SHOP_URL=tu-tienda.myshopify.com
-SHOPIFY_TOKEN_API_STOREFRONT=tu-token-de-storefront
+EMILIA_SHOPIFY_SHOP_URL=tu-tienda.myshopify.com
+EMILIA_SHOPIFY_TOKEN_API_ADMIN=tu-admin-access-token
+EMILIA_SHOPIFY_TOKEN_API_STOREFRONT=tu-storefront-access-token
 
-# OPCIONAL
-SHOPIFY_API_VERSION=2025-01
+# OPCIONAL (valor por defecto: 2025-01)
+EMILIA_SHOPIFY_API_VERSION=2025-01
 ```
 
-#### Para Admin API (GraphQL - Módulo separado)
+#### Configuración del Entorno
+
 ```bash
-# Solo si usas el módulo GraphQL admin
-SHOPIFY_PASSWORD=tu-admin-access-token
+# Para desarrollo local
+export ENVIRONMENT=local_machine
+
+# Para contenedores Docker
+export ENVIRONMENT=local_container
+
+# Para producción (usa Google Cloud Secret Manager)
+export ENVIRONMENT=production
+export GCP_PROJECT_ID=tu-proyecto-id
 ```
 
 ## 📚 Módulos y Uso
@@ -179,6 +191,12 @@ print(f"Revenue total: ${total_revenue:.2f}")
 
 ## 🆕 Cambios Recientes
 
+### ✅ Integración con config-manager
+- **Configuración Centralizada**: Shopify ahora usa config-manager para todas las variables de entorno
+- **Multi-Entorno**: Soporte automático para desarrollo local, contenedores y producción
+- **Google Cloud Secret Manager**: Integración automática con GCP para entornos de producción
+- **Validación Robusta**: Validación automática de configuración requerida
+
 ### ✅ Configuración Mejorada
 - **Variables Extra Permitidas**: La librería ya no falla si tienes otras variables en tu `.env`
 - **Validación No Estricta**: Solo valida las variables que realmente necesita
@@ -186,8 +204,10 @@ print(f"Revenue total: ${total_revenue:.2f}")
 
 ## 📝 Notas Importantes
 
-- **Variables Extra**: La librería ignora variables en tu `.env` que no necesita
-- **Configuración Mínima**: Solo necesitas configurar las variables obligatorias para usar Storefront API
+- **config-manager**: Shopify ahora depende de config-manager para toda la configuración
+- **Variables Centralizadas**: Todas las variables se gestionan desde config-manager
+- **Multi-Entorno**: Soporte automático para local, contenedores y producción
+- **Validación Automática**: La librería valida automáticamente la configuración requerida
 - **Admin API**: Opcional, solo si planeas usar funcionalidades administrativas
 - **Módulos Separados**: Storefront y Admin tienen configuraciones independientes
 - **Rate Limiting**: La librería maneja automáticamente los límites de API de Shopify
