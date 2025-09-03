@@ -104,6 +104,32 @@ class Settings:
             self.EMILIA_SHOPIFY_API_VERSION = self._fetch_gcp_secret('EMILIA_SHOPIFY_API_VERSION', gcp_client)
             self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = self._fetch_gcp_secret('EMILIA_SHOPIFY_TOKEN_API_STOREFRONT', gcp_client)
 
+            # --- EMMA (centralizado): mismas variables clave que Emilia ---
+            # Base de datos EMMA
+            self.EMMA_DB_HOST = self._fetch_gcp_secret('EMMA_DB_HOST', gcp_client)
+            self.EMMA_DB_PORT = self._fetch_gcp_secret('EMMA_DB_PORT', gcp_client)
+            self.EMMA_DB_NAME = self._fetch_gcp_secret('EMMA_DB_NAME', gcp_client)
+            self.EMMA_DB_USER = self._fetch_gcp_secret('EMMA_DB_USER', gcp_client)
+            self.EMMA_DB_PASSWORD = self._fetch_gcp_secret('EMMA_DB_PASSWORD', gcp_client)
+
+            # Google Docs IDs para EMMA
+            self.EMMA_DOCS_SALES_ID = self._fetch_gcp_secret('EMMA_DOCS_SALES_ID', gcp_client)
+            self.EMMA_DOCS_SUMMARY_ID = self._fetch_gcp_secret('EMMA_DOCS_SUMMARY_ID', gcp_client)
+
+            # EMMA Service Account Email (solo producción)
+            self.EMMA_SERVICE_ACCOUNT_EMAIL = self._fetch_gcp_secret('EMMA_SERVICE_ACCOUNT_EMAIL', gcp_client)
+
+            # Shopify para EMMA
+            self.EMMA_SHOPIFY_SHOP_URL = self._fetch_gcp_secret('EMMA_SHOPIFY_SHOP_URL', gcp_client)
+            self.EMMA_SHOPIFY_TOKEN_API_ADMIN = self._fetch_gcp_secret('EMMA_SHOPIFY_TOKEN_API_ADMIN', gcp_client)
+            self.EMMA_SHOPIFY_API_VERSION = self._fetch_gcp_secret('EMMA_SHOPIFY_API_VERSION', gcp_client)
+            self.EMMA_SHOPIFY_TOKEN_API_STOREFRONT = self._fetch_gcp_secret('EMMA_SHOPIFY_TOKEN_API_STOREFRONT', gcp_client)
+
+            # Chatwoot para EMMA
+            self.EMMA_CHATWOOT_BASE_URL = self._fetch_gcp_secret('EMMA_CHATWOOT_BASE_URL', gcp_client)
+            self.EMMA_CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('EMMA_CHATWOOT_ACCOUNT_ID', gcp_client)
+            self.EMMA_CHATWOOT_TOKEN = self._fetch_gcp_secret('EMMA_CHATWOOT_TOKEN', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -172,6 +198,32 @@ class Settings:
             self.EMILIA_SHOPIFY_TOKEN_API_ADMIN = config('EMILIA_SHOPIFY_TOKEN_API_ADMIN', default='')
             self.EMILIA_SHOPIFY_API_VERSION = config('EMILIA_SHOPIFY_API_VERSION', default='2025-01')
             self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = config('EMILIA_SHOPIFY_TOKEN_API_STOREFRONT', default='')
+
+            # --- EMMA (centralizado): mismas variables clave que Emilia ---
+            # Base de datos EMMA
+            self.EMMA_DB_HOST = config('EMMA_DB_HOST', default='127.0.0.1')
+            self.EMMA_DB_PORT = config('EMMA_DB_PORT', default='5432')
+            self.EMMA_DB_NAME = config('EMMA_DB_NAME', default='emmadb')
+            self.EMMA_DB_USER = config('EMMA_DB_USER', default='automation_admin')
+            self.EMMA_DB_PASSWORD = config('EMMA_DB_PASSWORD', default='password')
+
+            # Google Docs IDs para EMMA
+            self.EMMA_DOCS_SALES_ID = config('EMMA_DOCS_SALES_ID', default='')
+            self.EMMA_DOCS_SUMMARY_ID = config('EMMA_DOCS_SUMMARY_ID', default='')
+
+            # EMMA Credentials Path (solo local)
+            self.EMMA_CREDENTIALS_PATH = config('EMMA_CREDENTIALS_PATH', default='')
+
+            # Shopify para EMMA
+            self.EMMA_SHOPIFY_SHOP_URL = config('EMMA_SHOPIFY_SHOP_URL', default='')
+            self.EMMA_SHOPIFY_TOKEN_API_ADMIN = config('EMMA_SHOPIFY_TOKEN_API_ADMIN', default='')
+            self.EMMA_SHOPIFY_API_VERSION = config('EMMA_SHOPIFY_API_VERSION', default='2025-01')
+            self.EMMA_SHOPIFY_TOKEN_API_STOREFRONT = config('EMMA_SHOPIFY_TOKEN_API_STOREFRONT', default='')
+
+            # Chatwoot para EMMA
+            self.EMMA_CHATWOOT_BASE_URL = config('EMMA_CHATWOOT_BASE_URL', default='')
+            self.EMMA_CHATWOOT_ACCOUNT_ID = config('EMMA_CHATWOOT_ACCOUNT_ID', default='')
+            self.EMMA_CHATWOOT_TOKEN = config('EMMA_CHATWOOT_TOKEN', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -278,6 +330,53 @@ class Settings:
             base_config['storefront_token'] = self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT
             
         return base_config
+
+    def get_emma_database_config(self) -> dict:
+        """Get EMMA database configuration."""
+        return {
+            'host': self.EMMA_DB_HOST,
+            'port': self.EMMA_DB_PORT,
+            'database': self.EMMA_DB_NAME,
+            'user': self.EMMA_DB_USER,
+            'password': self.EMMA_DB_PASSWORD
+        }
+
+    def get_emma_docs_config(self) -> dict:
+        """Get EMMA Google Docs configuration."""
+        config = {
+            'sales_id': self.EMMA_DOCS_SALES_ID,
+            'summary_id': self.EMMA_DOCS_SUMMARY_ID
+        }
+
+        if self.ENVIRONMENT in ('local_container', 'local_machine'):
+            config['credentials_path'] = self.EMMA_CREDENTIALS_PATH
+
+        if self.ENVIRONMENT == 'production':
+            config['service_account_email'] = self.EMMA_SERVICE_ACCOUNT_EMAIL
+
+        return config
+
+    def get_emma_shopify_config(self, use_admin_api: bool = False) -> dict:
+        """Get EMMA Shopify configuration for both Admin and Storefront APIs."""
+        base_config = {
+            'shop_url': self.EMMA_SHOPIFY_SHOP_URL,
+            'api_version': self.EMMA_SHOPIFY_API_VERSION
+        }
+
+        if use_admin_api:
+            base_config['admin_token'] = self.EMMA_SHOPIFY_TOKEN_API_ADMIN
+        else:
+            base_config['storefront_token'] = self.EMMA_SHOPIFY_TOKEN_API_STOREFRONT
+
+        return base_config
+
+    def get_emma_chatwoot_config(self) -> dict:
+        """Get EMMA Chatwoot configuration."""
+        return {
+            'base_url': self.EMMA_CHATWOOT_BASE_URL,
+            'account_id': self.EMMA_CHATWOOT_ACCOUNT_ID,
+            'token': self.EMMA_CHATWOOT_TOKEN
+        }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
 secrets = Settings()
