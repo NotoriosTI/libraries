@@ -1,8 +1,8 @@
 from .api_shopify_storefront import StorefrontAPI
 
 class StorefrontSearch(StorefrontAPI):
-    def __init__(self, shop_url=None, storefront_access_token=None, api_version=None):
-        super().__init__(shop_url, storefront_access_token, api_version)
+    def __init__(self, shop_url=None, storefront_access_token=None, api_version=None, agent="emilia"):
+        super().__init__(shop_url, storefront_access_token, api_version, agent)
     
     def search_products(self, search_terms, limit_per_term=10, fields=None):
         """

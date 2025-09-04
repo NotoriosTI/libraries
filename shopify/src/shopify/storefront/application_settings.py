@@ -7,9 +7,13 @@ from config_manager import secrets
 class StorefrontSettings:
     """Storefront-specific settings using centralized config-manager."""
     
-    def __init__(self):
-        # Obtener configuración desde config-manager
-        shopify_config = secrets.get_shopify_config(use_admin_api=False)
+    def __init__(self, agent="emilia"):
+        # Obtener configuración desde config-manager según el agente
+        if agent.lower() == "emma":
+            shopify_config = secrets.get_emma_shopify_config(use_admin_api=False)
+        else:
+            # Default a emilia para compatibilidad con código existente
+            shopify_config = secrets.get_shopify_config(use_admin_api=False)
         
         # Shopify Configuration
         self.SHOPIFY_SHOP_URL = shopify_config.get('shop_url')
@@ -18,10 +22,16 @@ class StorefrontSettings:
         
         # Validar configuración requerida
         if not self.SHOPIFY_SHOP_URL:
-            raise ValueError("EMILIA_SHOPIFY_SHOP_URL no está configurado en config-manager")
+            agent_prefix = agent.upper()
+            raise ValueError(f"{agent_prefix}_SHOPIFY_SHOP_URL no está configurado en config-manager")
         if not self.SHOPIFY_TOKEN_API_STOREFRONT:
-            raise ValueError("EMILIA_SHOPIFY_TOKEN_API_STOREFRONT no está configurado en config-manager")
+            agent_prefix = agent.upper()
+            raise ValueError(f"{agent_prefix}_SHOPIFY_TOKEN_API_STOREFRONT no está configurado en config-manager")
 
 
-# Create settings instance
+# Create default settings instance for backward compatibility
 settings = StorefrontSettings()
+
+def get_storefront_settings(agent="emilia"):
+    """Get Storefront settings for a specific agent."""
+    return StorefrontSettings(agent=agent)

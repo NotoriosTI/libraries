@@ -7,8 +7,8 @@ from bs4 import BeautifulSoup
 from .api import ShopifyAPI 
 
 class ShopifyProducts(ShopifyAPI):
-    def __init__(self, shop_url=None, api_password=None, api_version="2025-01"):
-        super().__init__(shop_url, api_password, api_version)
+    def __init__(self, shop_url=None, api_password=None, api_version="2025-01", agent="emilia"):
+        super().__init__(shop_url, api_password, api_version, agent)
         
         if not hasattr(self, "execute_graphql"):
             print("ADVERTENCIA: execute_graphql no encontrado en la instancia, definiendo manualmente")

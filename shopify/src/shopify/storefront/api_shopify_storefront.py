@@ -1,14 +1,17 @@
 import requests
-from .application_settings import settings
+from .application_settings import settings, get_storefront_settings
 
 
 class StorefrontAPI:
-    def __init__(self, shop_url=None, storefront_access_token=None, api_version=None):
+    def __init__(self, shop_url=None, storefront_access_token=None, api_version=None, agent="emilia"):
         # Cargar configuración desde el archivo .env
         try:
-            self.shop_url = shop_url if shop_url else settings.SHOPIFY_SHOP_URL
-            self.storefront_access_token = storefront_access_token if storefront_access_token else settings.SHOPIFY_TOKEN_API_STOREFRONT
-            self.api_version = api_version if api_version else settings.SHOPIFY_API_VERSION
+            # Obtener settings específicos para el agente
+            agent_settings = get_storefront_settings(agent) if agent != "emilia" else settings
+            
+            self.shop_url = shop_url if shop_url else agent_settings.SHOPIFY_SHOP_URL
+            self.storefront_access_token = storefront_access_token if storefront_access_token else agent_settings.SHOPIFY_TOKEN_API_STOREFRONT
+            self.api_version = api_version if api_version else agent_settings.SHOPIFY_API_VERSION
         except Exception as e:
             # Si hay error con el .env y no se proporcionaron credenciales, lanzar error
             if not (shop_url and storefront_access_token):
