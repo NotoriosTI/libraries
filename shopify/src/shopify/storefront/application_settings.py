@@ -29,8 +29,23 @@ class StorefrontSettings:
             raise ValueError(f"{agent_prefix}_SHOPIFY_TOKEN_API_STOREFRONT no está configurado en config-manager")
 
 
+# Lazy loading para evitar errores en import
+_default_settings = None
+
+def _get_default_settings():
+    """Lazy loading de settings por defecto."""
+    global _default_settings
+    if _default_settings is None:
+        _default_settings = StorefrontSettings()
+    return _default_settings
+
+# Crear una propiedad que se evalúe bajo demanda
+class SettingsProxy:
+    def __getattr__(self, name):
+        return getattr(_get_default_settings(), name)
+
 # Create default settings instance for backward compatibility
-settings = StorefrontSettings()
+settings = SettingsProxy()
 
 def get_storefront_settings(agent="emilia"):
     """Get Storefront settings for a specific agent."""
