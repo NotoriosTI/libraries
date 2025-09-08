@@ -15,7 +15,7 @@ from odoo_api.product import OdooProduct
 print(secrets.ODOO_TEST_DB)
 print(secrets.ODOO_TEST_URL)
 print(secrets.ODOO_TEST_USERNAME)
-print(secrets.ODOO_TEST_PASSWORD)
+print("Password: [REDACTED]")
 
 odoo_product = OdooProduct(
     db=secrets.ODOO_TEST_DB,
