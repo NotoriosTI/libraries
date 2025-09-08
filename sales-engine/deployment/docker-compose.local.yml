@@ -17,8 +17,6 @@
 #   4. Run from the `sales-engine/` root directory:
 #      docker-compose -f deployment/docker-compose.local.yml up --build
 #
-version: '3.8'
-
 services:
   # The main application service for the sales-engine
   sales-engine:

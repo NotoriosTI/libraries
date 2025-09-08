@@ -177,7 +177,9 @@ class DatabaseForecastUpdater:
     
     def upsert_forecasts(self, df_with_stats: pd.DataFrame) -> Dict[str, int]:
         """
-        Insertar o actualizar forecasts en la base de datos usando UPSERT.
+        DEPRECATED: Insertar o actualizar forecasts en la base de datos usando UPSERT.
+        Esta función mantiene compatibilidad con la estructura antigua.
+        Para nuevos desarrollos, usar upsert_unified_forecasts().
         
         Args:
             df_with_stats: DataFrame con forecasts y estadísticas
@@ -218,8 +220,64 @@ class DatabaseForecastUpdater:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Convertir DataFrame a lista de diccionarios
-                    records = df_with_stats.to_dict('records')
+                    # Convertir DataFrame a lista de diccionarios con tipos Python nativos seguros
+                    import numpy as np
+                    
+                    def safe_convert(value, target_type):
+                        """Convierte valores numpy/pandas a tipos Python nativos de forma segura."""
+                        # Manejar valores nulos/NaN
+                        if pd.isna(value) or value is None:
+                            if target_type == str:
+                                return ""
+                            elif target_type in (int, float):
+                                return target_type(0)
+                            return target_type()
+                        
+                        # Conversión agresiva de tipos NumPy usando .item()
+                        if hasattr(value, 'item'):  # Cualquier tipo numpy
+                            try:
+                                python_value = value.item()  # Extrae valor Python nativo
+                                return target_type(python_value)
+                            except (ValueError, OverflowError):
+                                # Fallback para valores que no caben en el tipo objetivo
+                                if target_type == int:
+                                    return int(float(value))  # Convertir via float primero
+                                return target_type(value)
+                        
+                        # Conversión directa para tipos Python nativos
+                        try:
+                            return target_type(value)
+                        except (ValueError, TypeError):
+                            # Último fallback
+                            if target_type == str:
+                                return str(value)
+                            elif target_type in (int, float):
+                                return target_type(0)
+                            return target_type()
+                    
+                    # Convertir DataFrame a lista de diccionarios con tipos seguros
+                    records = []
+                    for _, row in df_with_stats.iterrows():
+                        # Determinar tipos objetivo según las columnas disponibles
+                        record = {}
+                        for col_name, value in row.items():
+                            if col_name in ['sku', 'month_name']:
+                                record[col_name] = safe_convert(value, str)
+                            elif col_name in ['year', 'month', 'quarter', 'week_of_year', 'months_forecasted', 'forecasted_quantity', 'min_monthly_forecast', 'max_monthly_forecast']:
+                                record[col_name] = safe_convert(value, int)
+                            elif col_name in ['total_forecast_12_months', 'avg_monthly_forecast', 'std_dev']:
+                                record[col_name] = safe_convert(value, float)
+                            elif col_name == 'forecast_date':
+                                record[col_name] = value  # Mantener como fecha
+                            else:
+                                # Para cualquier campo no especificado, convertir según el tipo actual
+                                if isinstance(value, (int, np.integer)):
+                                    record[col_name] = safe_convert(value, int)
+                                elif isinstance(value, (float, np.floating)):
+                                    record[col_name] = safe_convert(value, float)
+                                else:
+                                    record[col_name] = safe_convert(value, str)
+                        records.append(record)
                     
                     # Ejecutar upserts en lotes
                     batch_size = 1000
@@ -265,6 +323,182 @@ class DatabaseForecastUpdater:
         except Exception as e:
             self.logger.error("Error guardando forecasts en base de datos", error=str(e))
             raise Exception(f"Error guardando forecasts: {str(e)}") from e
+
+    def upsert_unified_forecasts(self, unified_df: pd.DataFrame) -> Dict[str, int]:
+        """
+        Insertar o actualizar forecasts unificados en la nueva estructura de tabla.
+        
+        Args:
+            unified_df: DataFrame con estructura unificada (sku, year, month, max_monthly_sales, 
+                       current_stock, forecasted_qty, required_production, unit_price, priority, has_bom)
+            
+        Returns:
+            Dict con contadores de registros insertados/actualizados
+        """
+        upsert_sql = """
+        INSERT INTO forecast (
+            sku, year, month, max_monthly_sales, current_stock, 
+            forecasted_qty, required_production, unit_price, priority, has_bom
+        ) VALUES (
+            %(sku)s, %(year)s, %(month)s, %(max_monthly_sales)s, %(current_stock)s,
+            %(forecasted_qty)s, %(required_production)s, %(unit_price)s, %(priority)s, %(has_bom)s
+        )
+        ON CONFLICT (sku, year, month) 
+        DO UPDATE SET
+            max_monthly_sales = EXCLUDED.max_monthly_sales,
+            current_stock = EXCLUDED.current_stock,
+            forecasted_qty = EXCLUDED.forecasted_qty,
+            required_production = EXCLUDED.required_production,
+            unit_price = EXCLUDED.unit_price,
+            priority = EXCLUDED.priority,
+            has_bom = EXCLUDED.has_bom,
+            updated_at = CURRENT_TIMESTAMP
+        """
+        
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Convertir DataFrame a lista de diccionarios con tipos Python nativos seguros
+                    import numpy as np
+                    
+                    def safe_convert(value, target_type):
+                        """Convierte valores numpy/pandas a tipos Python nativos de forma segura."""
+                        # Manejar valores nulos/NaN
+                        if pd.isna(value) or value is None:
+                            if target_type == str:
+                                return ""
+                            elif target_type in (int, float):
+                                return target_type(0)
+                            elif target_type == bool:
+                                return False
+                            return target_type()
+                        
+                        # Conversión agresiva de tipos NumPy usando .item()
+                        if hasattr(value, 'item'):  # Cualquier tipo numpy
+                            try:
+                                python_value = value.item()  # Extrae valor Python nativo
+                                return target_type(python_value)
+                            except (ValueError, OverflowError):
+                                # Fallback para valores que no caben en el tipo objetivo
+                                if target_type == int:
+                                    return int(float(value))  # Convertir via float primero
+                                elif target_type == bool:
+                                    return bool(value)
+                                return target_type(value)
+                        
+                        # Conversión directa para tipos Python nativos
+                        try:
+                            return target_type(value)
+                        except (ValueError, TypeError):
+                            # Último fallback
+                            if target_type == str:
+                                return str(value)
+                            elif target_type in (int, float):
+                                return target_type(0)
+                            elif target_type == bool:
+                                return bool(value)
+                            return target_type()
+                    
+                    records = []
+                    conversion_debug = {}  # Para debug de tipos
+                    
+                    for i, (_, row) in enumerate(unified_df.iterrows()):
+                        # Debug de tipos en la primera fila
+                        if i == 0:
+                            for col in row.index:
+                                conversion_debug[col] = type(row[col]).__name__
+                        
+                        record = {
+                            'sku': safe_convert(row['sku'], str),
+                            'year': safe_convert(row['year'], int),
+                            'month': safe_convert(row['month'], int),
+                            'max_monthly_sales': safe_convert(row['max_monthly_sales'], float),  # Cambiar a float
+                            'current_stock': safe_convert(row['current_stock'], float),
+                            'forecasted_qty': safe_convert(row['forecasted_qty'], int),
+                            'required_production': safe_convert(row['required_production'], int),
+                            'unit_price': safe_convert(row['unit_price'], float),
+                            'priority': safe_convert(row['priority'], str),
+                            'has_bom': safe_convert(row['has_bom'], bool)
+                        }
+                        records.append(record)
+                    
+                    # Log de tipos detectados
+                    if conversion_debug:
+                        self.logger.info("Tipos detectados en DataFrame:", **conversion_debug)
+                    
+                    # Ejecutar upserts en lotes
+                    batch_size = 1000
+                    total_processed = 0
+                    
+                    for i in range(0, len(records), batch_size):
+                        batch = records[i:i + batch_size]
+                        
+                        # Ejecutar batch
+                        psycopg2.extras.execute_batch(
+                            cursor, upsert_sql, batch, page_size=batch_size
+                        )
+                        
+                        total_processed += len(batch)
+                        
+                        self.logger.info(
+                            f"Batch unificado procesado",
+                            processed=total_processed,
+                            total=len(records),
+                            batch_size=len(batch)
+                        )
+                    
+                    # Obtener estadísticas finales de la nueva estructura
+                    cursor.execute("SELECT COUNT(*) FROM forecast")
+                    total_records = cursor.fetchone()[0]
+                    
+                    cursor.execute("SELECT COUNT(DISTINCT sku) FROM forecast")
+                    unique_skus = cursor.fetchone()[0]
+                    
+                    # Estadísticas por prioridad
+                    cursor.execute("""
+                        SELECT priority, COUNT(*) as count, SUM(required_production) as total_production
+                        FROM forecast 
+                        WHERE year = %s AND month = %s
+                        GROUP BY priority 
+                        ORDER BY 
+                            CASE priority 
+                                WHEN 'CRITICO' THEN 1 
+                                WHEN 'ALTA' THEN 2 
+                                WHEN 'MEDIA' THEN 3 
+                                WHEN 'BAJA' THEN 4 
+                            END
+                    """, (safe_convert(unified_df['year'].iloc[0], int), safe_convert(unified_df['month'].iloc[0], int)))
+                    
+                    priority_stats = cursor.fetchall()
+                    
+                    result = {
+                        'total_processed': total_processed,
+                        'total_records_in_db': total_records,
+                        'unique_skus_in_db': unique_skus,
+                        'priority_breakdown': [
+                            {'priority': row[0], 'count': row[1], 'total_production': float(row[2] or 0)} 
+                            for row in priority_stats
+                        ]
+                    }
+                    
+                    self.logger.info(
+                        "Forecasts unificados guardados exitosamente",
+                        **{k: v for k, v in result.items() if k != 'priority_breakdown'}
+                    )
+                    
+                    # Log priority breakdown
+                    for priority_info in result['priority_breakdown']:
+                        self.logger.info(
+                            f"Prioridad {priority_info['priority']}",
+                            count=priority_info['count'],
+                            total_production=priority_info['total_production']
+                        )
+                    
+                    return result
+                    
+        except Exception as e:
+            self.logger.error("Error guardando forecasts unificados", error=str(e))
+            raise Exception(f"Error guardando forecasts unificados: {str(e)}") from e
 
 
 def generate_all_forecasts():

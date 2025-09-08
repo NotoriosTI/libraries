@@ -1,9 +1,9 @@
 # -----------------------------------------------------------------------------
-# Dockerfile for the Sales Engine Service (Optimized for Git Dependencies)
+# Dockerfile for the Sales Engine Service (Unified Forecast Table)
 # -----------------------------------------------------------------------------
 # This Dockerfile uses a multi-stage build to create a lean, production-ready
-# container for the sales-engine application. It assumes dependencies like
-# 'odoo-api' and 'config-manager' are fetched from Git via pyproject.toml.
+# container for the sales-engine application with unified forecast table structure.
+# It assumes dependencies like 'odoo-api' and 'config-manager' are fetched from Git via pyproject.toml.
 
 # --- Stage 1: Builder ---
 # This stage installs Poetry and project dependencies into a virtual environment.

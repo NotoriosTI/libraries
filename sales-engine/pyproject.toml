@@ -1,6 +1,6 @@
 [project]
 name = "sales-engine"
-version = "1.2.1"
+version = "1.3.0"
 description = "Sales data engine for Odoo to PostgreSQL synchronization"
 authors = [
     {name = "bastianibanez", email = "bastian.miba@gmail.com"}
@@ -34,6 +34,8 @@ dev = [
 [project.scripts]
 run-updater = "sales_engine.db_updater:main"
 extract-sales = "sales_engine.__main__:main"
+run-forecast = "sales_engine.forecaster.forecast_pipeline:main"
+generate-forecasts = "sales_engine.forecaster.generate_all_forecasts:main"
 
 [tool.poetry]
 packages = [{include = "sales_engine", from = "src"}]

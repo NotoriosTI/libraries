@@ -1,12 +1,13 @@
 # -----------------------------------------------------------------------------
-# Docker Compose for PRODUCTION DEPLOYMENT (Sales Engine Refactored)
+# Docker Compose for PRODUCTION DEPLOYMENT (Sales Engine Unified Forecast)
 # -----------------------------------------------------------------------------
 # This file is designed for production environment deployment.
 #
 # Key Features:
-#   - Uses the pre-built production Docker image with refactored code
+#   - Uses the pre-built production Docker image with unified forecast table
 #   - Connects to Cloud SQL via shared proxy using host networking
-#   - Uses proper upsert logic with composite primary key
+#   - Uses unified forecast table structure with composite primary key (sku, year, month)
+#   - Simplified forecasting pipeline with single table for all forecast data
 #   - Timestamp-based incremental sync using updated_at column
 #   - Depends on shared-cloud-sql-proxy service
 #
@@ -16,10 +17,8 @@
 #   docker-compose -f deployment/docker-compose.shared-proxy.yml up -d
 #   docker-compose -f deployment/docker-compose.prod.yml run --rm sales-engine
 #
-version: '3.8'
-
 services:
-  # The main application service, using the production-ready refactored image
+  # The main application service, using the unified forecast table structure
   sales-engine:
     # Use an image from a container registry (e.g., GCR)
     # Replace with your actual image path

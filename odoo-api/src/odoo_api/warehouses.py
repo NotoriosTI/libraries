@@ -1,6 +1,8 @@
 from .api import OdooAPI
 import pandas as pd
 from pprint import pprint
+from typing import List, Tuple
+from config_manager import secrets
 
 class OdooWarehouse(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
@@ -496,3 +498,76 @@ class OdooWarehouse(OdooAPI):
         df_inventory = pd.DataFrame(inventory_data)
 
         return df_inventory
+    
+    def get_max_production_quantity(self, skus: List[str]):
+        """Retorna la cantidad máxima de producción que se puede hacer de un producto, a partir del stock de los componentes"""
+        from odoo_api import OdooProduct
+        odoo_product = OdooProduct(
+            db=self.db,
+            url=self.url,
+            username=self.username,
+            password=self.password,
+        )
+
+        class BomItem:
+            def __init__(self, sku: str, quantity: int, stock: int):
+                self.sku = sku
+                self.quantity = quantity
+                self.stock = stock
+                # Evitar división por cero y manejar cantidades inválidas
+                if quantity <= 0:
+                    self.max_quantity = 0.0
+                else:
+                    self.max_quantity = stock / quantity
+            
+            def __str__(self):
+                return f"BomItem(sku={self.sku}, quantity={self.quantity}, stock={self.stock}, max_quantity={self.max_quantity})"
+
+        product_bom_components = odoo_product.get_bom_components(skus)
+        max_quantities = {}
+        for sku, components in product_bom_components.items():
+            bom_items = []
+            
+            # Verificar si hay componentes para este SKU
+            if not components or len(components) == 0:
+                # print(f"⚠️ Producto {sku} no tiene componentes de BOM o no se encontró BOM")
+                max_quantities[sku] = 0.0
+                continue
+            
+            for component in components:
+                component_sku = component['sku']
+                component_quantity = component['quantity']
+                
+                # Obtener stock del componente
+                stock_info = self.get_stock_by_sku(component_sku)
+                component_stock = stock_info.get('qty_available', 0) if stock_info else 0
+                
+                bom_items.append(BomItem(component_sku, component_quantity, component_stock))
+            
+            # Verificar si se crearon items de BOM válidos
+            if not bom_items:
+                # print(f"⚠️ No se pudieron crear items de BOM para el producto {sku}")
+                max_quantities[sku] = 0.0
+                continue
+            
+            # Calcular la cantidad máxima basada en el componente limitante
+            max_quantity = min(bom_items, key=lambda x: x.max_quantity).max_quantity
+            max_quantities[sku] = max_quantity
+
+        return max_quantities
+
+if __name__ == "__main__":
+    warehouse_api = OdooWarehouse(
+        db=secrets.ODOO_PROD_DB,
+        url=secrets.ODOO_PROD_URL,
+        username=secrets.ODOO_PROD_USERNAME,
+        password=secrets.ODOO_PROD_PASSWORD,
+    )
+    
+    max_production_quantites = warehouse_api.get_max_production_quantity([
+        '5958',
+        '5959',
+        '5807',
+        '6473',
+    ])
+    print(max_production_quantites)

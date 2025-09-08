@@ -16,7 +16,7 @@ Enhanced Features:
 - 🎯 Clasificación inteligente de productos por estado de ciclo de vida
 - Handles products with insufficient data for forecasting.
 
-Author: Bastian Ibañez (con asistencia de Gemini)
+Author: Bastian Ibañez (con asistencia de Claude)
 """
 import pandas as pd
 import numpy as np
@@ -41,120 +41,329 @@ except ImportError:
     logger = LoggerFallback()
 
 
-# Importar validación de ciclo de vida
-try:
-    from .product_lifecycle_validator import ProductLifecycleValidator, ProductStatus
-    LIFECYCLE_VALIDATION_AVAILABLE = True
-except ImportError:
-    logger.warning("ProductLifecycleValidator no disponible - usando filtros básicos")
-    LIFECYCLE_VALIDATION_AVAILABLE = False
-    
-    # Crear clases mock para mantener compatibilidad
-    class ProductStatus:
-        ACTIVE = "active"
-        INACTIVE = "inactive"
-        DISCONTINUED = "discontinued"
-        NEW = "new"
-        UNKNOWN = "unknown"
-    
-    class ProductLifecycleValidator:
-        def __init__(self, *args, **kwargs):
-            pass
-        def batch_validate_products(self, *args, **kwargs):
-            return {}
-        def get_validation_summary(self, *args, **kwargs):
-            return {'by_status': {}}
+# Simplificado: ya no usamos validación compleja de ciclo de vida
+# Los filtros necesarios están integrados en las consultas SQL y validaciones básicas
 
 
 class SalesForecaster:
     """
-    Enhanced Sales Forecaster with Lifecycle Validation.
+    Simplified Sales Forecaster.
     
-    Orchestrates the sales forecasting process with automatic validation
-    of product lifecycle to exclude discontinued and inactive products.
+    Orchestrates the sales forecasting process with built-in filtering
+    for discontinued products and raw materials via SQL queries.
     """
 
-    def __init__(self, use_test_odoo: bool = False, enable_lifecycle_validation: bool = True):
+    def __init__(self, use_test_odoo: bool = False):
         """
         Initializes the forecaster and the database connection manager.
         
         Args:
             use_test_odoo (bool): Si usar datos de test de Odoo
-            enable_lifecycle_validation (bool): Si habilitar validación de ciclo de vida
         """
         self.logger = logger
         self.db_updater = DatabaseUpdater(use_test_odoo=use_test_odoo)
-        self.enable_lifecycle_validation = enable_lifecycle_validation and LIFECYCLE_VALIDATION_AVAILABLE
         
-        if self.enable_lifecycle_validation:
-            self.lifecycle_validator = ProductLifecycleValidator(
-                discontinued_threshold_days=365,  # 12 meses
-                inactive_threshold_days=180,      # 6 meses
-                minimum_historical_sales=10,
-                new_product_threshold_days=90     # 3 meses
-            )
-            self.logger.info("SalesForecaster initialized with lifecycle validation enabled.")
-        else:
-            self.lifecycle_validator = None
-            if not LIFECYCLE_VALIDATION_AVAILABLE:
-                self.logger.warning("SalesForecaster initialized with basic filtering (lifecycle validation not available).")
-            else:
-                self.logger.info("SalesForecaster initialized with lifecycle validation disabled.")
-        
-        self.logger.info("SalesForecaster initialized.")
+        self.logger.info("SalesForecaster initialized with simplified filtering.")
 
-    def get_historical_sales_data(self) -> Optional[pd.DataFrame]:
+    def get_valid_skus_precalculated(self) -> set:
         """
-        Fetches historical sales data from the database.
+        Pre-calcula los SKUs válidos (no materias primas + con ventas recientes).
+        Esto es MUY eficiente vs aplicar funciones a cada fila.
         
         Returns:
-            A pandas DataFrame with historical sales data, or None on failure.
+            set: SKUs válidos para procesar
         """
-        self.logger.info("Fetching historical sales data...")
+        import time
+        start_time = time.time()
+        
+        self.logger.info("🔍 Pre-calculando SKUs válidos (no materias primas + ventas recientes)...")
+        
+        # Query optimizada que pre-calcula todo de una vez
+        query = """
+        WITH recent_sales_skus AS (
+            SELECT DISTINCT items_product_sku
+            FROM sales_items 
+            WHERE items_quantity > 0
+                AND issueddate >= CURRENT_DATE - INTERVAL '12 months'
+                AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones')
+        ),
+        non_raw_material_skus AS (
+            SELECT DISTINCT items_product_sku
+            FROM sales_items
+            WHERE items_product_sku NOT IN (
+                SELECT DISTINCT items_product_sku
+                FROM sales_items 
+                WHERE UPPER(items_product_description) LIKE '%MP%' 
+                   OR UPPER(items_product_description) LIKE '%MATERIA PRIMA%' 
+                   OR UPPER(items_product_description) LIKE '%RAW MATERIAL%'
+            )
+        )
+        SELECT r.items_product_sku
+        FROM recent_sales_skus r
+        INNER JOIN non_raw_material_skus n ON r.items_product_sku = n.items_product_sku
+        """
+        
+        try:
+            with self.db_updater.get_connection() as conn:
+                result = pd.read_sql(query, conn)
+                
+            valid_skus = set(result['items_product_sku'].tolist())
+            duration = time.time() - start_time
+            
+            self.logger.success(f"✅ SKUs válidos pre-calculados en {duration:.1f}s:")
+            self.logger.info(f"    🏷️  {len(valid_skus):,} SKUs válidos encontrados")
+            
+            return valid_skus
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Error pre-calculando SKUs después de {duration:.1f}s: {e}")
+            return set()
+
+    def get_date_range_from_db(self) -> tuple:
+        """
+        Obtiene el rango de fechas disponible en sales_items para planificar batches.
+        
+        Returns:
+            tuple: (fecha_minima, fecha_maxima) o None si hay error
+        """
+        query = """
+        SELECT 
+            MIN(issueddate) as min_date,
+            MAX(issueddate) as max_date,
+            COUNT(*) as total_records
+        FROM sales_items 
+        WHERE items_quantity > 0
+        """
+        
+        try:
+            with self.db_updater.get_connection() as conn:
+                from sqlalchemy import create_engine
+                engine = create_engine('postgresql://', creator=lambda: conn)
+                result = pd.read_sql(query, engine)
+                
+                min_date = result.iloc[0]['min_date']
+                max_date = result.iloc[0]['max_date']
+                total_records = result.iloc[0]['total_records']
+                
+                self.logger.info(f"📅 Rango de datos disponible: {min_date} a {max_date}")
+                self.logger.info(f"📊 Total registros con quantity > 0: {total_records:,}")
+                
+                return min_date, max_date, total_records
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error obteniendo rango de fechas: {e}")
+            return None, None, 0
+
+    def get_historical_sales_data_batch(self, start_date: str, end_date: str, batch_num: int, total_batches: int, valid_skus: set) -> Optional[pd.DataFrame]:
+        """
+        Obtiene datos históricos para un rango de fechas específico (un batch).
+        
+        Args:
+            start_date: Fecha de inicio del batch (YYYY-MM-DD)
+            end_date: Fecha de fin del batch (YYYY-MM-DD)
+            batch_num: Número del batch actual
+            total_batches: Total de batches a procesar
+            valid_skus: Set de SKUs válidos pre-calculados
+            
+        Returns:
+            DataFrame con datos del batch o None si hay error
+        """
+        import time
+        batch_start = time.time()
+        
+        self.logger.info(f"📦 Batch {batch_num}/{total_batches}: Procesando año {start_date} a {end_date}")
+        
+        # Convertir set de SKUs a lista para usar en SQL IN clause
+        if not valid_skus:
+            self.logger.warning(f"⚠️  Batch {batch_num}/{total_batches}: Sin SKUs válidos, saltando")
+            return None
+            
+        valid_skus_list = list(valid_skus)
+        
+        # Query MUCHO más eficiente usando lista pre-calculada
         query = """
         SELECT
             issueddate,
             items_product_sku,
-            items_quantity
+            items_quantity,
+            items_product_description
         FROM
             sales_items
         WHERE
             items_quantity > 0
-            AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones');
+            AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones')
+            AND issueddate >= %(start_date)s
+            AND issueddate <= %(end_date)s
+            AND items_product_sku = ANY(%(valid_skus)s)
         """
+        
         try:
-            # Usamos el pool de conexiones de DatabaseUpdater
-            with self.db_updater.get_connection() as conn:
-                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
-                from sqlalchemy import create_engine
-                engine = create_engine('postgresql://', creator=lambda: conn)
-                df = pd.read_sql(query, engine)
+            query_start = time.time()
             
-            if df.empty:
-                self.logger.warning("No historical sales data found in the database.")
-                return None
-
-            df['issueddate'] = pd.to_datetime(df['issueddate'])
-            self.logger.success(f"Successfully fetched {len(df):,} sales records.")
+            with self.db_updater.get_connection() as conn:
+                # Usar lista pre-calculada en lugar de funciones costosas
+                df = pd.read_sql(query, conn, params={
+                    'start_date': start_date, 
+                    'end_date': end_date,
+                    'valid_skus': valid_skus_list
+                })
+            
+            query_duration = time.time() - query_start
+            batch_duration = time.time() - batch_start
+            
+            if not df.empty:
+                unique_skus = df['items_product_sku'].nunique()
+                total_quantity = df['items_quantity'].sum()
+                
+                self.logger.success(f"✅ Batch {batch_num}/{total_batches} completado en {batch_duration:.1f}s:")
+                self.logger.info(f"    📈 {len(df):,} registros")
+                self.logger.info(f"    🏷️  {unique_skus:,} SKUs únicos")
+                self.logger.info(f"    📦 {total_quantity:,.0f} unidades")
+                self.logger.info(f"    ⚡ Query: {query_duration:.1f}s")
+            else:
+                self.logger.warning(f"⚠️  Batch {batch_num}/{total_batches}: Sin datos para {start_date} - {end_date}")
+            
             return df
-        except DatabaseConnectionError as e:
-            self.logger.error("Could not connect to the database to fetch sales data.", error=str(e))
-            return None
+            
         except Exception as e:
-            self.logger.error("An unexpected error occurred while fetching data.", error=str(e))
+            batch_duration = time.time() - batch_start
+            self.logger.error(f"❌ Error en batch {batch_num}/{total_batches} después de {batch_duration:.1f}s: {e}")
+            return None
+
+    def get_historical_sales_data(self) -> Optional[pd.DataFrame]:
+        """
+        Obtiene datos históricos de ventas procesando en batches para optimizar memoria.
+        Procesa datos por rangos de fechas para evitar sobrecargar sistemas con pocos recursos.
+        
+        Returns:
+            A pandas DataFrame con datos históricos combinados, o None en caso de error.
+        """
+        import time
+        from datetime import datetime, timedelta
+        
+        start_time = time.time()
+        
+        self.logger.info("📊 🔄 Iniciando obtención de datos históricos EN BATCHES...")
+        self.logger.info("🔍 Filtros aplicados: sin materias primas, con ventas últimos 12 meses, sin cotizaciones")
+        
+        # Paso 1: Pre-calcular SKUs válidos (CRÍTICO para rendimiento)
+        self.logger.info("🗓️  [Paso 1/5] Pre-calculando SKUs válidos...")
+        valid_skus = self.get_valid_skus_precalculated()
+        
+        if not valid_skus:
+            self.logger.error("❌ No se encontraron SKUs válidos")
+            return None
+        
+        # Paso 2: Obtener rango de fechas disponible
+        self.logger.info("🗓️  [Paso 2/5] Analizando rango de fechas disponible...")
+        min_date, max_date, total_records = self.get_date_range_from_db()
+        
+        if not min_date or not max_date:
+            self.logger.error("❌ No se pudo obtener rango de fechas de la base de datos")
+            return None
+        
+        # Paso 3: Calcular batches por años (proceso optimizado)
+        self.logger.info("📦 [Paso 3/5] Calculando batches por años...")
+        batches = []
+        current_date = min_date
+        batch_num = 1
+        
+        while current_date <= max_date:
+            # Procesar en batches anuales para máxima eficiencia
+            try:
+                next_year_start = current_date.replace(year=current_date.year + 1)
+            except ValueError:  # Handle leap year edge case (Feb 29)
+                next_year_start = current_date.replace(year=current_date.year + 1, month=2, day=28)
+            
+            end_date = min(next_year_start - timedelta(days=1), max_date)
+            batches.append((current_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')))
+            current_date = end_date + timedelta(days=1)
+            batch_num += 1
+        
+        total_batches = len(batches)
+        self.logger.info(f"📊 Dividiendo datos en {total_batches} batches anuales")
+        
+        # Paso 4: Procesar cada batch (ahora CON SKUs pre-calculados)
+        self.logger.info("⚡ [Paso 4/5] Procesando batches secuencialmente...")
+        combined_dataframes = []
+        successful_batches = 0
+        total_processed_records = 0
+        
+        for i, (start_date, end_date) in enumerate(batches, 1):
+            batch_df = self.get_historical_sales_data_batch(start_date, end_date, i, total_batches, valid_skus)
+            
+            if batch_df is not None and not batch_df.empty:
+                combined_dataframes.append(batch_df)
+                successful_batches += 1
+                total_processed_records += len(batch_df)
+                
+                # Progreso cada 25% o cuando sea útil mostrar progreso
+                progress_pct = (i / total_batches) * 100
+                if total_batches <= 10 or i % max(1, total_batches // 4) == 0:
+                    self.logger.info(f"🎯 Progreso: {progress_pct:.0f}% ({i}/{total_batches} batches anuales, {total_processed_records:,} registros)")
+            else:
+                self.logger.warning(f"⚠️  Batch {i} sin datos válidos")
+        
+        # Paso 5: Combinar resultados
+        self.logger.info("🔗 [Paso 5/5] Combinando resultados de todos los batches...")
+        
+        if not combined_dataframes:
+            self.logger.warning("❌ No se obtuvieron datos de ningún batch")
+            return None
+        
+        try:
+            # Combinar todos los DataFrames
+            processing_start = time.time()
+            df_combined = pd.concat(combined_dataframes, ignore_index=True)
+            
+            # Procesamiento de datos
+            df_combined['issueddate'] = pd.to_datetime(df_combined['issueddate'])
+            processing_duration = time.time() - processing_start
+            
+            # Estadísticas finales
+            unique_skus = df_combined['items_product_sku'].nunique()
+            date_range_start = df_combined['issueddate'].min()
+            date_range_end = df_combined['issueddate'].max()
+            total_quantity = df_combined['items_quantity'].sum()
+            total_duration = time.time() - start_time
+            
+            self.logger.success(f"🎉 PROCESO COMPLETADO EN {total_duration:.1f}s:")
+            self.logger.info(f"    ✅ {successful_batches}/{total_batches} batches procesados exitosamente")
+            self.logger.info(f"    📈 {len(df_combined):,} registros totales obtenidos")
+            self.logger.info(f"    🏷️  {unique_skus:,} SKUs únicos encontrados")
+            self.logger.info(f"    📅 Período final: {date_range_start.strftime('%Y-%m-%d')} a {date_range_end.strftime('%Y-%m-%d')}")
+            self.logger.info(f"    📦 Total unidades: {total_quantity:,.0f}")
+            self.logger.info(f"    ⚡ Procesamiento final: {processing_duration:.1f}s")
+            self.logger.info(f"    🚀 Optimización máxima: batches anuales sin pausas")
+            
+            return df_combined
+            
+        except Exception as e:
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Error combinando resultados después de {duration:.1f}s: {e}")
             return None
 
     def prepare_monthly_time_series(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Aggregates transactional data into monthly time series for each SKU.
+        Aggregates transactional data into monthly time series for each SKU with detailed logging.
         """
-        self.logger.info("Aggregating sales data into monthly time series...")
+        import time
+        start_time = time.time()
+        
+        self.logger.info(f"📈 Agregando {len(df):,} registros de ventas en series temporales mensuales...")
         
         # Hacer una copia para no modificar el DataFrame original
         df_copy = df.copy()
+        original_skus = df_copy['items_product_sku'].nunique()
+        self.logger.info(f"🔍 Procesando datos de {original_skus:,} SKUs únicos...")
+        
         df_copy.set_index('issueddate', inplace=True)
         
+        # Agregación por SKU y mes
+        agg_start = time.time()
         monthly_sales_df = df_copy.groupby('items_product_sku').resample('ME', include_groups=False).sum(numeric_only=True).reset_index()
+        agg_duration = time.time() - agg_start
         
         monthly_sales_df.rename(columns={
             'issueddate': 'month',
@@ -162,412 +371,426 @@ class SalesForecaster:
             'items_quantity': 'total_quantity'
         }, inplace=True)
         
-        self.logger.success("Time series preparation complete.")
+        # Estadísticas de resultado
+        unique_skus_result = monthly_sales_df['sku'].nunique()
+        total_months = len(monthly_sales_df)
+        avg_months_per_sku = total_months / unique_skus_result if unique_skus_result > 0 else 0
+        
+        # Rango de fechas
+        date_range_start = monthly_sales_df['month'].min()
+        date_range_end = monthly_sales_df['month'].max()
+        
+        total_duration = time.time() - start_time
+        
+        self.logger.success(f"📈 Series temporales preparadas en {total_duration:.1f}s:")
+        self.logger.info(f"    📊 {total_months:,} registros mensuales para {unique_skus_result:,} SKUs")
+        self.logger.info(f"    📅 Período: {date_range_start.strftime('%Y-%m')} a {date_range_end.strftime('%Y-%m')}")
+        self.logger.info(f"    📈 Promedio: {avg_months_per_sku:.1f} meses por SKU")
+        self.logger.info(f"    ⚡ Agregación: {agg_duration:.1f}s")
+        
         return monthly_sales_df
 
-    def _forecast_single_sku(self, sku_ts: pd.Series, steps: int = 12) -> Optional[pd.Series]:
+    def get_max_monthly_sales_for_skus(self, skus: List[str]) -> Dict[str, int]:
+        """
+        Get maximum monthly sales for a list of SKUs from historical data.
+        Processes in batches of 200 for better performance.
+        
+        Args:
+            skus: List of SKU strings
+            
+        Returns:
+            Dictionary mapping SKU to maximum monthly sales
+        """
+        import time
+        start_time = time.time()
+        
+        self.logger.info(f"💰 Calculando máximos de ventas mensuales para {len(skus):,} SKUs...")
+        
+        if not skus:
+            return {}
+        
+        BATCH_SIZE = 200
+        total_batches = (len(skus) + BATCH_SIZE - 1) // BATCH_SIZE
+        result = {}
+        
+        self.logger.info(f"📦 Procesando en {total_batches} lotes de {BATCH_SIZE} SKUs...")
+        
+        for batch_num in range(total_batches):
+            batch_start = time.time()
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(skus))
+            batch_skus = skus[start_idx:end_idx]
+            
+            self.logger.info(f"🔄 Lote {batch_num + 1}/{total_batches}: Procesando SKUs {start_idx + 1}-{end_idx}...")
+            
+            # Create placeholders for IN clause
+            placeholders = ','.join(['%s'] * len(batch_skus))
+            
+            query = f"""
+            SELECT 
+                items_product_sku,
+                MAX(monthly_total) as max_monthly_sales
+            FROM (
+                SELECT 
+                    items_product_sku,
+                    EXTRACT(YEAR FROM issueddate) as year,
+                    EXTRACT(MONTH FROM issueddate) as month,
+                    SUM(items_quantity) as monthly_total
+                FROM sales_items 
+                WHERE items_product_sku IN ({placeholders})
+                    AND items_quantity > 0
+                    AND issueddate >= CURRENT_DATE - INTERVAL '24 months'
+                    AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones')
+                GROUP BY items_product_sku, EXTRACT(YEAR FROM issueddate), EXTRACT(MONTH FROM issueddate)
+            ) AS monthly_sales
+            GROUP BY items_product_sku
+            """
+            
+            try:
+                with self.db_updater.get_connection() as conn:
+                    # Usar directamente psycopg2 para evitar problemas de parámetros
+                    df = pd.read_sql(query, conn, params=batch_skus)
+                
+                # Convert to dictionary
+                batch_sales_dict = df.set_index('items_product_sku')['max_monthly_sales'].to_dict()
+                
+                # Fill missing SKUs with 0 and add to result
+                for sku in batch_skus:
+                    result[sku] = batch_sales_dict.get(sku, 0)
+                
+                batch_duration = time.time() - batch_start
+                self.logger.info(f"✅ Lote {batch_num + 1}/{total_batches}: {len(batch_skus)} SKUs procesados en {batch_duration:.1f}s")
+                
+            except Exception as e:
+                self.logger.error(f"❌ Error en lote {batch_num + 1}: {e}")
+                # Fill with zeros for failed batch
+                for sku in batch_skus:
+                    result[sku] = 0
+        
+        total_duration = time.time() - start_time
+        self.logger.success(f"💰 Máximos de ventas calculados: {len(result):,} SKUs en {total_duration:.1f}s total")
+        return result
+
+    def get_unit_prices_for_skus(self, skus: List[str]) -> Dict[str, float]:
+        """
+        Get latest unit prices for a list of SKUs from historical sales data.
+        Processes in batches of 200 for better performance.
+        
+        Args:
+            skus: List of SKU strings
+            
+        Returns:
+            Dictionary mapping SKU to latest unit price
+        """
+        import time
+        start_time = time.time()
+        
+        self.logger.info(f"💵 Calculando precios unitarios para {len(skus):,} SKUs...")
+        
+        if not skus:
+            return {}
+        
+        BATCH_SIZE = 200
+        total_batches = (len(skus) + BATCH_SIZE - 1) // BATCH_SIZE
+        result = {}
+        
+        self.logger.info(f"📦 Procesando precios en {total_batches} lotes de {BATCH_SIZE} SKUs...")
+        
+        for batch_num in range(total_batches):
+            batch_start = time.time()
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(skus))
+            batch_skus = skus[start_idx:end_idx]
+            
+            self.logger.info(f"🔄 Lote {batch_num + 1}/{total_batches}: Obteniendo precios para SKUs {start_idx + 1}-{end_idx}...")
+            
+            # Create placeholders for IN clause
+            placeholders = ','.join(['%s'] * len(batch_skus))
+            
+            query = f"""
+            WITH latest_prices AS (
+                SELECT DISTINCT ON (items_product_sku)
+                    items_product_sku,
+                    items_unitprice,
+                    issueddate
+                FROM sales_items 
+                WHERE items_product_sku IN ({placeholders})
+                    AND items_quantity > 0
+                    AND items_unitprice > 0
+                    AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones')
+                ORDER BY items_product_sku, issueddate DESC
+            ),
+            avg_prices AS (
+                SELECT 
+                    items_product_sku,
+                    AVG(items_unitprice) as avg_price
+                FROM sales_items 
+                WHERE items_product_sku IN ({placeholders})
+                    AND items_quantity > 0
+                    AND items_unitprice > 0
+                    AND issueddate >= CURRENT_DATE - INTERVAL '6 months'
+                    AND (sales_channel IS NULL OR sales_channel != 'Cotizaciones')
+                GROUP BY items_product_sku
+            )
+            SELECT 
+                COALESCE(lp.items_product_sku, ap.items_product_sku) as sku,
+                COALESCE(lp.items_unitprice, ap.avg_price, 0) as unit_price
+            FROM latest_prices lp
+            FULL OUTER JOIN avg_prices ap ON lp.items_product_sku = ap.items_product_sku
+            """
+            
+            try:
+                with self.db_updater.get_connection() as conn:
+                    # Usar directamente psycopg2 para evitar problemas de parámetros
+                    df = pd.read_sql(query, conn, params=batch_skus + batch_skus)  # Double params for both CTEs
+                
+                # Convert to dictionary
+                batch_price_dict = df.set_index('sku')['unit_price'].to_dict()
+                
+                # Fill missing SKUs with 0 and add to result
+                for sku in batch_skus:
+                    result[sku] = float(batch_price_dict.get(sku, 0))
+                
+                batch_duration = time.time() - batch_start
+                prices_found = sum(1 for sku in batch_skus if result[sku] > 0)
+                self.logger.info(f"✅ Lote {batch_num + 1}/{total_batches}: {len(batch_skus)} SKUs procesados ({prices_found} con precio) en {batch_duration:.1f}s")
+                
+            except Exception as e:
+                self.logger.error(f"❌ Error en lote {batch_num + 1}: {e}")
+                # Fill with zeros for failed batch
+                for sku in batch_skus:
+                    result[sku] = 0.0
+        
+        total_duration = time.time() - start_time
+        total_with_prices = sum(1 for price in result.values() if price > 0)
+        self.logger.success(f"💵 Precios unitarios calculados: {len(result):,} SKUs ({total_with_prices:,} con precio) en {total_duration:.1f}s total")
+        return result
+
+    def _forecast_single_sku(self, sku_ts: pd.Series, max_monthly_sales: int = None, steps: int = 12) -> Optional[pd.Series]:
         """
         Generates a forecast for a single product's time series using SARIMA.
+        Simplified version with only essential validations.
         
         Args:
             sku_ts: A pandas Series representing the monthly sales of one SKU.
+            max_monthly_sales: Maximum monthly sales from historical data (for capping)
             steps: The number of months to forecast into the future.
 
         Returns:
             A pandas Series with the forecasted values, or None if forecasting fails.
         """
-        # Se necesita un mínimo de datos para que SARIMA funcione (ej: 2 ciclos estacionales)
-        if len(sku_ts) < 24:
-            self.logger.warning(f"Skipping SARIMA for SKU {sku_ts.name}: insufficient data points ({len(sku_ts)}). Trying linear regression fallback.")
-            return self._forecast_with_linear_regression(sku_ts, steps)
+        # Fallback hierarchy: SARIMA -> Linear Regression -> Previous Year * 1.1
         
-        # NUEVA VALIDACIÓN: Verificar calidad de datos
-        non_zero_count = (sku_ts > 0).sum()
-        zero_percentage = (sku_ts == 0).sum() / len(sku_ts)
+        # Try SARIMA first (requires minimum 24 months)
+        if len(sku_ts) >= 24:
+            forecast = self._try_sarima_forecast(sku_ts, steps)
+            if forecast is not None:
+                return self._apply_max_sales_limit(forecast, max_monthly_sales)
         
-        # Rechazar series con demasiados ceros (>80%)
-        if zero_percentage > 0.8:
-            self.logger.warning(f"Skipping SKU {sku_ts.name}: too many zeros ({zero_percentage:.1%}).")
-            return None
+        # Try Linear Regression (requires minimum 6 months)
+        if len(sku_ts) >= 6:
+            forecast = self._try_linear_regression_forecast(sku_ts, steps)
+            if forecast is not None:
+                return self._apply_max_sales_limit(forecast, max_monthly_sales)
         
-        # Rechazar series con valores extremos
-        q99 = sku_ts.quantile(0.99)
-        q01 = sku_ts.quantile(0.01)
-        if q99 > 1000000 or sku_ts.max() > 10 * q99:  # Detectar outliers extremos
-            self.logger.warning(f"Skipping SKU {sku_ts.name}: extreme values detected (max: {sku_ts.max()}).")
-            return None
+        # Last resort: Previous year sales * 1.1
+        if len(sku_ts) >= 12:
+            forecast = self._try_previous_year_forecast(sku_ts, steps)
+            if forecast is not None:
+                return self._apply_max_sales_limit(forecast, max_monthly_sales)
         
+        # If all methods fail
+        self.logger.warning(f"All forecasting methods failed for SKU {sku_ts.name}")
+        return None
+
+    def _try_sarima_forecast(self, sku_ts: pd.Series, steps: int) -> Optional[pd.Series]:
+        """Try SARIMA forecasting method."""
         try:
-            # MEJORA: Usar parámetros más conservadores y estables
-            # Modelo SARIMA con parámetros más robustos
             model = sm.tsa.statespace.SARIMAX(
                 sku_ts,
-                order=(0, 1, 1),  # Más simple y estable
-                seasonal_order=(0, 1, 1, 12),  # Estacionalidad más conservadora
-                enforce_stationarity=True,  # ✅ Forzar estabilidad
-                enforce_invertibility=True  # ✅ Forzar invertibilidad
+                order=(0, 1, 1),
+                seasonal_order=(0, 1, 1, 12),
+                enforce_stationarity=True,
+                enforce_invertibility=True
             )
             
-            # Ajustar con manejo de errores más específico
-            results = model.fit(disp=False, maxiter=50)  # Limitar iteraciones
+            results = model.fit(disp=False, maxiter=50)
             
-            # Verificar convergencia del modelo
             if not results.mle_retvals['converged']:
-                self.logger.warning(f"Model didn't converge for SKU {sku_ts.name}. Trying linear regression fallback.")
-                return self._forecast_with_linear_regression(sku_ts, steps)
+                return None
             
-            # Generar forecast
             forecast = results.get_forecast(steps=steps)
             predicted_values = forecast.predicted_mean
             
-            # VALIDACIÓN CRÍTICA: Aplicar límites razonables
-            # Calcular límites basados en datos históricos
-            historical_max = sku_ts.max()
-            historical_mean = sku_ts.mean()
-            historical_q95 = sku_ts.quantile(0.95)
-            
-            # MEJORA: Límite superior más inteligente
-            # 1. Usar el máximo de: histórico máximo * 2, percentil 95 * 3, o media * 15
-            # 2. Pero con un mínimo razonable de 50 unidades para evitar sobre-restricción
-            upper_candidate1 = historical_max * 2
-            upper_candidate2 = historical_q95 * 3
-            upper_candidate3 = historical_mean * 15
-            
-            # Tomar el mayor de los candidatos, pero con límites sensatos
-            upper_limit = max(
-                max(upper_candidate1, upper_candidate2, upper_candidate3),
-                50  # Mínimo absoluto para no ser demasiado restrictivo
-            )
-            
-            # Cap absoluto solo para casos realmente extremos
-            upper_limit = min(upper_limit, 50000)
-            
-            lower_limit = 0  # No permitir valores negativos
-            
-            # Solo aplicar límites si son realmente extremos
-            original_max = predicted_values.max()
-            predicted_values = predicted_values.clip(lower=lower_limit, upper=upper_limit)
-            
-            # Log si hubo recorte significativo
-            if original_max > upper_limit:
-                self.logger.info(f"SKU {sku_ts.name}: Limited forecast from {original_max:.0f} to {upper_limit:.0f}")
-            
-            # 🚨 NUEVA VALIDACIÓN: Límite de 40% de variación entre meses consecutivos
-            predicted_values = self._apply_month_to_month_variation_limit(sku_ts, predicted_values, max_variation=0.40)
-            
-            # Conversión segura a enteros
+            # Only apply basic normalization
+            predicted_values = predicted_values.clip(lower=0)
             predicted_values = predicted_values.round().astype(int)
             
-            # Validación final
-            if predicted_values.max() > 100000 or predicted_values.min() < 0:
-                self.logger.warning(f"Unrealistic predictions for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
-                return None
-            
-            self.logger.info(f"Forecast generated for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
+            self.logger.info(f"SARIMA forecast generated for SKU {sku_ts.name}")
             return predicted_values
             
         except Exception as e:
-            # Manejo más específico de errores
-            error_type = type(e).__name__
-            if "singular" in str(e).lower() or "invertibility" in str(e).lower():
-                self.logger.warning(f"Model instability for SKU {sku_ts.name}: {error_type}")
-            else:
-                self.logger.error(f"Failed to generate forecast for SKU {sku_ts.name}: {error_type} - {str(e)}. Trying linear regression fallback.")
-            return self._forecast_with_linear_regression(sku_ts, steps)
+            self.logger.warning(f"SARIMA failed for SKU {sku_ts.name}: {e}")
+            return None
 
-    def _forecast_with_linear_regression(self, sku_ts: pd.Series, steps: int = 12) -> Optional[pd.Series]:
-        """
-        Fallback simple usando regresión lineal sobre la serie mensual.
-        Requiere al menos 6 puntos. Aplica los mismos límites y suavizado que SARIMA.
-        """
+    def _try_linear_regression_forecast(self, sku_ts: pd.Series, steps: int) -> Optional[pd.Series]:
+        """Try linear regression forecasting method."""
         try:
-            # Requerir al menos 6 observaciones reales
-            if len(sku_ts) < 6:
-                self.logger.warning(f"Skipping Linear Regression for SKU {sku_ts.name}: too few points ({len(sku_ts)}).")
-                return None
-
-            # Preparar X,Y
             y = sku_ts.astype(float).values
             x = np.arange(len(y), dtype=float)
 
-            # Ajustar recta y = a*x + b
             slope, intercept = np.polyfit(x, y, 1)
 
-            # Generar predicciones futuras
             future_x = np.arange(len(y), len(y) + steps, dtype=float)
             future_y = intercept + slope * future_x
 
-            # Crear índice de meses futuros (fin de mes)
+            # Create future index
             last_idx = sku_ts.index[-1]
             if isinstance(last_idx, pd.Timestamp):
                 future_periods = pd.period_range(last_idx, periods=steps + 1, freq='M')[1:]
                 future_index = future_periods.to_timestamp('M')
             else:
-                # Fallback genérico a fechas con frecuencia mensual fin de mes
                 last_ts = pd.to_datetime(last_idx)
                 future_index = pd.date_range(last_ts, periods=steps + 1, freq='M')[1:]
 
             predicted_values = pd.Series(future_y, index=future_index)
-
-            # Aplicar límites similares a SARIMA
-            historical_max = sku_ts.max()
-            historical_mean = sku_ts.mean()
-            historical_q95 = sku_ts.quantile(0.95)
-            upper_candidate1 = historical_max * 2
-            upper_candidate2 = historical_q95 * 3
-            upper_candidate3 = historical_mean * 15
-            upper_limit = max(max(upper_candidate1, upper_candidate2, upper_candidate3), 50)
-            upper_limit = min(upper_limit, 50000)
-            lower_limit = 0
-            original_max = predicted_values.max()
-            predicted_values = predicted_values.clip(lower=lower_limit, upper=upper_limit)
-            if original_max > upper_limit:
-                self.logger.info(f"[LR] SKU {sku_ts.name}: Limited forecast from {original_max:.0f} to {upper_limit:.0f}")
-
-            # Limitar variación mes a mes 40%
-            predicted_values = self._apply_month_to_month_variation_limit(sku_ts, predicted_values, max_variation=0.40)
-
-            # Redondear a enteros y validar
+            
+            # Only apply basic normalization
+            predicted_values = predicted_values.clip(lower=0)
             predicted_values = predicted_values.round().astype(int)
-            if predicted_values.max() > 100000 or predicted_values.min() < 0:
-                self.logger.warning(f"[LR] Unrealistic predictions for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
-                return None
 
-            self.logger.info(f"[LR] Forecast generated for SKU {sku_ts.name}: {predicted_values.min()}-{predicted_values.max()}")
+            self.logger.info(f"Linear regression forecast generated for SKU {sku_ts.name}")
             return predicted_values
+            
         except Exception as e:
-            self.logger.error(f"Linear Regression fallback failed for SKU {sku_ts.name}: {e}")
+            self.logger.warning(f"Linear regression failed for SKU {sku_ts.name}: {e}")
             return None
 
-    def _apply_month_to_month_variation_limit(self, historical_ts: pd.Series, predicted_values: pd.Series, max_variation: float = 0.40) -> pd.Series:
-        """
-        Aplica un límite de variación entre meses consecutivos para evitar saltos extremos.
-        
-        Args:
-            historical_ts: Serie temporal histórica para obtener el último valor real
-            predicted_values: Predicciones generadas por el modelo
-            max_variation: Variación máxima permitida (0.40 = 40%)
+    def _try_previous_year_forecast(self, sku_ts: pd.Series, steps: int) -> Optional[pd.Series]:
+        """Try previous year * 1.1 forecasting method."""
+        try:
+            # Get last 12 months as base
+            last_12_months = sku_ts.tail(12)
             
-        Returns:
-            Serie de predicciones suavizada con límites de variación
-        """
-        if len(predicted_values) == 0:
+            # Apply 1.1 multiplier
+            base_forecast = last_12_months * 1.1
+            
+            # Repeat pattern for required steps
+            cycles_needed = (steps + 11) // 12  # Round up division
+            extended_forecast = pd.concat([base_forecast] * cycles_needed)
+            
+            # Trim to exact steps needed
+            extended_forecast = extended_forecast.head(steps)
+            
+            # Create future index
+            last_idx = sku_ts.index[-1]
+            if isinstance(last_idx, pd.Timestamp):
+                future_periods = pd.period_range(last_idx, periods=steps + 1, freq='M')[1:]
+                future_index = future_periods.to_timestamp('M')
+            else:
+                last_ts = pd.to_datetime(last_idx)
+                future_index = pd.date_range(last_ts, periods=steps + 1, freq='M')[1:]
+
+            predicted_values = pd.Series(extended_forecast.values, index=future_index)
+            
+            # Only apply basic normalization
+            predicted_values = predicted_values.clip(lower=0)
+            predicted_values = predicted_values.round().astype(int)
+
+            self.logger.info(f"Previous year * 1.1 forecast generated for SKU {sku_ts.name}")
             return predicted_values
             
-        # Crear una copia para modificar
-        smoothed_predictions = predicted_values.copy()
+        except Exception as e:
+            self.logger.warning(f"Previous year forecast failed for SKU {sku_ts.name}: {e}")
+            return None
+
+    def _apply_max_sales_limit(self, forecast: pd.Series, max_monthly_sales: int) -> pd.Series:
+        """
+        Apply the only restriction: forecast cannot exceed historical maximum.
+        If max_monthly_sales is None or 0, no limit is applied.
+        """
+        if max_monthly_sales is None or max_monthly_sales <= 0:
+            return forecast
         
-        # Obtener el último valor histórico como punto de referencia
-        last_historical_value = historical_ts.iloc[-1] if len(historical_ts) > 0 else predicted_values.iloc[0]
+        # Apply the MIN(forecasted_qty, max_monthly_sales) rule
+        limited_forecast = forecast.clip(upper=max_monthly_sales)
         
-        # Si el último valor histórico es 0, usar la media histórica como referencia
-        if last_historical_value <= 0:
-            last_historical_value = max(historical_ts.mean(), 1)  # Mínimo 1 para evitar división por 0
+        if limited_forecast.max() < forecast.max():
+            self.logger.info(f"Forecast limited by max historical sales: {forecast.max()} -> {limited_forecast.max()}")
         
-        # Aplicar límites secuencialmente, mes por mes
-        previous_value = last_historical_value
-        adjustments_made = 0
-        
-        for i in range(len(smoothed_predictions)):
-            current_prediction = smoothed_predictions.iloc[i]
-            
-            # Calcular límites: +/- max_variation% del valor anterior
-            upper_limit = previous_value * (1 + max_variation)
-            lower_limit = previous_value * (1 - max_variation)
-            
-            # Aplicar límites
-            original_prediction = current_prediction
-            
-            if current_prediction > upper_limit:
-                smoothed_predictions.iloc[i] = upper_limit
-                adjustments_made += 1
-            elif current_prediction < lower_limit:
-                smoothed_predictions.iloc[i] = lower_limit
-                adjustments_made += 1
-            
-            # El valor ajustado se convierte en la referencia para el siguiente mes
-            previous_value = smoothed_predictions.iloc[i]
-        
-        # Log si se hicieron ajustes significativos
-        if adjustments_made > 0:
-            original_max_change = abs(predicted_values.iloc[-1] - last_historical_value) / last_historical_value * 100
-            smoothed_max_change = abs(smoothed_predictions.iloc[-1] - last_historical_value) / last_historical_value * 100
-            
-            self.logger.info(f"SKU {historical_ts.name}: Applied {max_variation:.0%} variation limit - "
-                           f"{adjustments_made} adjustments made. "
-                           f"Max change: {original_max_change:.1f}% → {smoothed_max_change:.1f}%")
-        
-        return smoothed_predictions
+        return limited_forecast
+
+
 
     def run_forecasting_for_all_skus(self) -> Optional[Dict[str, pd.Series]]:
         """
-        Main orchestration method to generate forecasts for all products with lifecycle validation.
+        Main orchestration method to generate forecasts for all valid products.
+        Filtering is now done at SQL level for better performance.
         """
-        self.logger.info("🚀 Starting enhanced forecasting process with lifecycle validation")
+        import time
+        start_time = time.time()
         
-        # 1. Obtener datos históricos
+        self.logger.info("🚀 Iniciando proceso simplificado de forecasting")
+        
+        # 1. Obtener datos históricos (ya filtrados por SQL)
+        step_start = time.time()
+        self.logger.info("📊 [Paso 1/5] Obteniendo datos históricos de ventas...")
         historical_data = self.get_historical_sales_data()
         if historical_data is None:
-            self.logger.error("No se pudieron obtener datos históricos")
+            self.logger.error("❌ No se pudieron obtener datos históricos")
             return None
         
-        # 2. Obtener SKUs únicos de datos históricos (antes de procesamiento)
+        step_duration = time.time() - step_start
+        self.logger.info(f"✅ [Paso 1/5] Datos históricos obtenidos: {len(historical_data):,} registros en {step_duration:.1f}s")
+        
+        # 2. Obtener SKUs únicos de datos históricos filtrados
+        step_start = time.time()
+        self.logger.info("🔍 [Paso 2/5] Identificando SKUs únicos...")
         unique_skus = list(historical_data['items_product_sku'].unique())
+        step_duration = time.time() - step_start
+        self.logger.info(f"✅ [Paso 2/5] SKUs únicos identificados: {len(unique_skus):,} SKUs en {step_duration:.1f}s")
         
         # 3. Preparar series temporales mensuales
+        step_start = time.time()
+        self.logger.info("📈 [Paso 3/5] Preparando series temporales mensuales...")
         monthly_data = self.prepare_monthly_time_series(historical_data)
+        step_duration = time.time() - step_start
+        self.logger.info(f"✅ [Paso 3/5] Series temporales preparadas: {len(monthly_data):,} registros mensuales en {step_duration:.1f}s")
         
-        self.logger.info(f"Datos obtenidos para {len(unique_skus)} SKUs únicos")
+        # 4. Aplicar filtros básicos de calidad de datos
+        step_start = time.time()
+        self.logger.info("🔎 [Paso 4/5] Aplicando filtros de calidad de datos...")
+        filtered_skus = self._apply_basic_filters(monthly_data, unique_skus)
+        step_duration = time.time() - step_start
+        filtered_count = len(filtered_skus)
+        excluded_count = len(unique_skus) - filtered_count
+        self.logger.info(f"✅ [Paso 4/5] Filtros aplicados: {filtered_count:,} SKUs aprobados, {excluded_count:,} excluidos en {step_duration:.1f}s")
         
-        # 4. Validación de ciclo de vida (si está habilitada)
-        if self.enable_lifecycle_validation:
-            validation_results = self._validate_products_lifecycle(historical_data, unique_skus)
-            filtered_skus = self._filter_skus_by_lifecycle(unique_skus, validation_results)
-        else:
-            self.logger.warning("⚠️  Saltando validación de ciclo de vida - usando filtros básicos")
-            filtered_skus = self._apply_basic_filters(monthly_data, unique_skus)
-            validation_results = {}
+        if not filtered_skus:
+            self.logger.error("❌ No hay SKUs válidos para forecasting después del filtrado")
+            return None
         
-        self.logger.info(f"SKUs aprobados para forecasting: {len(filtered_skus)}")
-        
-        # 5. Generar forecasts solo para SKUs válidos
+        # 5. Generar forecasts para SKUs válidos
+        step_start = time.time()
+        self.logger.info(f"🤖 [Paso 5/5] Generando forecasts para {filtered_count:,} SKUs...")
         all_forecasts = self._generate_forecasts_for_valid_skus(
-            monthly_data, filtered_skus, validation_results
+            monthly_data, filtered_skus, {}
         )
+        step_duration = time.time() - step_start
         
-        # 6. Aplicar post-procesamiento basado en ciclo de vida
-        if self.enable_lifecycle_validation and all_forecasts:
-            all_forecasts = self._apply_lifecycle_adjustments(all_forecasts, validation_results)
+        total_duration = time.time() - start_time
+        success_count = len(all_forecasts) if all_forecasts else 0
+        success_rate = (success_count / filtered_count * 100) if filtered_count > 0 else 0
         
-        self.logger.success(f"Forecasting completado para {len(all_forecasts) if all_forecasts else 0} SKUs")
+        self.logger.success(f"🎉 Forecasting completado: {success_count:,}/{filtered_count:,} SKUs exitosos ({success_rate:.1f}%) en {total_duration:.1f}s total")
         
         return all_forecasts
 
-    def _validate_products_lifecycle(self, historical_data: pd.DataFrame, unique_skus: List[str]) -> Dict[str, Dict]:
-        """
-        Validar ciclo de vida de todos los productos.
-        
-        Args:
-            historical_data (pd.DataFrame): Datos históricos de ventas
-            unique_skus (List[str]): Lista de SKUs únicos
-            
-        Returns:
-            Dict[str, Dict]: Resultados de validación por SKU
-        """
-        self.logger.info("🔍 Validando ciclo de vida de productos")
-        
-        # Validar que los datos históricos tengan las columnas requeridas
-        required_columns = ['issueddate', 'items_product_sku', 'items_quantity']
-        missing_columns = [col for col in required_columns if col not in historical_data.columns]
-        
-        if missing_columns:
-            self.logger.error(f"Datos históricos faltantes columnas requeridas: {missing_columns}")
-            self.logger.error(f"Columnas disponibles: {list(historical_data.columns)}")
-            # Retornar resultados vacíos para todos los SKUs
-            return {sku: {
-                'status': ProductStatus.UNKNOWN,
-                'metadata': {
-                    'reason': f'Datos históricos incompletos: faltan {missing_columns}',
-                    'should_forecast': False,
-                    'recommended_forecast': 0
-                }
-            } for sku in unique_skus}
-        
-        # Agrupar historiales por SKU
-        skus_with_history = {}
-        skus_processed = 0
-        skus_with_data = 0
-        
-        for sku in unique_skus:
-            sku_data = historical_data[historical_data['items_product_sku'] == sku].copy()
-            
-            # Solo incluir columnas que necesita el validador
-            if not sku_data.empty:
-                sku_data = sku_data[['issueddate', 'items_quantity']].copy()
-                skus_with_data += 1
-            
-            skus_with_history[sku] = sku_data
-            skus_processed += 1
-        
-        self.logger.info(f"Preparados {skus_processed} SKUs para validación ({skus_with_data} con datos)")
-        
-        # Ejecutar validación en lote
-        validation_results = self.lifecycle_validator.batch_validate_products(skus_with_history)
-        
-        # Log estadísticas de validación
-        summary = self.lifecycle_validator.get_validation_summary(validation_results)
-        self.logger.info("Resumen de validación de ciclo de vida:", **summary['by_status'])
-        
-        return validation_results
-    
-    def _filter_skus_by_lifecycle(self, unique_skus: List[str], validation_results: Dict[str, Dict]) -> List[str]:
-        """
-        Filtrar SKUs basándose en resultados de validación de ciclo de vida.
-        
-        Args:
-            unique_skus (List[str]): SKUs originales
-            validation_results (Dict[str, Dict]): Resultados de validación
-            
-        Returns:
-            List[str]: SKUs que deben generar forecast
-        """
-        valid_skus = []
-        
-        stats = {
-            'total': len(unique_skus),
-            'approved': 0,
-            'discontinued': 0,
-            'inactive': 0,
-            'insufficient_data': 0
-        }
-        
-        for sku in unique_skus:
-            if sku in validation_results:
-                validation = validation_results[sku]
-                metadata = validation['metadata']
-                status = validation['status']
-                
-                if metadata.get('should_forecast', False):
-                    valid_skus.append(sku)
-                    stats['approved'] += 1
-                    
-                    # Log productos con advertencias
-                    if hasattr(status, 'value'):
-                        status_val = status.value
-                    else:
-                        status_val = str(status)
-                    
-                    if status_val == ProductStatus.NEW:
-                        self.logger.warning(f"SKU {sku}: Producto nuevo - usar forecasts con precaución")
-                    elif status_val == ProductStatus.INACTIVE:
-                        self.logger.info(f"SKU {sku}: Producto inactivo - forecast conservador")
-                else:
-                    # Log productos excluidos
-                    if hasattr(status, 'value'):
-                        status_val = status.value
-                    else:
-                        status_val = str(status)
-                    
-                    if status_val == ProductStatus.DISCONTINUED:
-                        stats['discontinued'] += 1
-                        self.logger.info(f"SKU {sku}: EXCLUIDO - {metadata.get('reason', 'Descontinuado')}")
-                    elif status_val == ProductStatus.INACTIVE:
-                        stats['inactive'] += 1
-                        self.logger.info(f"SKU {sku}: EXCLUIDO - {metadata.get('reason', 'Inactivo')}")
-                    else:
-                        stats['insufficient_data'] += 1
-            else:
-                # Sin validación, excluir por seguridad
-                stats['insufficient_data'] += 1
-                self.logger.warning(f"SKU {sku}: EXCLUIDO - Sin datos de validación")
-        
-        self.logger.info("Filtrado por ciclo de vida completado", **stats)
-        
-        return valid_skus
+
     
     def _apply_basic_filters(self, monthly_data: pd.DataFrame, unique_skus: List[str]) -> List[str]:
         """
-        Aplicar filtros básicos cuando la validación de ciclo de vida está deshabilitada.
+        Aplicar filtros básicos de calidad de datos con logging detallado.
         
         Args:
             monthly_data (pd.DataFrame): Datos mensuales
@@ -576,11 +799,20 @@ class SalesForecaster:
         Returns:
             List[str]: SKUs válidos usando filtros básicos
         """
+        import time
+        start_time = time.time()
+        
+        self.logger.info(f"🔎 Aplicando filtros de calidad a {len(unique_skus):,} SKUs...")
+        
         valid_skus = []
         skipped_insufficient_data = 0
         skipped_poor_quality = 0
         
-        for sku in unique_skus:
+        # Process in chunks for progress reporting
+        PROGRESS_CHUNK = 500
+        processed = 0
+        
+        for i, sku in enumerate(unique_skus):
             # Preparar la serie de tiempo para este SKU
             ts_individual = monthly_data[monthly_data['sku'] == sku]
             ts_prepared = ts_individual[['month', 'total_quantity']].set_index('month')['total_quantity']
@@ -614,140 +846,129 @@ class SalesForecaster:
                 continue
             
             valid_skus.append(sku)
+            processed += 1
+            
+            # Progress reporting every PROGRESS_CHUNK SKUs
+            if (i + 1) % PROGRESS_CHUNK == 0:
+                progress_pct = ((i + 1) / len(unique_skus)) * 100
+                self.logger.info(f"🔄 Progreso filtrado: {i + 1:,}/{len(unique_skus):,} SKUs procesados ({progress_pct:.1f}%)")
         
-        self.logger.info(f"Pre-filtering results: {len(valid_skus)} valid SKUs, {skipped_insufficient_data} insufficient data, {skipped_poor_quality} poor quality")
+        filter_duration = time.time() - start_time
+        valid_count = len(valid_skus)
+        invalid_count = len(unique_skus) - valid_count
+        success_rate = (valid_count / len(unique_skus) * 100) if unique_skus else 0
+        
+        self.logger.info(f"✅ Filtrado completado en {filter_duration:.1f}s:")
+        self.logger.info(f"    📊 SKUs válidos: {valid_count:,}/{len(unique_skus):,} ({success_rate:.1f}%)")
+        self.logger.info(f"    📉 Datos insuficientes: {skipped_insufficient_data:,}")
+        self.logger.info(f"    💥 Calidad pobre: {skipped_poor_quality:,}")
         
         return valid_skus
     
     def _generate_forecasts_for_valid_skus(self, 
                                          monthly_data: pd.DataFrame, 
                                          valid_skus: List[str],
-                                         validation_results: Dict[str, Dict]) -> Dict[str, pd.Series]:
+                                         _: Dict = None) -> Dict[str, pd.Series]:
         """
         Generar forecasts solo para SKUs válidos.
+        Processes in batches of 200 for better performance and detailed logging.
         
         Args:
             monthly_data (pd.DataFrame): Datos mensuales
             valid_skus (List[str]): SKUs válidos para forecasting
-            validation_results (Dict[str, Dict]): Resultados de validación
+            _ (Dict): Parámetro ignorado para compatibilidad
             
         Returns:
             Dict[str, pd.Series]: Forecasts generados
         """
+        import time
+        start_time = time.time()
+        
         all_forecasts: Dict[str, pd.Series] = {}
         
-        self.logger.info(f"Generando forecasts para {len(valid_skus)} SKUs válidos")
+        self.logger.info(f"🤖 Generando forecasts para {len(valid_skus):,} SKUs válidos...")
         
-        for i, sku in enumerate(valid_skus):
-            self.logger.info(f"  ({i+1}/{len(valid_skus)}) Forecasting para SKU: {sku}")
+        # Get max monthly sales and unit prices for all valid SKUs (they already process in batches)
+        self.logger.info("🔍 Obteniendo datos auxiliares para forecasting...")
+        aux_start = time.time()
+        max_sales_data = self.get_max_monthly_sales_for_skus(valid_skus)
+        unit_prices_data = self.get_unit_prices_for_skus(valid_skus)
+        aux_duration = time.time() - aux_start
+        self.logger.info(f"✅ Datos auxiliares obtenidos en {aux_duration:.1f}s")
+        
+        # Process SKUs in batches for better memory management and progress tracking
+        BATCH_SIZE = 200
+        total_batches = (len(valid_skus) + BATCH_SIZE - 1) // BATCH_SIZE
+        
+        self.logger.info(f"📦 Procesando forecasting en {total_batches} lotes de {BATCH_SIZE} SKUs...")
+        
+        total_success = 0
+        total_failed = 0
+        
+        for batch_num in range(total_batches):
+            batch_start = time.time()
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(valid_skus))
+            batch_skus = valid_skus[start_idx:end_idx]
             
-            try:
-                # Preparar serie temporal
-                ts_individual = monthly_data[monthly_data['sku'] == sku]
-                ts_prepared = ts_individual[['month', 'total_quantity']].set_index('month')['total_quantity']
-                ts_prepared = ts_prepared.resample('ME').sum().fillna(0)
-                ts_prepared.name = sku
-                
-                # Ajustar parámetros basándose en estado del producto
-                forecast_steps = 12  # Default
-                if sku in validation_results:
-                    status = validation_results[sku]['status']
-                    if hasattr(status, 'value'):
-                        status_val = status.value
-                    else:
-                        status_val = str(status)
+            self.logger.info(f"🔄 Lote {batch_num + 1}/{total_batches}: Generando forecasts para SKUs {start_idx + 1}-{end_idx}...")
+            
+            batch_success = 0
+            batch_failed = 0
+            
+            for i, sku in enumerate(batch_skus):
+                try:
+                    # Preparar serie temporal
+                    ts_individual = monthly_data[monthly_data['sku'] == sku]
+                    ts_prepared = ts_individual[['month', 'total_quantity']].set_index('month')['total_quantity']
+                    ts_prepared = ts_prepared.resample('ME').sum().fillna(0)
+                    ts_prepared.name = sku
                     
-                    if status_val == ProductStatus.NEW:
-                        forecast_steps = 6  # Forecasts más cortos para productos nuevos
-                    elif status_val == ProductStatus.INACTIVE:
-                        forecast_steps = 3  # Forecasts muy cortos para inactivos
-                
-                # Generar forecast usando el método padre
-                forecast = self._forecast_single_sku(ts_prepared, steps=forecast_steps)
-                
-                if forecast is not None:
-                    all_forecasts[sku] = forecast
-                    self.logger.info(f"    ✅ Forecast generado: {forecast.min():.0f}-{forecast.max():.0f} unidades")
-                else:
-                    self.logger.warning(f"    ⚠️  Forecast falló para SKU {sku}")
-                
-            except Exception as e:
-                self.logger.error(f"    ❌ Error generando forecast para SKU {sku}: {e}")
-                continue
+                    # Usar parámetros estándar (12 meses) para todos los productos
+                    forecast_steps = 12
+                    
+                    # Get max monthly sales for this SKU
+                    max_monthly_sales = max_sales_data.get(sku, 0)
+                    
+                    # Generar forecast con límite de máximo histórico
+                    forecast = self._forecast_single_sku(ts_prepared, max_monthly_sales=max_monthly_sales, steps=forecast_steps)
+                    
+                    if forecast is not None:
+                        all_forecasts[sku] = forecast
+                        batch_success += 1
+                        
+                        # Log detalle solo para primeros SKUs de cada lote
+                        if i < 3:  # Solo los primeros 3 de cada lote
+                            self.logger.info(f"    ✅ SKU {sku}: {forecast.min():.0f}-{forecast.max():.0f} unidades (max: {max_monthly_sales})")
+                    else:
+                        batch_failed += 1
+                        if i < 3:  # Solo los primeros 3 de cada lote
+                            self.logger.warning(f"    ❌ SKU {sku}: Forecast falló")
+                    
+                except Exception as e:
+                    batch_failed += 1
+                    if i < 3:  # Solo los primeros 3 de cada lote
+                        self.logger.error(f"    ❌ SKU {sku}: Error - {e}")
+                    continue
+            
+            total_success += batch_success
+            total_failed += batch_failed
+            batch_duration = time.time() - batch_start
+            success_rate = (batch_success / len(batch_skus) * 100) if batch_skus else 0
+            
+            self.logger.info(f"✅ Lote {batch_num + 1}/{total_batches}: {batch_success}/{len(batch_skus)} exitosos ({success_rate:.1f}%) en {batch_duration:.1f}s")
+        
+        total_duration = time.time() - start_time
+        overall_success_rate = (total_success / len(valid_skus) * 100) if valid_skus else 0
+        
+        self.logger.success(f"🤖 Forecasting completado: {total_success:,}/{len(valid_skus):,} SKUs exitosos ({overall_success_rate:.1f}%) en {total_duration:.1f}s")
+        
+        if total_failed > 0:
+            self.logger.warning(f"⚠️  {total_failed:,} SKUs fallaron en el forecasting")
         
         return all_forecasts
     
-    def _apply_lifecycle_adjustments(self, 
-                                   forecasts: Dict[str, pd.Series], 
-                                   validation_results: Dict[str, Dict]) -> Dict[str, pd.Series]:
-        """
-        Aplicar ajustes post-forecasting basados en ciclo de vida.
-        
-        Args:
-            forecasts (Dict[str, pd.Series]): Forecasts originales
-            validation_results (Dict[str, Dict]): Resultados de validación
-            
-        Returns:
-            Dict[str, pd.Series]: Forecasts ajustados
-        """
-        adjusted_forecasts = {}
-        adjustments_made = 0
-        
-        for sku, forecast in forecasts.items():
-            if sku in validation_results:
-                status = validation_results[sku]['status']
-                metadata = validation_results[sku]['metadata']
-                
-                if hasattr(status, 'value'):
-                    status_val = status.value
-                else:
-                    status_val = str(status)
-                
-                # Aplicar ajustes conservadores para productos inactivos
-                if status_val == ProductStatus.INACTIVE:
-                    # Reducir forecast en 50% para productos inactivos
-                    adjusted_forecast = forecast * 0.5
-                    adjusted_forecasts[sku] = adjusted_forecast
-                    adjustments_made += 1
-                    self.logger.info(f"Forecast ajustado para SKU inactivo {sku}: reducido 50%")
-                
-                # Aplicar límites más estrictos para productos nuevos
-                elif status_val == ProductStatus.NEW:
-                    # Limitar forecasts de productos nuevos a máximo 20 unidades
-                    adjusted_forecast = forecast.clip(upper=20)
-                    adjusted_forecasts[sku] = adjusted_forecast
-                    
-                    if forecast.max() > 20:
-                        adjustments_made += 1
-                        self.logger.info(f"Forecast limitado para SKU nuevo {sku}: máximo 20 unidades")
-                    else:
-                        adjusted_forecasts[sku] = forecast
-                
-                else:
-                    # Mantener forecast original para productos activos
-                    adjusted_forecasts[sku] = forecast
-            else:
-                # Sin información de validación, mantener original
-                adjusted_forecasts[sku] = forecast
-        
-        self.logger.info(f"Ajustes post-forecasting aplicados: {adjustments_made} modificaciones")
-        
-        return adjusted_forecasts
-    
-    def get_lifecycle_summary(self, validation_results: Dict[str, Dict]) -> Dict:
-        """
-        Obtener resumen detallado de la validación de ciclo de vida.
-        
-        Args:
-            validation_results (Dict[str, Dict]): Resultados de validación
-            
-        Returns:
-            Dict: Resumen detallado
-        """
-        if not self.enable_lifecycle_validation or not validation_results:
-            return {}
-        
-        return self.lifecycle_validator.get_validation_summary(validation_results)
+
 
     def __enter__(self):
         return self

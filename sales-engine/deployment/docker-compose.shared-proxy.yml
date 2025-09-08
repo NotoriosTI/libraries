@@ -12,8 +12,6 @@
 #   Start the shared proxy: docker-compose -f docker-compose.shared-proxy.yml up -d
 #   Stop the shared proxy: docker-compose -f docker-compose.shared-proxy.yml down
 #
-version: '3.8'
-
 services:
   # Shared Cloud SQL Auth Proxy service
   # This proxy is used by both Product Engine and Sales Engine

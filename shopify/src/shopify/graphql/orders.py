@@ -1,12 +1,12 @@
 import re
-from .api_shopify_admin import ShopifyAdminAPI
 import pandas as pd
 import requests
 import json
+from .api import ShopifyAPI
 
-class ShopifyOrders(ShopifyAdminAPI):
-    def __init__(self, shop_url=None, api_password=None, api_version=None):
-        super().__init__(shop_url, api_password, api_version)
+class ShopifyOrders(ShopifyAPI):
+    def __init__(self, shop_url=None, api_password=None, api_version="2025-01", agent="emilia"):
+        super().__init__(shop_url, api_password, api_version, agent)
         
         if not hasattr(self, "execute_graphql"):
             print("ADVERTENCIA: execute_graphql no encontrado en la instancia, definiendo manualmente")
@@ -34,6 +34,54 @@ class ShopifyOrders(ShopifyAdminAPI):
 
 # CRUD - GraphQL versions
 
+    def cancel_order(self, order_id, reason=None):
+        """
+        Cancel an order (Shopify doesn't allow deleting orders)
+        
+        Args:
+            order_id (str): Order ID to cancel
+            reason (str): Reason for cancellation (optional)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        mutation = """
+        mutation CancelOrder($id: ID!, $reason: OrderCancelReason) {
+          orderCancel(input: {id: $id, reason: $reason}) {
+            order {
+              id
+              cancelledAt
+              displayFinancialStatus
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+        """
+        
+        # Valid reasons: CUSTOMER, INVENTORY, FRAUD, DECLINED, OTHER
+        if reason and reason not in ["CUSTOMER", "INVENTORY", "FRAUD", "DECLINED", "OTHER"]:
+            reason = "OTHER"
+            
+        variables = {
+            "id": f"gid://shopify/Order/{order_id}",
+            "reason": reason
+        }
+        
+        result = self.execute_graphql(mutation, variables)
+        
+        if "errors" in result:
+            print(f"GraphQL Error: {result['errors']}")
+            return False
+            
+        user_errors = result["data"]["orderCancel"]["userErrors"]
+        if user_errors:
+            print(f"Failed to cancel order: {user_errors}")
+            return False
+            
+        return True
 
     def create_checkout_permalink(self, products_data, email, phone):
         """

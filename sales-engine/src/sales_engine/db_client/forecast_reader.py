@@ -184,10 +184,8 @@ class ForecastReader:
         
         try:
             with self.get_connection() as conn:
-                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
-                from sqlalchemy import create_engine
-                engine = create_engine('postgresql://', creator=lambda: conn)
-                df = pd.read_sql_query(query, engine, params=(month, year))
+                # Usar directamente psycopg2 para evitar problemas de parámetros
+                df = pd.read_sql_query(query, conn, params=[month, year])
                 
                 logger.success(f"Forecasts detallados obtenidos exitosamente", 
                              month=month, 
@@ -251,10 +249,8 @@ class ForecastReader:
         
         try:
             with self.get_connection() as conn:
-                # Convertir la conexión psycopg2 a SQLAlchemy para evitar warnings
-                from sqlalchemy import create_engine
-                engine = create_engine('postgresql://', creator=lambda: conn)
-                df = pd.read_sql_query(base_query, engine, params=params)
+                # Usar directamente psycopg2 para evitar problemas de parámetros
+                df = pd.read_sql_query(base_query, conn, params=params)
                 
                 if df.empty:
                     logger.warning(f"No se encontraron forecasts para SKU {sku}", month=month)

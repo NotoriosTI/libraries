@@ -5,6 +5,7 @@ import xmlrpc.client
 from pprint import pprint
 import csv
 import logging
+from typing import Literal, List
 
 class OdooProduct(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
@@ -460,125 +461,26 @@ class OdooProduct(OdooAPI):
 
         except Exception as e:
             raise Exception(f"Error al procesar el archivo CSV o al validar el ajuste de inventario: {e}")
-
-# Este método debe reemplazar al existente en tu clase OdooProduct dentro de product.py
-
-    def create_production_orders(self, df_production):
-        """
-        Crea órdenes de producción en Odoo basándose en el DataFrame dado.
-        El SKU en el DataFrame debe corresponder al product.product (variante o producto sin variantes).
-        Busca BOMs de forma flexible: primero por variante específica, luego por plantilla genérica.
-        """
-        output = ''
-        for index, row in df_production.iterrows():
-            sku = str(row['SKU']).strip() # SKU del product.product
-            quantity = row['TOTAL PRODUCCIÓN']
-            picking_quantity = row['A PRODUCIR PICKING (1 MES)']
-
-            # 1. Obtener detalles del producto (product.product) y su plantilla asociada
-            #    El método read_product busca en product.product por default_code (SKU)
-            product_details_list = self.read_product(sku)
-
-            if isinstance(product_details_list, str) or not product_details_list:
-                output += f"SKU {sku}: Producto (variante) no encontrado o error al leer detalles ({product_details_list}). Se omite orden.\n"
-                continue
-            
-            product_data = product_details_list[0] # Tomamos el primer resultado
-
-            if 'id' not in product_data or 'product_tmpl_id' not in product_data:
-                output += f"SKU {sku}: No se pudieron obtener ID de producto o ID de plantilla. Detalles: {product_data}. Se omite orden.\n"
-                continue
-
-            product_variant_id = product_data['id'] # ID del product.product (variante)
-            product_template_info = product_data.get('product_tmpl_id') # Es una tupla [id, nombre_display]
-            product_template_id = product_template_info[0] if product_template_info else None
-
-            # 2. Lógica mejorada para buscar la BOM activa
-            bom_id_to_use = None
-            bom_search_result_ids = []
-
-            # 2a. Intentar buscar BOM activa por product.product (variante específica)
-            if product_variant_id:
-                bom_search_result_ids = self.models.execute_kw(
-                    self.db, self.uid, self.password,
-                    'mrp.bom', 'search',
-                    [[('product_id', '=', product_variant_id), ('active', '=', True)]],
-                    {'limit': 1} 
-                )
-            
-            if bom_search_result_ids:
-                bom_id_to_use = bom_search_result_ids[0]
-                # print(f"DEBUG: BOM encontrada por variante para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
-            else:
-                # 2b. Si no se encontró por variante, intentar por product.template (plantilla)
-                #     Asegurándose de que sea una BOM genérica de plantilla (product_id = False) y activa.
-                if product_template_id:
-                    # print(f"DEBUG: Buscando BOM para SKU {sku} por product_tmpl_id (plantilla): {product_template_id}") # Para depuración
-                    bom_search_result_ids = self.models.execute_kw(
-                        self.db, self.uid, self.password,
-                        'mrp.bom', 'search',
-                        [[('product_tmpl_id', '=', product_template_id),
-                          ('product_id', '=', False), 
-                          ('active', '=', True)]],
-                        {'limit': 1}
-                    )
-                
-                if bom_search_result_ids:
-                    bom_id_to_use = bom_search_result_ids[0]
-                    # print(f"DEBUG: BOM encontrada por plantilla para SKU {sku}. BOM ID: {bom_id_to_use}") # Para depuración
-
-            if not bom_id_to_use:
-                output += f"SKU {sku}: No se encontró una Lista de Materiales activa (ni por variante específica ni por plantilla genérica). Se omite creación de orden.\n"
-                continue
-            
-            # 4. Crear la orden de producción para la variante específica
-            production_order_vals = {
-                'product_id': product_variant_id, # MUY IMPORTANTE: la orden es para el product.product (variante)
-                'product_qty': quantity,
-                'bom_id': bom_id_to_use,
-                'location_dest_id': 8, # Ubicación destino hardcodeada (Stock Total Juan Sabaj)
-                # Considerar añadir 'company_id' si es un entorno multi-compañía
-            }
-
-            try:
-                production_order_id = self.models.execute_kw(self.db, self.uid, self.password, 'mrp.production', 'create', [production_order_vals])
-                output += f"SKU {sku}: Orden de producción creada con ID: {production_order_id} para la variante ID: {product_variant_id}.\n"
-
-                # 5. Crear transferencia interna de picking (lógica existente)
-                source_location_id = 8
-                destination_location_id = 29
-                picking_type_id_internal = 5 # ID para 'transferencia-interna'
-                
-                picking_vals = {
-                    'location_id': source_location_id,
-                    'location_dest_id': destination_location_id,
-                    'picking_type_id': picking_type_id_internal,
-                }
-                picking_id = self.models.execute_kw(self.db, self.uid, self.password, 'stock.picking', 'create', [picking_vals])
-
-                move_vals = {
-                    'product_id': product_variant_id, # El movimiento es para la variante
-                    'product_uom_qty': picking_quantity,
-                    'name': f'Picking para OP del SKU {sku}',
-                    'picking_id': picking_id,
-                    'location_id': source_location_id,
-                    'location_dest_id': destination_location_id,
-                }
-                self.models.execute_kw(self.db, self.uid, self.password, 'stock.move', 'create', [move_vals])
-                output += f"SKU {sku}: Transferencia interna (ID: {picking_id}) para picking creada.\n"
-
-            except Exception as e_create:
-                output += f"SKU {sku}: Error al crear orden de producción o picking: {str(e_create)}\n"
-            
-        return output
     
     # ---Lógica simplificada para Juan---
     def get_id_by_sku(self, sku):
         """
         Retrieve the product ID based on the SKU.
+        Accepts both individual SKUs and lists of SKUs.
 
-        :param sku: The SKU of the product
-        :return: The ID of the product or None if not found
+        :param sku: The SKU of the product (string) or list of SKUs
+        :return: Dictionary with product data or list of dictionaries for multiple SKUs
+        """
+        # Si es una lista, procesar múltiples SKUs
+        if isinstance(sku, list):
+            return self._get_ids_by_sku_list(sku)
+        
+        # Si es un string, procesar SKU individual (comportamiento original)
+        return self._get_id_by_single_sku(sku)
+    
+    def _get_id_by_single_sku(self, sku):
+        """
+        Retrieve the product ID for a single SKU.
         """
         model = 'product.product'  # or 'product.template' based on your Odoo setup
         domain = [('default_code', '=', sku)]  # 'default_code' is typically used for SKU
@@ -608,8 +510,258 @@ class OdooProduct(OdooAPI):
             product_data['status'] = 'error'
             product_data['message'] = f'Producto no encontrado'
             return product_data
+    
+    def _get_ids_by_sku_list(self, skus):
+        """
+        Retrieve product IDs for multiple SKUs.
+        """
+        model = 'product.product'
+        domain = [('default_code', 'in', skus)]
+        fields = ['id', 'default_code']
+
+        result = {
+            'status': 'success',
+            'message': f'Procesados {len(skus)} SKUs',
+            'total_skus': len(skus),
+            'found_products': [],
+            'not_found_skus': []
+        }
+
+        try:
+            products = self.models.execute_kw(self.db, self.uid, self.password, model, 'search_read', [domain], {'fields': fields})
+            
+            # Crear un diccionario para búsqueda rápida
+            found_skus = {product['default_code']: product['id'] for product in products}
+            
+            # Procesar cada SKU
+            for sku in skus:
+                if sku in found_skus:
+                    result['found_products'].append({
+                        'sku': sku,
+                        'product_id': found_skus[sku],
+                        'status': 'found'
+                    })
+                else:
+                    result['not_found_skus'].append(sku)
+                    result['found_products'].append({
+                        'sku': sku,
+                        'product_id': None,
+                        'status': 'not_found'
+                    })
+            
+            # Actualizar mensaje final
+            found_count = len([p for p in result['found_products'] if p['status'] == 'found'])
+            not_found_count = len(result['not_found_skus'])
+            
+            if not_found_count > 0:
+                result['status'] = 'partial_success'
+                result['message'] = f'Encontrados {found_count} productos, {not_found_count} no encontrados'
+            else:
+                result['message'] = f'Todos los {found_count} productos encontrados'
+                
+        except Exception as e:
+            print(f"Error al obtener los IDs de los productos: {e}")
+            result['status'] = 'error'
+            result['message'] = f'Error al obtener los IDs de los productos: {e}'
         
+        return result
+        
+    def get_bom_lines(self, bom_id):
+        """
+        Obtiene las líneas de BOM para una o múltiples BOMs.
+        Accepts both individual BOM IDs and lists of BOM IDs.
+
+        :param bom_id: The BOM ID (int) or list of BOM IDs
+        :return: List of BOM lines or structured result for multiple BOMs
+        """
+        # Si es una lista, procesar múltiples IDs
+        if isinstance(bom_id, list):
+            return self._get_bom_lines_by_id_list(bom_id)
+        
+        # Si es un entero, procesar ID individual (comportamiento original)
+        return self._get_bom_lines_by_single_id(bom_id)
+    
+    def _get_bom_lines_by_single_id(self, bom_id):
+        """
+        Obtiene las líneas de BOM para un ID específico.
+        """
+        bom_lines = self.models.execute_kw(
+            self.db, self.uid, self.password,
+            'mrp.bom.line', 'search_read',
+            [[('bom_id', '=', bom_id)]],
+            {'fields': ['product_id', 'product_qty', 'bom_id']}
+        )
+        return bom_lines
+    
+    def _get_bom_lines_by_id_list(self, bom_ids):
+        """
+        Obtiene las líneas de BOM para múltiples IDs.
+        """
+        result = {
+            'status': 'success',
+            'message': f'Procesadas {len(bom_ids)} BOMs',
+            'total_boms': len(bom_ids),
+            'bom_lines': {},
+            'not_found_boms': []
+        }
+
+        try:
+            # Buscar todas las líneas de BOM para los IDs en una sola consulta
+            domain = [('bom_id', 'in', bom_ids)]
+            all_bom_lines = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.bom.line', 'search_read',
+                [domain],
+                {'fields': ['product_id', 'product_qty', 'bom_id']}
+            )
+            
+            # Agrupar líneas por BOM ID
+            for bom_id in bom_ids:
+                bom_lines = [line for line in all_bom_lines if line['bom_id'] == bom_id]
+                if bom_lines:
+                    result['bom_lines'][bom_id] = {
+                        'status': 'found',
+                        'lines': bom_lines,
+                        'total_lines': len(bom_lines)
+                    }
+                else:
+                    result['bom_lines'][bom_id] = {
+                        'status': 'not_found',
+                        'lines': [],
+                        'total_lines': 0
+                    }
+                    result['not_found_boms'].append(bom_id)
+            
+            # Actualizar mensaje final
+            found_count = len([b for b in result['bom_lines'].values() if b['status'] == 'found'])
+            not_found_count = len(result['not_found_boms'])
+            
+            if not_found_count > 0:
+                result['status'] = 'partial_success'
+                result['message'] = f'Encontradas líneas para {found_count} BOMs, {not_found_count} sin líneas'
+            else:
+                result['message'] = f'Líneas encontradas para todas las {found_count} BOMs'
+                
+        except Exception as e:
+            print(f"Error al obtener las líneas de BOM: {e}")
+            result['status'] = 'error'
+            result['message'] = f'Error al obtener las líneas de BOM: {e}'
+        
+        return result
+
+    def get_bom_components(self, skus: List[str]):
+        """
+        Obtiene los componentes de BOM para cada SKU de manera independiente.
+        
+        :param skus: Lista de SKUs de productos
+        :return: Diccionario donde cada clave es un SKU y el valor es una lista de componentes con sus cantidades
+        """
+        components_result = {}
+        
+        for sku in skus:
+            try:
+                # 1. Buscar el ID del producto por SKU
+                product_result = self.get_id_by_sku(sku)
+                
+                if not product_result or product_result.get('status') != 'success':
+                    components_result[sku] = []
+                    continue
+                
+                product_id = product_result.get('product_id')
+                if not product_id:
+                    components_result[sku] = []
+                    continue
+                
+                # 2. Buscar la BOM del producto
+                bom_ids = self.models.execute_kw(
+                    self.db, self.uid, self.password, 
+                    'mrp.bom', 'search',
+                    [['|', ['product_id', '=', product_id], ['product_tmpl_id.product_variant_ids', '=', product_id]]],
+                    {'limit': 1}
+                )
+                
+                if not bom_ids:
+                    components_result[sku] = []
+                    continue
+                
+                bom_id = bom_ids[0]
+                
+                # 3. Leer las líneas de la BOM
+                bom_data = self.models.execute_kw(
+                    self.db, self.uid, self.password, 
+                    'mrp.bom', 'read', 
+                    [bom_id], 
+                    {'fields': ['bom_line_ids']}
+                )
+                
+                if not bom_data or not bom_data[0]['bom_line_ids']:
+                    components_result[sku] = []
+                    continue
+                
+                component_line_ids = bom_data[0]['bom_line_ids']
+                
+                # 4. Obtener información de las líneas de componentes
+                lines_data = self.models.execute_kw(
+                    self.db, self.uid, self.password, 
+                    'mrp.bom.line', 'read', 
+                    [component_line_ids], 
+                    {'fields': ['product_id', 'product_qty']}
+                )
+                
+                if not lines_data:
+                    components_result[sku] = []
+                    continue
+                
+                component_product_ids = [line['product_id'][0] for line in lines_data]
+                
+                # 5. Obtener los SKUs de los componentes
+                components_data = self.models.execute_kw(
+                    self.db, self.uid, self.password, 
+                    'product.product', 'read', 
+                    [component_product_ids], 
+                    {'fields': ['id', 'default_code', 'display_name']}
+                )
+                
+                # Crear mapeo de product_id a SKU
+                product_id_to_sku = {component['id']: component['default_code'] for component in components_data}
+                
+                # 6. Crear lista de componentes con SKU y cantidad
+                component_list = []
+                for line in lines_data:
+                    product_id_component = line['product_id'][0]
+                    sku_component = product_id_to_sku.get(product_id_component)
+                    qty_component = line['product_qty']
+                    
+                    if sku_component:
+                        component_list.append({
+                            'sku': sku_component,
+                            'quantity': qty_component
+                        })
+                
+                components_result[sku] = component_list
+                
+            except Exception as e:
+                print(f"Error procesando SKU {sku}: {e}")
+                components_result[sku] = []
+        
+        return components_result
+
     def get_bom_id_by_product_id(self, product_id):
+        """
+        Obtiene el ID de la BOM activa para un producto específico.
+        Accepts both individual product IDs and lists of product IDs.
+
+        :param product_id: The product ID (int) or list of product IDs
+        :return: Dictionary with BOM data or list of dictionaries for multiple products
+        """
+        # Si es una lista, procesar múltiples IDs
+        if isinstance(product_id, list):
+            return self._get_bom_ids_by_product_id_list(product_id)
+        
+        # Si es un entero, procesar ID individual (comportamiento original)
+        return self._get_bom_id_by_single_product_id(product_id)
+    
+    def _get_bom_id_by_single_product_id(self, product_id):
         """
         Obtiene el ID de la BOM activa para un producto específico.
         """
@@ -637,6 +789,64 @@ class OdooProduct(OdooAPI):
             bom_data['status'] = 'error'
             bom_data['message'] = f'BOM no encontrada'
             return bom_data
+    
+    def _get_bom_ids_by_product_id_list(self, product_ids):
+        """
+        Obtiene los IDs de las BOMs activas para múltiples productos.
+        """
+        result = {
+            'status': 'success',
+            'message': f'Procesados {len(product_ids)} productos',
+            'total_products': len(product_ids),
+            'found_boms': [],
+            'not_found_products': []
+        }
+
+        try:
+            # Buscar todas las BOMs activas para los productos en una sola consulta
+            domain = [('product_id', 'in', product_ids), ('active', '=', True)]
+            boms = self.models.execute_kw(
+                self.db, self.uid, self.password, 
+                'mrp.bom', 'search_read', 
+                [domain], 
+                {'fields': ['id', 'product_id']}
+            )
+            
+            # Crear un diccionario para búsqueda rápida
+            found_boms = {bom['product_id']: bom['id'] for bom in boms}
+            
+            # Procesar cada producto
+            for product_id in product_ids:
+                if product_id in found_boms:
+                    result['found_boms'].append({
+                        'product_id': product_id,
+                        'bom_id': found_boms[product_id],
+                        'status': 'found'
+                    })
+                else:
+                    result['not_found_products'].append(product_id)
+                    result['found_boms'].append({
+                        'product_id': product_id,
+                        'bom_id': None,
+                        'status': 'not_found'
+                    })
+            
+            # Actualizar mensaje final
+            found_count = len([b for b in result['found_boms'] if b['status'] == 'found'])
+            not_found_count = len(result['not_found_products'])
+            
+            if not_found_count > 0:
+                result['status'] = 'partial_success'
+                result['message'] = f'Encontradas {found_count} BOMs, {not_found_count} productos sin BOM'
+            else:
+                result['message'] = f'Todas las {found_count} BOMs encontradas'
+                
+        except Exception as e:
+            print(f"Error al obtener los IDs de las BOMs: {e}")
+            result['status'] = 'error'
+            result['message'] = f'Error al obtener los IDs de las BOMs: {e}'
+        
+        return result
 
     def create_stock_move(self, picking_data):
         """
@@ -758,13 +968,11 @@ class OdooProduct(OdooAPI):
         if debug:
             print(f"[ODOO_PRODUCT]: Obteniendo ID")
         product_info = self.get_id_by_sku(product_sku)
-        print(f"PROD_INFO_POST_ID = {product_info}")
         if product_info['status'] == 'error':
             production_order_data['status'] = 'error'
             production_order_data['message'] = f'Error al obtener el ID del producto'
             return production_order_data
         production_order_data['product_data'] = product_info
-        print(f"PROD_ORDER_DATA = {production_order_data}")
 
         # 3. Obtener el ID de la BOM
         if debug:
@@ -826,10 +1034,39 @@ class OdooProduct(OdooAPI):
         if debug:
             print(f"Orden de producción creada con éxito")
 
-        print(f"[ODOO PRODUCTION ORDER DATA]: {production_order_data}")
-        picking_id = production_order_data['picking_data']['picking_id']
-        print(f"[ODOO PICKING ID]: {picking_id}")
         return production_order_data
+        
+    def create_production_orders(self, production_orders: list[dict]) -> list[dict]:
+        """
+        Crea varias ordenes de producción en Odoo.
+        args: production_orders: lista de diccionarios con los datos de las ordenes de producción
+        output: lista de diccionarios con los datos de las ordenes de producción creadas
+        """
+        created_orders = []
+        for i, order in enumerate(production_orders, start=1):
+            product_sku = order.get('product_sku', None)
+            product_qty = order.get('product_qty', None)
+            picking_qty = order.get('picking_qty', None)
+
+            if product_sku is None:
+                print(f"No se puede crear la orden de producción #{i} porque no se proporcionó el SKU")
+                continue
+            if product_qty is None:
+                print(f"No se puede crear la orden de producción #{i} para el SKU {product_sku} porque no se proporcionó la cantidad de producto")
+                continue
+            if picking_qty is None:
+                print(f"No se puede crear la orden de producción #{i} para el SKU {product_sku} porque no se proporcionó la cantidad de picking")
+                continue
+            
+            created_order = self.create_single_production_order(product_sku, product_qty, picking_qty)
+            if created_order['status'] == 'success':
+                print(f"Orden de producción #{i} creada con éxito")
+            else:
+                print(f"Error al crear la orden de producción #{i}: {created_order['message']}")
+            created_orders.append(created_order)
+        return created_orders
+
+
         
     def search_production_orders(self, sku):
             # Use the read_product function to get the product ID
@@ -879,8 +1116,21 @@ class OdooProduct(OdooAPI):
     def get_sku_by_id(self, product_id):
         """
         Get the product SKU by ID
-        :param product_id: The ID of the product
-        :return: The SKU (default_code) of the product or None if not found
+        Accepts both individual product IDs and lists of product IDs.
+
+        :param product_id: The product ID (int/float/str) or list of product IDs
+        :return: The SKU (default_code) of the product, list of SKUs, or None if not found
+        """
+        # Si es una lista, procesar múltiples IDs
+        if isinstance(product_id, list):
+            return self._get_skus_by_id_list(product_id)
+        
+        # Si es un valor individual, procesar ID individual (comportamiento original)
+        return self._get_sku_by_single_id(product_id)
+    
+    def _get_sku_by_single_id(self, product_id):
+        """
+        Get the product SKU by a single ID
         """
         if product_id is None:
             return None
@@ -902,6 +1152,91 @@ class OdooProduct(OdooAPI):
             return product[0]['default_code']  # Return the SKU of the first product found
         else:
             return None
+    
+    def _get_skus_by_id_list(self, product_ids):
+        """
+        Get the product SKUs by a list of IDs
+        """
+        result = {
+            'status': 'success',
+            'message': f'Procesados {len(product_ids)} productos',
+            'total_products': len(product_ids),
+            'found_skus': [],
+            'not_found_ids': []
+        }
+
+        try:
+            # Validar y convertir IDs
+            valid_ids = []
+            for product_id in product_ids:
+                try:
+                    valid_ids.append(int(float(product_id)))
+                except (ValueError, TypeError):
+                    print(f"Invalid product ID: {product_id}")
+                    result['not_found_ids'].append(product_id)
+                    result['found_skus'].append({
+                        'product_id': product_id,
+                        'sku': None,
+                        'status': 'invalid_id'
+                    })
+            
+            if not valid_ids:
+                result['status'] = 'error'
+                result['message'] = 'No hay IDs válidos para procesar'
+                return result
+            
+            # Buscar todos los productos en una sola consulta
+            model = 'product.product'
+            domain = [('id', 'in', valid_ids)]
+            fields = ['id', 'default_code']
+            
+            products = self.models.execute_kw(
+                self.db, self.uid, self.password, 
+                model, 'search_read', 
+                [domain], 
+                {'fields': fields}
+            )
+            
+            # Crear un diccionario para búsqueda rápida
+            found_skus = {product['id']: product['default_code'] for product in products}
+            
+            # Procesar cada ID
+            for product_id in product_ids:
+                try:
+                    valid_id = int(float(product_id))
+                    if valid_id in found_skus:
+                        result['found_skus'].append({
+                            'product_id': product_id,
+                            'sku': found_skus[valid_id],
+                            'status': 'found'
+                        })
+                    else:
+                        result['not_found_ids'].append(product_id)
+                        result['found_skus'].append({
+                            'product_id': product_id,
+                            'sku': None,
+                            'status': 'not_found'
+                        })
+                except (ValueError, TypeError):
+                    # Ya se procesó arriba
+                    continue
+            
+            # Actualizar mensaje final
+            found_count = len([s for s in result['found_skus'] if s['status'] == 'found'])
+            not_found_count = len(result['not_found_ids'])
+            
+            if not_found_count > 0:
+                result['status'] = 'partial_success'
+                result['message'] = f'Encontrados {found_count} SKUs, {not_found_count} productos no encontrados'
+            else:
+                result['message'] = f'Todos los {found_count} SKUs encontrados'
+                
+        except Exception as e:
+            print(f"Error al obtener los SKUs: {e}")
+            result['status'] = 'error'
+            result['message'] = f'Error al obtener los SKUs: {e}'
+        
+        return result
     
     def get_skus_by_name_flexible(self, partial_name) -> list[dict]:
         """
@@ -1121,19 +1456,32 @@ class OdooProduct(OdooAPI):
     def confirm_production_order(self, production_order_id: int, picking_id: int):
         """
         Confirms a draft Manufacturing order(MO) using it's id
-        :param mo_id: ID of the MO to confirm
+        :param production_order_id: ID of the MO to confirm
         :param picking_id: ID of the picking to confirm
-        :return: True if correctly confirmed False if error occurs
+        :return: Dictionary with confirmation status and production order name
         """
 
         production_order_confirmation_data = {
             "status": None,
             "production_order_id": production_order_id,
             "picking_id": picking_id,
+            "production_order_name": None,
             "message": None,
         }
 
         try:
+            # Primero obtenemos el nombre de la orden de producción
+            mo_data = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'read',
+                [[production_order_id]],
+                {'fields': ['name']}
+            )
+            
+            if mo_data:
+                production_order_confirmation_data["production_order_name"] = mo_data[0]['name']
+
+            # Confirmamos la orden de producción
             order_result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'mrp.production', 'action_confirm',
@@ -1141,6 +1489,7 @@ class OdooProduct(OdooAPI):
             )
             production_order_confirmation_data["order_result"] = order_result
 
+            # Confirmamos el picking
             picking_result = self.models.execute_kw(
                 self.db, self.uid, self.password,
                 'stock.picking', 'action_confirm',
@@ -1150,11 +1499,11 @@ class OdooProduct(OdooAPI):
 
         except Exception as e:
             production_order_confirmation_data["status"] = "error"
-            production_order_confirmation_data["message"] = f"Error al confirmar la orden de producción: {e}"
+            production_order_confirmation_data["message"] = f"Error al procesar la orden de producción: {e}"
             return production_order_confirmation_data
         
         production_order_confirmation_data["status"] = "success"
-        production_order_confirmation_data["message"] = f"Orden de producción {production_order_id} confirmada correctamente"
+        production_order_confirmation_data["message"] = f"Orden de producción {production_order_confirmation_data['production_order_name']} confirmada correctamente"
         return production_order_confirmation_data
     
     def get_active_skus(self) -> set[str]:
@@ -1358,3 +1707,302 @@ class OdooProduct(OdooAPI):
         
         return df
     
+    def get_product_suppliers_by_skus(self, skus: list[str]) -> dict[str, dict[str, dict[str, str]]]:
+        """
+        Obtiene los proveedores por lista de SKUs usando DataFrames internamente y
+        devuelve un diccionario anidado con el formato:
+
+        {
+          sku: {
+            supplier_id: {
+              'supplier_name': str,
+              'supplier_vat': str,
+              'supplier_code': str,
+              'min_qty': float,
+              'price': float,
+              'currency_id': int|None,
+              'currency_name': str,
+              'currency_symbol': str,
+              'delay': int,
+              'date_start': str|None,
+              'date_end': str|None
+            },
+            ...
+          },
+          ...
+        }
+
+        Nota: La búsqueda de proveedores se hace por product_tmpl_id (template).
+        """
+        try:
+            if not skus:
+                return {}
+
+            # Buscar los productos por SKU y obtener sus templates
+            product_records = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search_read',
+                [[['default_code', 'in', skus]]],
+                {'fields': ['id', 'default_code', 'name', 'product_tmpl_id']}
+            )
+            if not product_records:
+                return {}
+
+            # Mapear template_id a info de producto
+            tmpl_to_product = {}
+            for prod in product_records:
+                tmpl_id = prod['product_tmpl_id'][0] if prod.get('product_tmpl_id') else None
+                if tmpl_id:
+                    tmpl_to_product[tmpl_id] = {
+                        'product_id': prod['id'],
+                        'product_sku': prod.get('default_code', ''),
+                        'product_name': prod.get('name', '')
+                    }
+            template_ids = list(tmpl_to_product.keys())
+            if not template_ids:
+                return {}
+
+            # Buscar supplierinfo por template
+            supplierinfo_ids = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.supplierinfo', 'search',
+                [[['product_tmpl_id', 'in', template_ids]]]
+            )
+            if not supplierinfo_ids:
+                return {}
+
+            # Leer los registros de supplierinfo
+            supplier_info = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.supplierinfo', 'read',
+                [supplierinfo_ids],
+                {'fields': [
+                    'product_tmpl_id',
+                    'partner_id',
+                    'product_code',
+                    'min_qty',
+                    'price',
+                    'currency_id',
+                    'delay',
+                    'date_start',
+                    'date_end'
+                ]}
+            )
+
+            # Obtener información de las monedas
+            currency_ids = list(set([
+                info['currency_id'][0] for info in supplier_info
+                if info.get('currency_id')
+            ]))
+            currencies = {}
+            if currency_ids:
+                currencies_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'res.currency', 'read',
+                    [currency_ids],
+                    {'fields': ['id', 'name', 'symbol']}
+                )
+                currencies = {
+                    currency['id']: {
+                        'name': currency.get('name', ''),
+                        'symbol': currency.get('symbol', '')
+                    }
+                    for currency in currencies_data
+                }
+
+            # Obtener todos los partner_ids únicos para leer VAT
+            partner_ids = list(set([
+                info['partner_id'][0] for info in supplier_info
+                if info.get('partner_id') and isinstance(info['partner_id'], list)
+            ]))
+            partners = {}
+            if partner_ids:
+                partners_data = self.models.execute_kw(
+                    self.db, self.uid, self.password,
+                    'res.partner', 'read',
+                    [partner_ids],
+                    {'fields': ['id', 'vat']}
+                )
+                partners = {p['id']: p.get('vat', '') for p in partners_data}
+
+            # Construir el DataFrame con toda la información
+            supplier_data = []
+            for info in supplier_info:
+                tmpl_id = info['product_tmpl_id'][0] if info.get('product_tmpl_id') else None
+                partner_id = info.get('partner_id')
+                if partner_id and isinstance(partner_id, list):
+                    supplier_id = partner_id[0]
+                    supplier_name = partner_id[1]
+                else:
+                    supplier_id = None
+                    supplier_name = None
+                currency_id = info['currency_id'][0] if info.get('currency_id') else None
+                supplier_vat = partners.get(supplier_id, '') if supplier_id else ''
+
+                if tmpl_id and tmpl_id in tmpl_to_product:
+                    row = {
+                        'product_id': tmpl_to_product[tmpl_id]['product_id'],
+                        'product_sku': tmpl_to_product[tmpl_id]['product_sku'],
+                        'product_name': tmpl_to_product[tmpl_id]['product_name'],
+                        'supplier_id': supplier_id,
+                        'supplier_name': supplier_name,
+                        'supplier_vat': supplier_vat,
+                        'supplier_code': info.get('product_code', ''),
+                        'min_qty': info.get('min_qty', 0.0),
+                        'price': info.get('price', 0.0),
+                        'currency_id': currency_id,
+                        'currency_name': currencies.get(currency_id, {}).get('name', '') if currency_id else '',
+                        'currency_symbol': currencies.get(currency_id, {}).get('symbol', '') if currency_id else '',
+                        'delay': int(row.get('delay') or 0),
+                        'date_start': row.get('date_start'),
+                        'date_end': row.get('date_end'),
+                    }
+                    supplier_data.append(row)
+
+            df = pd.DataFrame(supplier_data)
+            if df.empty:
+                return {}
+
+            # Ordenar y limpiar datos
+            df = df.sort_values(['product_sku', 'supplier_name'])
+
+            # Filtrar filas sin supplier_id
+            df = df[df['supplier_id'].notna()]
+
+            # Construir diccionario anidado {sku: {supplier_id: info}}
+            result: dict[str, dict[str, dict[str, object]]] = {}
+            for sku, sku_df in df.groupby('product_sku'):
+                suppliers_map: dict[str, dict[str, object]] = {}
+                for _, row in sku_df.iterrows():
+                    supplier_id_val = row['supplier_id']
+                    if pd.isna(supplier_id_val):
+                        continue
+                    supplier_key = str(int(supplier_id_val)) if isinstance(supplier_id_val, (int, float)) else str(supplier_id_val)
+
+                    suppliers_map[supplier_key] = {
+                        'supplier_name': row.get('supplier_name') or '',
+                        'supplier_vat': row.get('supplier_vat') or '',
+                        'supplier_code': row.get('supplier_code') or '',
+                        'min_qty': float(row.get('min_qty') or 0.0),
+                        'price': float(row.get('price') or 0.0),
+                        'currency_id': int(row.get('currency_id')) if pd.notna(row.get('currency_id')) and row.get('currency_id') is not None else None,
+                        'currency_name': row.get('currency_name') or '',
+                        'currency_symbol': row.get('currency_symbol') or '',
+                        'delay': int(row.get('delay') or 0),
+                        'date_start': row.get('date_start'),
+                        'date_end': row.get('date_end'),
+                    }
+                if suppliers_map:
+                    result[str(sku)] = suppliers_map
+
+            return result
+        except Exception as e:
+            raise RuntimeError(f"Error al obtener proveedores de productos por SKUs (por template): {str(e)}") from e
+    
+    def has_bom(self, sku: str) -> bool:
+        """
+        Verifica si un producto tiene un BOM (Bill of Materials) activo.
+        
+        Args:
+            sku: SKU del producto a verificar
+        
+        Returns:
+            bool: True si el producto tiene un BOM activo, False en caso contrario
+        """
+        try:
+            # Buscar directamente productos con BOMs activos que coincidan con el SKU
+            products_with_bom = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'product.product', 'search',
+                [[
+                    ('default_code', '=', sku),
+                    ('bom_ids.active', '=', True)
+                ]],
+                {'limit': 1}
+            )
+            
+            return bool(products_with_bom)
+            
+        except Exception as e:
+            print(f"Error al verificar BOM para SKU {sku}: {e}")
+            return False
+    
+    def get_active_production_orders(self) -> list[dict]:
+        """
+        Obtiene los pedidos de producción activos.
+        
+        Returns:
+            Lista de pedidos de producción activos
+        """
+
+        try:
+            production_orders = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'mrp.production', 'search_read',
+                [[('state', 'in', ['confirmed', 'progress', 'to_close'])]],
+                {'fields': ['id', 'name', 'state', 'product_id', 'product_qty']}
+            )
+
+            for order in production_orders:
+                sku = order.get('product_id', {})[1]
+                sku = sku.split('[')[1]
+                sku = sku.split(']')[0]
+                order['product_sku'] = sku
+
+            return production_orders
+        except Exception as e:
+            raise RuntimeError(f"Error al obtener pedidos de producción activos: {str(e)}") from e
+    
+    def execute_odoo_query(
+            self,  # Instancia de la clase OdooProduct
+            model: Literal[
+                'mrp.production', 
+                'product.product', 
+                'product.supplierinfo', 
+                'res.currency', 
+                'res.partner', 
+                'mrp.bom',
+                'mrp.bom.line',
+                'product.tag',
+                'stock.quant',
+                'product.category',
+                'stock.change.product.qty',
+                'mrp.routing.workcenter',
+                'stock.inventory',
+                'stock.inventory.line',
+                'stock.move',
+                'stock.picking',
+                'product.template.attribute.value'
+            ],
+            method: Literal[  # Método de Odoo a ejecutar
+                'search', 
+                'search_read', 
+                'read', 
+                'create', 
+                'write', 
+                'unlink',
+                'search_count',
+                'fields_get',
+                'action_confirm',
+                'action_assign',
+                'change_product_qty'
+            ],
+            args: list = [],  # Lista de argumentos para el método Odoo
+            kwargs: dict = {}  # Diccionario de argumentos nombrados para el método Odoo
+        ) -> list | dict | bool | int | None:
+            return self.models.execute_kw(
+                self.db, self.uid, self.password,
+                model, method, args, kwargs
+            )
+
+if __name__ == "__main__":
+    from config_manager import secrets
+    odoo_product = OdooProduct(
+        db=secrets.ODOO_PROD_DB,
+        url=secrets.ODOO_PROD_URL,
+        username=secrets.ODOO_PROD_USERNAME,
+        password=secrets.ODOO_PROD_PASSWORD
+    )
+
+    production_orders = odoo_product.get_active_production_orders()
+    print(production_orders)
