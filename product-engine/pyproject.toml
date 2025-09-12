@@ -15,8 +15,8 @@ dependencies = [
     "structlog>=24.0.0",
     "openai>=1.0.0",
     "pgvector>=0.2.0",
-    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
+    "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=odoo-api",
+    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
 ]
 
 [project.optional-dependencies]
