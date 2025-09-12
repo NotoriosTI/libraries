@@ -1,6 +1,6 @@
 [project]
 name = "config-manager"
-version = "1.2.0"
+version = "1.3.0"
 description = "Centralized configuration and secret management"
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
@@ -16,4 +16,3 @@ packages = [{ include = "config_manager", from = "src" }]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-

@@ -130,6 +130,9 @@ class Settings:
             self.EMMA_CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret('EMMA_CHATWOOT_ACCOUNT_ID', gcp_client)
             self.EMMA_CHATWOOT_TOKEN = self._fetch_gcp_secret('EMMA_CHATWOOT_TOKEN', gcp_client)
 
+            # OpenAI para EMMA
+            self.EMMA_OPENAI_API_KEY = self._fetch_gcp_secret('EMMA_OPENAI_API_KEY', gcp_client)
+
         elif self.ENVIRONMENT in ('local_container', 'local_machine'):
             # --- LOCAL MODES: Load from .env file using decouple ---
             if self.ENVIRONMENT == 'local_container':
@@ -224,6 +227,9 @@ class Settings:
             self.EMMA_CHATWOOT_BASE_URL = config('EMMA_CHATWOOT_BASE_URL', default='')
             self.EMMA_CHATWOOT_ACCOUNT_ID = config('EMMA_CHATWOOT_ACCOUNT_ID', default='')
             self.EMMA_CHATWOOT_TOKEN = config('EMMA_CHATWOOT_TOKEN', default='')
+
+            # OpenAI para EMMA
+            self.EMMA_OPENAI_API_KEY = config('EMMA_OPENAI_API_KEY', default='')
 
         else:
             raise ValueError(f"Unknown ENVIRONMENT: '{self.ENVIRONMENT}'. Must be one of 'production', 'local_container', or 'local_machine'.")
@@ -376,6 +382,12 @@ class Settings:
             'base_url': self.EMMA_CHATWOOT_BASE_URL,
             'account_id': self.EMMA_CHATWOOT_ACCOUNT_ID,
             'token': self.EMMA_CHATWOOT_TOKEN
+        }
+
+    def get_emma_openai_config(self) -> dict:
+        """Get EMMA OpenAI configuration."""
+        return {
+            'api_key': self.EMMA_OPENAI_API_KEY
         }
 
 # --- Create a single, project-wide instance to be imported everywhere ---
