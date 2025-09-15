@@ -1,5 +1,3 @@
-import os
-import config_manager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +19,8 @@ def get_pg_dsn() -> str:
     port = secrets.DB_PORT
     db = secrets.JUAN_DB_NAME
 
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+    pg_dsn = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+    return pg_dsn
 
 
 def main():
@@ -39,26 +38,21 @@ def main():
     # -----------------------
     # Odoo API client
     # -----------------------
-    odoo_url = os.getenv("ODOO_URL")
-    odoo_db = os.getenv("ODOO_DB")
-    odoo_user = os.getenv("ODOO_USER")
-    odoo_password = os.getenv("ODOO_PASSWORD")
+    odoo_url = secrets.ODOO_PROD_URL
+    odoo_db = secrets.ODOO_PROD_DB
+    odoo_user = secrets.ODOO_PROD_USERNAME
+    odoo_password = secrets.ODOO_PROD_PASSWORD
 
     if not all([odoo_url, odoo_db, odoo_user, odoo_password]):
         raise RuntimeError("❌ Missing required Odoo environment variables")
 
-    odoo_client = OdooClient(
-        url=odoo_url,
-        db=odoo_db,
-        username=odoo_user,
-        password=odoo_password,
-    )
+    odoo_client = OdooClient()
 
     # -----------------------
     # Run sync
     # -----------------------
     with Session() as session:
-        sync = SyncManager(session, odoo_client)
+        sync = SyncManager(odoo_client, session)
         sync.full_sync()
 
     print("✅ Full sync completed successfully!")

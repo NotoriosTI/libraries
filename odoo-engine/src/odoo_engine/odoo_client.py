@@ -12,7 +12,7 @@ class OdooClient:
         self.password = secrets.ODOO_PROD_PASSWORD
 
         # Parse host/port from URL (odoorpc needs host + port separately)
-        if self.url.startswith("http://")secrets.ODOO_PROD_PASSWORD
+        if self.url.startswith("http://"):
             host_port = self.url.replace("http://", "").split(":")
             protocol = "jsonrpc"
         elif self.url.startswith("https://"):
