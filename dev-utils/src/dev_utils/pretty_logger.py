@@ -82,14 +82,14 @@ class PrettyLogger:
     Beautiful logging class with colors, emojis, and structured formatting
     """
     
-    def __init__(self, service_name: str = "app", enable_colors: bool = True, 
+    def __init__(self, service_name: str = __name__, enable_colors: bool = True,
                  enable_timestamps: bool = True, min_level: LogLevel = LogLevel.INFO):
         self.service_name = service_name
         self.enable_colors = enable_colors and self._supports_color()
         self.enable_timestamps = enable_timestamps
         self.min_level = min_level
         self.start_time = time.time()
-        
+
         # Track progress and context
         self._current_step = 0
         self._total_steps = 0
@@ -234,15 +234,36 @@ class PrettyLogger:
         metric_text = f"{name}: {self._colorize(value_str, LogColors.BRIGHT_GREEN)}"
         self._log(LogLevel.INFO, f"📊 {metric_text}", **kwargs)
     
-    def progress(self, name: str, current: int, total: int, **kwargs):
-        """Log progress with a progress bar"""
+    def progress(self, name: str, current: int, total: int, update_previous: bool = False, lines_to_clear: int = 1, **kwargs):
+        """
+        Log progress with a progress bar
+
+        Args:
+            name: Name of the progress bar
+            current: Current progress value
+            total: Total progress value
+            update_previous: If True, moves cursor up and clears previous lines to update in place
+            lines_to_clear: Number of lines to clear when updating (default: 1)
+            **kwargs: Additional arguments passed to _log
+        """
         percentage = (current / total) * 100
         bar_width = 20
         filled = int(bar_width * current / total)
         bar = "█" * filled + "░" * (bar_width - filled)
-        
+
         progress_text = f"{name}: {self._colorize(bar, LogColors.BRIGHT_GREEN)} {percentage:.1f}% ({current:,}/{total:,})"
+
+        # Handle in-place progress bar updates
+        if update_previous:
+            # For subsequent calls, move up and clear the previous progress line
+            # This assumes the progress bar is 1 line above (most common case)
+            print(f"\033[1A\033[2K\r", end="", flush=True)
+
         self._log(LogLevel.INFO, f"⏳ {progress_text}", **kwargs)
+
+        # If we're updating in place and this is the final progress (100%), add a newline
+        if update_previous and current >= total:
+            print("", flush=True)
     
     def duration(self, message: str, start_time: float = None, **kwargs):
         """Log a message with duration"""
@@ -296,7 +317,7 @@ class PrettyLogger:
 
 
 # Global convenience functions
-_default_logger = PrettyLogger("app")
+_default_logger = PrettyLogger(__name__)
 
 def set_default_service(service_name: str):
     """Set the default service name for convenience functions"""
@@ -372,7 +393,7 @@ class timer:
 # Demo function
 def demo():
     """Demonstrate the pretty logger capabilities"""
-    logger = PrettyLogger("demo-service")
+    logger = PrettyLogger(__name__)
     
     logger.header("Pretty Logger Demo")
     
