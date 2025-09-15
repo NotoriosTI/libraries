@@ -12,6 +12,8 @@ dependencies = [
   "psycopg2-binary",
   "sqlalchemy (>=2.0)",
   "odoorpc (>=0.10.1,<0.11.0)",
+  "pandas (>=2.0,<3.0)",
+  "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@odoo-sync#subdirectory=dev-utils",
 ]
 
 [tool.poetry]

@@ -2,6 +2,7 @@ import logging
 from math import ceil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -95,6 +96,11 @@ class SyncManager:
 
         return results
 
+    def _id_map(self, model):
+        """Return dict mapping odoo_id -> local PK id for a given model."""
+        rows = self.session.execute(select(model.id, model.odoo_id)).all()
+        return {odoo_id: id_ for (id_, odoo_id) in rows}
+
     # ------------------------
     # Individual sync methods
     # ------------------------
@@ -130,10 +136,22 @@ class SyncManager:
         logger.info("✅ Synced %d Partners", len(data))
 
     def sync_products(self):
+        # Excluir productos de tipo servicio
         records = self._fetch_in_batches(
             "product.product",
-            ["id", "default_code", "name", "type", "sale_ok", "purchase_ok", "uom_id"],
+            [
+                "id",
+                "default_code",
+                "name",
+                "type",
+                "detailed_type",
+                "sale_ok",
+                "purchase_ok",
+                "uom_id",
+            ],
+            domain=[["detailed_type", "!=", "service"]],
         )
+        uom_map = self._id_map(UnitOfMeasure)
         data = [
             {
                 "odoo_id": rec["id"],
@@ -142,7 +160,7 @@ class SyncManager:
                 "type": rec.get("type"),
                 "sale_ok": rec.get("sale_ok", False),
                 "purchase_ok": rec.get("purchase_ok", False),
-                "uom_id": rec["uom_id"][0] if rec.get("uom_id") else None,
+                "uom_id": uom_map.get(rec["uom_id"][0]) if rec.get("uom_id") else None,
             }
             for rec in records
         ]
@@ -153,12 +171,14 @@ class SyncManager:
         records = self._fetch_in_batches(
             "mrp.bom", ["id", "product_id", "product_qty", "product_uom_id"]
         )
+        product_map = self._id_map(Product)
+        uom_map = self._id_map(UnitOfMeasure)
         data = [
             {
                 "odoo_id": rec["id"],
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
-                "quantity": rec.get("product_qty", 0),
-                "uom_id": rec["product_uom_id"][0]
+                "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
+                "product_qty": rec.get("product_qty", 0),
+                "uom_id": uom_map.get(rec["product_uom_id"][0])
                 if rec.get("product_uom_id")
                 else None,
             }
@@ -172,15 +192,16 @@ class SyncManager:
             "mrp.bom.line",
             ["id", "bom_id", "product_id", "product_qty", "product_uom_id"],
         )
+        bom_map = self._id_map(Bom)
+        product_map = self._id_map(Product)
+        uom_map = self._id_map(UnitOfMeasure)
         data = [
             {
                 "odoo_id": rec["id"],
-                "bom_id": rec["bom_id"][0] if rec.get("bom_id") else None,
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
-                "quantity": rec.get("product_qty", 0),
-                "uom_id": rec["product_uom_id"][0]
-                if rec.get("product_uom_id")
-                else None,
+                "bom_id": bom_map.get(rec["bom_id"][0]) if rec.get("bom_id") else None,
+                "component_product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
+                "product_qty": rec.get("product_qty", 0),
+                # Nota: el modelo BomLine no tiene columna product_uom_id, por eso no la persistimos
             }
             for rec in records
         ]
@@ -194,19 +215,20 @@ class SyncManager:
                 "id",
                 "product_id",
                 "product_qty",
-                "date_planned_start",
-                "date_planned_finished",
+                "date_start",
+                "date_finished",
                 "state",
             ],
         )
+        product_map = self._id_map(Product)
         data = [
             {
                 "odoo_id": rec["id"],
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
-                "quantity": rec.get("product_qty", 0),
+                "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
+                "product_qty": rec.get("product_qty", 0),
                 "state": rec.get("state"),
-                "date_planned_start": rec.get("date_planned_start"),
-                "date_planned_finished": rec.get("date_planned_finished"),
+                "date_planned_start": rec.get("date_start"),
+                "date_planned_finished": rec.get("date_finished"),
             }
             for rec in records
         ]
@@ -217,10 +239,11 @@ class SyncManager:
         records = self._fetch_in_batches(
             "stock.quant", ["id", "product_id", "location_id", "quantity"]
         )
+        product_map = self._id_map(Product)
         data = [
             {
                 "odoo_id": rec["id"],
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
+                "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
                 "location_id": rec["location_id"][0]
                 if rec.get("location_id")
                 else None,
@@ -232,13 +255,17 @@ class SyncManager:
         logger.info("✅ Synced %d Inventory Quants", len(data))
 
     def sync_sale_orders(self):
+        # Excluir cotizaciones (draft/sent) y cancelados
         records = self._fetch_in_batches(
-            "sale.order", ["id", "partner_id", "date_order", "amount_total", "state"]
+            "sale.order",
+            ["id", "partner_id", "date_order", "amount_total", "state"],
+            domain=[["state", "not in", ["draft", "sent", "cancel"]]],
         )
+        partner_map = self._id_map(Partner)
         data = [
             {
                 "odoo_id": rec["id"],
-                "partner_id": rec["partner_id"][0] if rec.get("partner_id") else None,
+                "partner_id": partner_map.get(rec["partner_id"][0]) if rec.get("partner_id") else None,
                 "date_order": rec.get("date_order"),
                 "amount_total": rec.get("amount_total", 0),
                 "state": rec.get("state"),
@@ -249,15 +276,19 @@ class SyncManager:
         logger.info("✅ Synced %d Sale Orders", len(data))
 
     def sync_sale_order_lines(self):
+        # Excluir líneas pertenecientes a cotizaciones o canceladas
         records = self._fetch_in_batches(
             "sale.order.line",
-            ["id", "order_id", "product_id", "product_uom_qty", "price_unit"],
+            ["id", "order_id", "product_id", "product_uom_qty", "price_unit", "state"],
+            domain=[["state", "not in", ["draft", "sent", "cancel"]]],
         )
+        order_map = self._id_map(SaleOrder)
+        product_map = self._id_map(Product)
         data = [
             {
                 "odoo_id": rec["id"],
-                "order_id": rec["order_id"][0] if rec.get("order_id") else None,
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
+                "order_id": order_map.get(rec["order_id"][0]) if rec.get("order_id") else None,
+                "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
                 "quantity": rec.get("product_uom_qty", 0),
                 "unit_price": rec.get("price_unit", 0),
             }
@@ -271,10 +302,11 @@ class SyncManager:
             "purchase.order",
             ["id", "partner_id", "date_order", "amount_total", "state"],
         )
+        partner_map = self._id_map(Partner)
         data = [
             {
                 "odoo_id": rec["id"],
-                "partner_id": rec["partner_id"][0] if rec.get("partner_id") else None,
+                "partner_id": partner_map.get(rec["partner_id"][0]) if rec.get("partner_id") else None,
                 "date_order": rec.get("date_order"),
                 "amount_total": rec.get("amount_total", 0),
                 "state": rec.get("state"),
@@ -289,11 +321,13 @@ class SyncManager:
             "purchase.order.line",
             ["id", "order_id", "product_id", "product_qty", "price_unit"],
         )
+        order_map = self._id_map(PurchaseOrder)
+        product_map = self._id_map(Product)
         data = [
             {
                 "odoo_id": rec["id"],
-                "order_id": rec["order_id"][0] if rec.get("order_id") else None,
-                "product_id": rec["product_id"][0] if rec.get("product_id") else None,
+                "order_id": order_map.get(rec["order_id"][0]) if rec.get("order_id") else None,
+                "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
                 "quantity": rec.get("product_qty", 0),
                 "unit_price": rec.get("price_unit", 0),
             }

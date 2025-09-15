@@ -6,6 +6,7 @@ from odoo_engine.odoo_client import OdooClient
 from odoo_engine.sync_manager import SyncManager
 
 from config_manager import secrets
+from dev_utils.pretty_logger import PrettyLogger
 
 
 def get_pg_dsn() -> str:
@@ -49,11 +50,29 @@ def main():
     odoo_client = OdooClient()
 
     # -----------------------
-    # Run sync
+    # Run sync with progress
     # -----------------------
+    logger = PrettyLogger("odoo-sync")
+    steps = [
+        ("UoMs", "sync_uoms"),
+        ("Partners", "sync_partners"),
+        ("Products", "sync_products"),
+        ("BOMs", "sync_boms"),
+        ("BOM Lines", "sync_bom_lines"),
+        ("Production Orders", "sync_production_orders"),
+        ("Inventory Quants", "sync_inventory_quants"),
+        ("Sale Orders", "sync_sale_orders"),
+        ("Sale Order Lines", "sync_sale_order_lines"),
+        ("Purchase Orders", "sync_purchase_orders"),
+        ("Purchase Order Lines", "sync_purchase_order_lines"),
+    ]
+
+    total_steps = len(steps)
     with Session() as session:
-        sync = SyncManager(odoo_client, session)
-        sync.full_sync()
+        sync = SyncManager(session, odoo_client)
+        for idx, (name, method_name) in enumerate(steps, start=1):
+            getattr(sync, method_name)()
+            logger.progress("Sincronización Odoo", idx, total_steps, progress_id="odoo_sync")
 
     print("✅ Full sync completed successfully!")
 
