@@ -1,0 +1,26 @@
+[project]
+name = "odoo-engine"
+version = "3.1.0"
+description = ""
+authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "python-decouple (>=3.8,<4.0)",
+  "pytz (>=2025.2,<2026.0)",
+  "config-manager @ git+https://github.com/NotoriosTI/libraries.git@odoo-sync#subdirectory=config-manager",
+  "psycopg2-binary",
+  "sqlalchemy (>=2.0)",
+  "odoorpc (>=0.10.1,<0.11.0)",
+]
+
+[tool.poetry]
+packages = [{ include = "odoo_engine", from = "src" }]
+
+[tool.pyright]
+venvpath = "."
+venv = ".venv"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
