@@ -94,6 +94,9 @@ class PrettyLogger:
         self._current_step = 0
         self._total_steps = 0
         self._context = {}
+        # Progress line management
+        self._active_progress_id: Optional[str] = None
+        self._progress_text_by_id: Dict[str, str] = {}
     
     def _supports_color(self) -> bool:
         """Check if terminal supports color output"""
@@ -132,6 +135,11 @@ class PrettyLogger:
         if not self._should_log(level):
             return
         
+        # If a progress bar is active, clear it temporarily
+        if self._active_progress_id is not None and self._supports_color():
+            # Move to line start and clear line
+            print("\r\033[2K", end="", flush=True)
+
         level_name, emoji, color = level.value
         timestamp = self._format_timestamp()
         
@@ -169,6 +177,12 @@ class PrettyLogger:
         
         # Print the formatted line
         print(" ".join(parts))
+
+        # Re-render the active progress bar at the bottom
+        if self._active_progress_id is not None and self._supports_color():
+            text = self._progress_text_by_id.get(self._active_progress_id)
+            if text:
+                print(f"\r{text}", end="", flush=True)
     
     # Basic logging methods
     def debug(self, message: str, **kwargs):
@@ -234,36 +248,46 @@ class PrettyLogger:
         metric_text = f"{name}: {self._colorize(value_str, LogColors.BRIGHT_GREEN)}"
         self._log(LogLevel.INFO, f"📊 {metric_text}", **kwargs)
     
-    def progress(self, name: str, current: int, total: int, update_previous: bool = False, lines_to_clear: int = 1, **kwargs):
-        """
-        Log progress with a progress bar
+    def progress(self, name: str, current: int, total: int, progress_id: Optional[str] = None, **kwargs):
+        """Render or update a single persistent progress bar for this logger.
 
-        Args:
-            name: Name of the progress bar
-            current: Current progress value
-            total: Total progress value
-            update_previous: If True, moves cursor up and clears previous lines to update in place
-            lines_to_clear: Number of lines to clear when updating (default: 1)
-            **kwargs: Additional arguments passed to _log
+        - If a progress bar with the same progress_id is active, update it in place.
+        - If a different bar is active, finalize it and start a new one.
+        - If not a TTY/ANSI environment, fallback to regular log lines.
         """
-        percentage = (current / total) * 100
+        # Compute text
+        safe_total = max(total, 1)
+        percentage = (current / safe_total) * 100
         bar_width = 20
-        filled = int(bar_width * current / total)
+        filled = int(bar_width * current / safe_total)
         bar = "█" * filled + "░" * (bar_width - filled)
+        pid = progress_id or name
+        progress_text = f"⏳ {name}: {self._colorize(bar, LogColors.BRIGHT_GREEN)} {percentage:.1f}% ({current:,}/{total:,})"
 
-        progress_text = f"{name}: {self._colorize(bar, LogColors.BRIGHT_GREEN)} {percentage:.1f}% ({current:,}/{total:,})"
+        # Non-TTY: just print as a normal line
+        if not self._supports_color():
+            self._log(LogLevel.INFO, progress_text, **kwargs)
+            return
 
-        # Handle in-place progress bar updates
-        if update_previous:
-            # For subsequent calls, move up and clear the previous progress line
-            # This assumes the progress bar is 1 line above (most common case)
-            print(f"\033[1A\033[2K\r", end="", flush=True)
+        # If another bar is active and it's different, finalize previous with newline
+        if self._active_progress_id is not None and self._active_progress_id != pid:
+            # Clear previous active line and print its last state ended with newline
+            prev_text = self._progress_text_by_id.get(self._active_progress_id)
+            if prev_text:
+                print("\r\033[2K" + prev_text)
+            self._active_progress_id = None
 
-        self._log(LogLevel.INFO, f"⏳ {progress_text}", **kwargs)
+        # Mark this bar as active and render in place
+        self._active_progress_id = pid
+        self._progress_text_by_id[pid] = progress_text
 
-        # If we're updating in place and this is the final progress (100%), add a newline
-        if update_previous and current >= total:
-            print("", flush=True)
+        # Clear current line and print without newline so it can be updated
+        print(f"\r\033[2K{progress_text}", end="", flush=True)
+
+        # If finished, add newline and deactivate
+        if current >= total:
+            print()  # newline to finalize the bar
+            self._active_progress_id = None
     
     def duration(self, message: str, start_time: float = None, **kwargs):
         """Log a message with duration"""
