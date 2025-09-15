@@ -271,10 +271,8 @@ class PrettyLogger:
 
         # If another bar is active and it's different, finalize previous with newline
         if self._active_progress_id is not None and self._active_progress_id != pid:
-            # Clear previous active line and print its last state ended with newline
-            prev_text = self._progress_text_by_id.get(self._active_progress_id)
-            if prev_text:
-                print("\r\033[2K" + prev_text)
+            # Clear the previous progress line without printing it again
+            print("\r\033[2K", end="", flush=True)
             self._active_progress_id = None
 
         # Mark this bar as active and render in place
