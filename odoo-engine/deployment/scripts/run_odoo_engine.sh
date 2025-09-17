@@ -33,18 +33,20 @@ if [ -f "/opt/odoo-engine/.env" ]; then
   echo "📍 Running on VM..."
   cd /opt/odoo-engine
   if [ "$COMMAND" = "test" ]; then
-    sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm odoo-engine python -c "import sys; print('Testing DB host:', 'localhost'); print('OK')"
+    sudo docker compose --env-file .env -f docker-compose.prod.yml run --rm -T odoo-engine python -c "import sys; print('Testing DB host:', 'localhost'); print('OK')"
   else
-    sudo docker-compose --env-file .env -f docker-compose.prod.yml up odoo-engine
+    sudo docker compose --env-file .env -f docker-compose.prod.yml up -d odoo-engine && \
+    sudo docker compose --env-file .env -f docker-compose.prod.yml logs -f odoo-engine
   fi
-else
-  echo "📍 Running locally, connecting to VM..."
-  gcloud compute ssh langgraph --zone=us-central1-c --command="
+  else
+    echo "📍 Running locally, connecting to VM..."
+    gcloud compute ssh langgraph --zone=us-central1-c --command="
     cd /opt/odoo-engine
     if [ '$COMMAND' = 'test' ]; then
-      sudo docker-compose --env-file .env -f docker-compose.prod.yml run --rm odoo-engine python -c \"print('OK')\"
+      sudo docker compose --env-file .env -f docker-compose.prod.yml run --rm -T odoo-engine python -c \"print('OK')\" 
     else
-      sudo docker-compose --env-file .env -f docker-compose.prod.yml up odoo-engine
+      sudo docker compose --env-file .env -f docker-compose.prod.yml up -d odoo-engine && 
+      sudo docker compose --env-file .env -f docker-compose.prod.yml logs -f odoo-engine
     fi
   "
 fi

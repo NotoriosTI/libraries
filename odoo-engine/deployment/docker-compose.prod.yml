@@ -9,6 +9,7 @@ services:
     container_name: odoo-engine-prod
     restart: "no"
     environment:
+      - PYTHONUNBUFFERED=1
       - ENVIRONMENT=production
       - GCP_PROJECT_ID=${PROJECT_ID}
       - DB_HOST=127.0.0.1
