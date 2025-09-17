@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+import datetime
 
 from odoo_engine.models import (
     SyncState,
@@ -38,63 +39,113 @@ class SyncManager:
         """Chunked UPSERT into Postgres."""
         if not data_list:
             return
-        total_chunks = ceil(len(data_list) / UPSERT_CHUNK)
-        for i in range(total_chunks):
-            chunk = data_list[i * UPSERT_CHUNK : (i + 1) * UPSERT_CHUNK]
-            stmt = insert(model).values(chunk)
-            update_cols = {
-                c.name: c for c in stmt.excluded if c.name not in [unique_field, "id"]
-            }
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[unique_field], set_=update_cols
-            )
-            self.session.execute(stmt)
-            self.session.commit()
-            logger.info(
-                "    ✅ Upserted chunk %d/%d for %s",
-                i + 1,
-                total_chunks,
-                model.__tablename__,
-            )
+        # If running against Postgres use efficient INSERT ... ON CONFLICT
+        dialect_name = getattr(self.session.bind.dialect, "name", None)
+        if dialect_name == "postgresql":
+            total_chunks = ceil(len(data_list) / UPSERT_CHUNK)
+            for i in range(total_chunks):
+                chunk = data_list[i * UPSERT_CHUNK : (i + 1) * UPSERT_CHUNK]
+                stmt = insert(model).values(chunk)
+                update_cols = {
+                    c.name: c for c in stmt.excluded if c.name not in [unique_field, "id"]
+                }
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[unique_field], set_=update_cols
+                )
+                self.session.execute(stmt)
+                self.session.commit()
+                logger.info(
+                    "    ✅ Upserted chunk %d/%d for %s",
+                    i + 1,
+                    total_chunks,
+                    model.__tablename__,
+                )
+        else:
+            # Fallback for sqlite/tests: perform per-row upsert using ORM queries.
+            total_chunks = ceil(len(data_list) / UPSERT_CHUNK)
+            for i in range(total_chunks):
+                chunk = data_list[i * UPSERT_CHUNK : (i + 1) * UPSERT_CHUNK]
+                for row in chunk:
+                    odoo_id = row.get(unique_field)
+                    if odoo_id is None:
+                        continue
+                    existing = self.session.query(model).filter_by(odoo_id=odoo_id).one_or_none()
+                    if existing:
+                        # update fields
+                        for k, v in row.items():
+                            setattr(existing, k, v)
+                        self.session.add(existing)
+                    else:
+                        obj = model(**row)
+                        self.session.add(obj)
+                self.session.commit()
+                logger.info(
+                    "    ✅ Fallback upsert processed chunk %d/%d for %s",
+                    i + 1,
+                    total_chunks,
+                    model.__tablename__,
+                )
 
-    def _fetch_in_batches(self, model_name, fields, domain=None, limit=BATCH_SIZE):
-        """Fetch all records from Odoo in parallel batches."""
+    def _get_last_synced(self, model_name: str):
+        row = self.session.execute(select(SyncState).where(SyncState.model_name == model_name)).scalar_one_or_none()
+        return row.last_synced if row else None
+
+    def _set_last_synced(self, model_name: str, timestamp: datetime.datetime):
+        existing = self.session.execute(select(SyncState).where(SyncState.model_name == model_name)).scalar_one_or_none()
+        if existing:
+            existing.last_synced = timestamp
+            self.session.add(existing)
+        else:
+            self.session.add(SyncState(model_name=model_name, last_synced=timestamp))
+        self.session.commit()
+
+    def _fetch_in_batches(self, model_name, fields, domain=None, limit=BATCH_SIZE, since=None):
+        """Fetch records from Odoo in batches using offset until no more results.
+
+        Uses the client's `search_read` wrapper. If `since` is provided, augments
+        the domain to request only records with write_date > since.
+        """
         domain = domain or []
-        total_count = self.client.odoo.env[model_name].search_count(domain)
-        if total_count == 0:
-            return []
-
-        num_batches = ceil(total_count / limit)
-        logger.info(
-            "Fetching %d records from %s in %d batches",
-            total_count,
-            model_name,
-            num_batches,
-        )
+        if since:
+            # ensure domain is a list of tuples/lists
+            domain = list(domain) + [[('write_date', '>', since)]]
 
         results = []
-
-        def fetch_batch(batch_idx):
-            offset = batch_idx * limit
-            batch = self.client.search_read(
-                model_name, domain=domain, fields=fields, limit=limit, offset=offset
-            )
+        offset = 0
+        while True:
+            batch = self.client.search_read(model_name, domain=domain, fields=fields, limit=limit, offset=offset)
+            if not batch:
+                break
             logger.info(
-                "    🟢 Fetched batch %d/%d from %s (%d records)",
-                batch_idx + 1,
-                num_batches,
+                "    🟢 Fetched batch at offset %d from %s (%d records)",
+                offset,
                 model_name,
                 len(batch),
             )
-            return batch
-
-        max_threads = min(num_batches, 4)  # Adjust based on environment
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            futures = [executor.submit(fetch_batch, i) for i in range(num_batches)]
-            for future in as_completed(futures):
-                results.extend(future.result())
+            results.extend(batch)
+            if len(batch) < limit:
+                break
+            offset += limit
 
         return results
+
+    def _parse_write_date(self, val):
+        """Parse common Odoo write_date string formats to datetime, or return None."""
+        if not val:
+            return None
+        if isinstance(val, datetime.datetime):
+            return val
+        try:
+            # Try ISO first
+            return datetime.datetime.fromisoformat(val)
+        except Exception:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.datetime.strptime(val, fmt)
+            except Exception:
+                continue
+        return None
 
     def _id_map(self, model):
         """Return dict mapping odoo_id -> local PK id for a given model."""
@@ -135,8 +186,9 @@ class SyncManager:
         self._upsert(Partner, data)
         logger.info("✅ Synced %d Partners", len(data))
 
-    def sync_products(self):
+    def sync_products(self, delete_policy="mark_inactive"):
         # Excluir productos de tipo servicio
+        last = self._get_last_synced("product.product")
         records = self._fetch_in_batches(
             "product.product",
             [
@@ -148,24 +200,53 @@ class SyncManager:
                 "sale_ok",
                 "purchase_ok",
                 "uom_id",
+                "write_date",
             ],
-            domain=[["detailed_type", "!=", "service"]],
+            domain=[["detailed_type", "!=" , "service"]],
+            since=last,
         )
+
         uom_map = self._id_map(UnitOfMeasure)
-        data = [
-            {
+        data = []
+        remote_ids = set()
+        for rec in records:
+            remote_ids.add(rec["id"])
+            wd = self._parse_write_date(rec.get("write_date"))
+            data.append({
                 "odoo_id": rec["id"],
                 "default_code": rec.get("default_code"),
                 "name": rec.get("name"),
                 "type": rec.get("type"),
                 "sale_ok": rec.get("sale_ok", False),
                 "purchase_ok": rec.get("purchase_ok", False),
+                "active": rec.get("active", True),
                 "uom_id": uom_map.get(rec["uom_id"][0]) if rec.get("uom_id") else None,
-            }
-            for rec in records
-        ]
-        self._upsert(Product, data)
-        logger.info("✅ Synced %d Products", len(data))
+                "write_date": wd,
+            })
+
+        if data:
+            self._upsert(Product, data)
+            logger.info("✅ Synced %d Products", len(data))
+
+        # Persist SyncState marker
+        if records:
+            self._set_last_synced("product.product", datetime.datetime.utcnow())
+
+        # Delete detection: compute local ids not present remotely
+        local_rows = self.session.execute(select(Product.odoo_id)).all()
+        local_ids = {r[0] for r in local_rows}
+        to_delete = local_ids - remote_ids
+        if to_delete:
+            if delete_policy == "mark_inactive":
+                self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).update({"active": False}, synchronize_session='fetch')
+                self.session.commit()
+                # ensure session state reflects DB changes
+                self.session.expire_all()
+            elif delete_policy == "delete":
+                self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).delete(synchronize_session='fetch')
+                self.session.commit()
+                self.session.expire_all()
+            # else: ignore
 
     def sync_boms(self):
         records = self._fetch_in_batches(

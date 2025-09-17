@@ -20,7 +20,7 @@ Base = declarative_base()
 # -------------------- Master Data --------------------
 class UnitOfMeasure(Base):
     __tablename__ = "uom"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     name = Column(Text, nullable=False)
     category_id = Column(BigInteger)
@@ -44,7 +44,7 @@ class UnitOfMeasure(Base):
 
 class Product(Base):
     __tablename__ = "product"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     default_code = Column(Text)
     name = Column(Text, nullable=False)
@@ -78,7 +78,7 @@ class Product(Base):
 
 class Partner(Base):
     __tablename__ = "partner"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     name = Column(Text)
     is_company = Column(Boolean)
@@ -101,7 +101,7 @@ class Partner(Base):
 # -------------------- BOM / Production --------------------
 class Bom(Base):
     __tablename__ = "bom"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     product_id = Column(BigInteger, ForeignKey("product.id"))
     company_id = Column(BigInteger)
@@ -126,7 +126,7 @@ class Bom(Base):
 
 class BomLine(Base):
     __tablename__ = "bom_line"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     bom_id = Column(BigInteger, ForeignKey("bom.id"))
     component_product_id = Column(BigInteger, ForeignKey("product.id"))
@@ -149,7 +149,7 @@ class BomLine(Base):
 
 class ProductionOrder(Base):
     __tablename__ = "production_order"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     product_id = Column(BigInteger, ForeignKey("product.id"))
     product_qty = Column(Numeric)
@@ -175,7 +175,7 @@ class ProductionOrder(Base):
 # -------------------- Inventory --------------------
 class InventoryQuant(Base):
     __tablename__ = "inventory_quant"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     product_id = Column(BigInteger, ForeignKey("product.id"))
     location_id = Column(BigInteger)
@@ -199,7 +199,7 @@ class InventoryQuant(Base):
 # -------------------- Sales --------------------
 class SaleOrder(Base):
     __tablename__ = "sale_order"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     partner_id = Column(BigInteger, ForeignKey("partner.id"))
     date_order = Column(DateTime(timezone=True))
@@ -221,7 +221,7 @@ class SaleOrder(Base):
 
 class SaleOrderLine(Base):
     __tablename__ = "sale_order_line"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     order_id = Column(BigInteger, ForeignKey("sale_order.id"))
     product_id = Column(BigInteger, ForeignKey("product.id"))
@@ -246,7 +246,7 @@ class SaleOrderLine(Base):
 # -------------------- Purchase --------------------
 class PurchaseOrder(Base):
     __tablename__ = "purchase_order"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     partner_id = Column(BigInteger, ForeignKey("partner.id"))
     date_order = Column(DateTime(timezone=True))
@@ -268,7 +268,7 @@ class PurchaseOrder(Base):
 
 class PurchaseOrderLine(Base):
     __tablename__ = "purchase_order_line"
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     order_id = Column(BigInteger, ForeignKey("purchase_order.id"))
     product_id = Column(BigInteger, ForeignKey("product.id"))
