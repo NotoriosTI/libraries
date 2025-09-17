@@ -2,7 +2,7 @@ import logging
 from math import ceil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import datetime
@@ -23,6 +23,7 @@ from odoo_engine.models import (
 )
 from odoo_engine.models import ProductEmbedding
 from odoo_engine.embedding_generator import EmbeddingGenerator
+import tiktoken
 
 logger = logging.getLogger(__name__)
 BATCH_SIZE = 5000  # Records per Odoo fetch batch
@@ -110,7 +111,17 @@ class SyncManager:
         domain = domain or []
         if since:
             # ensure domain is a list of tuples/lists
-            domain = list(domain) + [[('write_date', '>', since)]]
+            # Odoo JSON RPC requires JSON-serializable values; convert datetimes to ISO strings
+            try:
+                if isinstance(since, datetime.datetime):
+                    since_val = since.isoformat()
+                else:
+                    since_val = since
+            except Exception:
+                since_val = since
+
+            # append a simple tuple condition (avoid nested lists which some Odoo servers reject)
+            domain = list(domain) + [('write_date', '>', since_val)]
 
         results = []
         offset = 0
@@ -465,30 +476,53 @@ class SyncManager:
 
         total = len(rows)
         processed = 0
+        total_tokens = 0
+        # prepare tokenizer for token counting (tiktoken)
+        try:
+            enc = tiktoken.encoding_for_model(model)
+        except Exception:
+            # fallback: use a utf-8 byte length estimator if tiktoken not available for model
+            enc = None
 
         # Use PrettyLogger.progress to show batch-level progress
         from dev_utils.pretty_logger import PrettyLogger
         pretty = PrettyLogger("odoo-sync-embeddings")
+
+        # initialize embedding progress at 0%
+        pretty.progress("Embedding batches", 0, total, progress_id="embeddings")
 
         for i in range(0, total, batch_size):
             batch = rows[i : i + batch_size]
             product_ids = [r[0] for r in batch]
             texts = [r[1] or "" for r in batch]
 
-            embeddings = gen.generate(texts)
-            if not embeddings or len(embeddings) != len(product_ids):
-                raise RuntimeError("Embedding generation size mismatch with product batch")
+            # Count tokens for this batch using tiktoken when available
+            if enc is not None:
+                try:
+                    batch_tokens = sum(len(enc.encode(t)) for t in texts)
+                except Exception:
+                    batch_tokens = sum(max(1, len(t) // 4) for t in texts)
+            else:
+                batch_tokens = sum(max(1, len(t) // 4) for t in texts)
+            total_tokens += batch_tokens
 
-            # Insert embeddings and link back to products
-            embedding_objs = []
-            for vec in embeddings:
-                embedding_objs.append(
-                    ProductEmbedding(vector=vec, model=model, dimension=dimension)
-                )
-            self.session.add_all(embedding_objs)
-            self.session.flush()  # assign IDs
+            # Generate embeddings outside of autoflush to avoid flushing pending objects
+            with self.session.no_autoflush:
+                embeddings = gen.generate(texts)
+                if not embeddings or len(embeddings) != len(product_ids):
+                    raise RuntimeError("Embedding generation size mismatch with product batch")
 
-            # Update products with the corresponding embedding_id
+                # Insert embeddings and link back to products
+                embedding_objs = []
+                for vec in embeddings:
+                    embedding_objs.append(
+                        ProductEmbedding(vector=vec, model=model, dimension=dimension)
+                    )
+                self.session.add_all(embedding_objs)
+
+            # Assign IDs and update products (flush allowed here)
+            self.session.flush()
+
             for pid, emb_obj in zip(product_ids, embedding_objs):
                 prod = self.session.get(Product, pid)
                 if prod is not None:
@@ -498,8 +532,16 @@ class SyncManager:
             self.session.commit()
             processed += len(batch)
 
-            # Update pretty progress bar (showing processed products)
-            pretty.progress("Embedding batches", processed, total, progress_id="embeddings")
+            # Update pretty progress bar (showing processed products and current batch size)
+            current_batch_idx = i//batch_size + 1
+            total_batches = total//batch_size + 1
+            pretty.progress(f"Embedding batches - ({current_batch_idx}/{total_batches})", processed, total, progress_id="embeddings")
 
         pretty.progress("Embedding batches", processed, total, progress_id="embeddings")
         pretty.success("🧠 Product embeddings population completed", processed=processed)
+
+        # expose total tokens counted for later summary
+        try:
+            self._embedding_tokens_total = int(total_tokens)
+        except Exception:
+            self._embedding_tokens_total = None

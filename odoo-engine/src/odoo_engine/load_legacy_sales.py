@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import insert
 
@@ -137,153 +137,209 @@ def chunked(iterable: Iterable, size: int):
 # --------------------------- Proceso principal ---------------------------
 
 def process_csv(path: Path, batch_size: int = 10000) -> Tuple[int, int]:
+    """
+    Fast path: load the entire CSV into a UNLOGGED staging table via COPY,
+    then perform set-based upserts into `sale_order` and `sale_order_line`.
+
+    This approach is dramatically faster for multi-million row files.
+    """
     engine, Session = build_engine_and_session()
-
-    total_orders = 0
-    total_lines = 0
     logger = PrettyLogger("legacy-sales-loader")
+    total_steps = 8
+    progress_id = "legacy_sales_full"
 
-    # Pre-contar filas para progreso (aprox. igual a registros)
+    # Create staging table (UNLOGGED for speed)
+    create_staging_sql = """
+    CREATE UNLOGGED TABLE IF NOT EXISTS staging_legacy_sales (
+        salesinvoiceid text,
+        doctype_name text,
+        docnumber text,
+        customer_customerid text,
+        customer_name text,
+        customer_vatid text,
+        salesman_name text,
+        term_name text,
+        warehouse_name text,
+        totals_net numeric,
+        totals_vat numeric,
+        total_total numeric,
+        items_product_description text,
+        items_product_sku text,
+        items_quantity numeric,
+        items_unitprice numeric,
+        issueddate text,
+        sales_channel text
+    );
+    """
+
+    with engine.begin() as conn:
+        conn.execute(text(create_staging_sql))
+        # Step 1 complete: preparación y creación de tabla staging
+        logger.progress("1/8 Preparación & staging", 1, total_steps, progress_id=progress_id)
+
+    # COPY CSV into staging (CSV has NO header)
+    raw_conn = engine.raw_connection()
     try:
+        cur = raw_conn.cursor()
+
+        # Detect whether the CSV includes a header row. Read the first line
+        # and compare against expected column names. If a header is present,
+        # use COPY ... WITH CSV HEADER to avoid type errors when loading.
+        header_present = False
         with open(path, "r", encoding="utf-8") as f:
-            total_rows = sum(1 for _ in f)
+            first_line = f.readline().strip()
+            # Normalize tokens and expected column names for robust matching
+            first_cols = [c.strip().lower() for c in first_line.split(",") if c.strip()]
+            expected = [c.lower() for c in CSV_COLUMNS]
+            # Consider it a header if a majority of tokens match expected column names
+            matches = sum(1 for c in first_cols if c in expected)
+            if matches >= max(1, len(expected) // 3):
+                header_present = True
+            # Reset file pointer so COPY reads from the beginning
+            f.seek(0)
+            copy_sql = "COPY staging_legacy_sales FROM STDIN WITH CSV HEADER" if header_present else "COPY staging_legacy_sales FROM STDIN WITH CSV"
+            try:
+                cur.copy_expert(copy_sql, f)
+            except Exception:
+                # If COPY with HEADER failed but header was detected, try without header as fallback
+                if header_present:
+                    raw_conn.rollback()
+                    f.seek(0)
+                    cur.copy_expert("COPY staging_legacy_sales FROM STDIN WITH CSV", f)
+                else:
+                    raise
+
+        raw_conn.commit()
+        cur.close()
+        # Step 2 complete: CSV cargado en staging
+        logger.progress("2/8 Carga CSV a staging", 2, total_steps, progress_id=progress_id)
     except Exception:
-        total_rows = 0
-    processed_rows = 0
+        raw_conn.rollback()
+        raise
+    finally:
+        raw_conn.close()
 
-    for chunk in read_csv_headerless(path, chunksize=batch_size):
-        original_rows = len(chunk)
-        # Limpieza básica de strings
-        for col in [
-            "salesinvoiceid",
-            "doctype_name",
-            "customer_name",
-            "customer_vatid",
-            "salesman_name",
-            "term_name",
-            "warehouse_name",
-            "items_product_description",
-            "items_product_sku",
-            "sales_channel",
-        ]:
-            if col in chunk.columns:
-                chunk[col] = chunk[col].astype(str).str.strip()
+    logger.info("✅ CSV loaded into staging table")
 
-        # Filtrar posibles filas de cabecera presentes en archivos con header
-        header_like = (
-            (chunk["salesinvoiceid"] == "salesinvoiceid")
-            | (chunk["items_product_sku"] == "items_product_sku")
-            | (chunk["total_total"] == "total_total")
-        )
-        chunk = chunk[~header_like].copy()
+    # Perform set-based upserts using SQL CTEs. Steps:
+    # 1) dedupe per (salesinvoiceid, items_product_sku) keeping last docnumber
+    # 2) identify orders with any missing product (exclude them)
+    # 3) upsert sale_order
+    # 4) upsert sale_order_line
 
-        # Conversión numérica robusta
-        for num_col in [
-            "totals_net",
-            "totals_vat",
-            "total_total",
-            "items_quantity",
-            "items_unitprice",
-        ]:
-            if num_col in chunk.columns:
-                chunk[num_col] = pd.to_numeric(chunk[num_col], errors="coerce")
+    upsert_orders_sql = text("""
+    WITH dedup AS (
+      SELECT DISTINCT ON (salesinvoiceid, items_product_sku) *
+      FROM staging_legacy_sales
+      ORDER BY salesinvoiceid, items_product_sku, docnumber DESC
+    ),
+    valid_lines AS (
+      SELECT d.*, p.id AS product_id
+      FROM dedup d
+      LEFT JOIN product p ON p.default_code = d.items_product_sku
+    ),
+    bad_orders AS (
+      SELECT salesinvoiceid FROM valid_lines GROUP BY salesinvoiceid HAVING bool_or(product_id IS NULL)
+    ),
+    orders_upsert AS (
+      SELECT
+        - (('x' || substr(md5(salesinvoiceid),1,15))::bit(60)::bigint) AS odoo_id,
+        (MAX(issueddate))::timestamp AS date_order,
+        (MAX(total_total))::numeric AS amount_total,
+        salesinvoiceid
+      FROM valid_lines
+      WHERE salesinvoiceid NOT IN (SELECT salesinvoiceid FROM bad_orders)
+      GROUP BY salesinvoiceid
+    )
+    INSERT INTO sale_order (odoo_id, partner_id, date_order, amount_total, state)
+    SELECT odoo_id, NULL, date_order, amount_total, 'done' FROM orders_upsert
+    ON CONFLICT (odoo_id) DO UPDATE
+      SET date_order = EXCLUDED.date_order,
+          amount_total = EXCLUDED.amount_total,
+          state = EXCLUDED.state;
+    """)
 
-        # Deduplicación por (salesinvoiceid, items_product_sku) conservando la última
-        chunk_sorted = chunk.sort_values(["salesinvoiceid", "items_product_sku", "docnumber"])  # estable
-        chunk_dedup = chunk_sorted.drop_duplicates(
-            subset=["salesinvoiceid", "items_product_sku"], keep="last"
-        ).copy()
+    upsert_lines_sql = text("""
+    WITH dedup AS (
+      SELECT DISTINCT ON (salesinvoiceid, items_product_sku) *
+      FROM staging_legacy_sales
+      ORDER BY salesinvoiceid, items_product_sku, docnumber DESC
+    ),
+    valid_lines AS (
+      SELECT d.*, p.id AS product_id
+      FROM dedup d
+      JOIN product p ON p.default_code = d.items_product_sku
+    ),
+    bad_orders AS (
+      SELECT salesinvoiceid FROM (
+        SELECT d.*, p.id AS product_id
+        FROM dedup d
+        LEFT JOIN product p ON p.default_code = d.items_product_sku
+      ) t GROUP BY salesinvoiceid HAVING bool_or(product_id IS NULL)
+    ),
+    lines_upsert AS (
+      SELECT
+        - (('x' || substr(md5(salesinvoiceid || items_product_sku),1,15))::bit(60)::bigint) AS odoo_id,
+        (('x' || substr(md5(salesinvoiceid),1,15))::bit(60)::bigint) * -1 AS order_hash,
+        p.id AS product_id,
+        (items_quantity)::numeric AS quantity,
+        (items_unitprice)::numeric AS unit_price,
+        salesinvoiceid,
+        items_product_sku
+      FROM dedup d
+      JOIN product p ON p.default_code = d.items_product_sku
+      WHERE d.salesinvoiceid NOT IN (SELECT salesinvoiceid FROM bad_orders)
+    )
+    INSERT INTO sale_order_line (odoo_id, order_id, product_id, product_uom_id, quantity, unit_price)
+    SELECT l.odoo_id,
+           so.id AS order_id,
+           l.product_id,
+           NULL,
+           l.quantity,
+           l.unit_price
+    FROM lines_upsert l
+    JOIN sale_order so ON so.odoo_id = l.order_hash
+    ON CONFLICT (odoo_id) DO UPDATE
+      SET order_id = EXCLUDED.order_id,
+          product_id = EXCLUDED.product_id,
+          quantity = EXCLUDED.quantity,
+          unit_price = EXCLUDED.unit_price;
+    """)
 
-        # Normalizaciones
-        chunk_dedup["issueddate"] = pd.to_datetime(chunk_dedup["issueddate"], errors="coerce")
+    # Step 3: Ejecutar upsert para sale_order
+    logger.progress("3/8 Upsert: sale_order (agregación por factura)", 3, total_steps, progress_id=progress_id)
+    with engine.begin() as conn:
+        conn.execute(upsert_orders_sql)
 
-        with Session() as session:
-            # Mapear productos por default_code (SKU) - hacer esto una sola vez por chunk
-            skus = chunk_dedup["items_product_sku"].astype(str).tolist()
-            product_map = product_id_map_by_default_code(session, skus)
+        # Step 4: Ejecutar upsert para sale_order_line
+        logger.progress("4/8 Upsert: sale_order_line (líneas)", 4, total_steps, progress_id=progress_id)
+        conn.execute(upsert_lines_sql)
 
-            # Marcar si la línea tiene product_id válido
-            chunk_dedup["has_valid_product"] = chunk_dedup["items_product_sku"].astype(str).map(
-                lambda sku: product_map.get(sku) is not None
-            )
+        # Counts for reporting
+        orders_count = conn.execute(text("SELECT COUNT(*) FROM sale_order WHERE odoo_id < 0")).scalar()
+        lines_count = conn.execute(text("SELECT COUNT(*) FROM sale_order_line WHERE odoo_id < 0")).scalar()
 
-            # Identificar órdenes con AL MENOS UNA línea inválida
-            orders_any_invalid = (
-                chunk_dedup.groupby("salesinvoiceid")["has_valid_product"]
-                .apply(lambda s: (~s).any())
-            )
-            bad_orders = orders_any_invalid[orders_any_invalid].index.tolist()
+        # Step 5: Conteos realizados
+        logger.progress("5/8 Conteos realizados", 5, total_steps, progress_id=progress_id)
 
-            # Excluir completamente esas órdenes
-            chunk_filtered = chunk_dedup[~chunk_dedup["salesinvoiceid"].isin(bad_orders)].copy()
+        # Drop staging table
+        conn.execute(text("DROP TABLE IF EXISTS staging_legacy_sales;"))
 
-            # Si no queda nada, continuar
-            if len(chunk_filtered) == 0:
-                processed_rows += original_rows
-                if total_rows > 0:
-                    logger.progress("Carga de ventas históricas", processed_rows, total_rows, progress_id="legacy_load")
-                continue
+        # Step 6: Staging eliminado
+        logger.progress("6/8 Limpieza: staging eliminado", 6, total_steps, progress_id=progress_id)
 
-            # Construir órdenes únicas por invoice (solo las válidas)
-            orders_df = (
-                chunk_filtered.sort_values(["salesinvoiceid"]).drop_duplicates(
-                    subset=["salesinvoiceid"], keep="last"
-                )
-            )
+    # Step 7: Registrar resumen final
+    logger.progress("7/8 Registrando resumen final", 7, total_steps, progress_id=progress_id)
+    logger.info(f"✅ Legacy sales upsert completed: orders={int(orders_count or 0)} lines={int(lines_count or 0)}")
 
-            orders_payload: List[dict] = []
-            for _, row in orders_df.iterrows():
-                so_odoo_id = deterministic_negative_id(str(row["salesinvoiceid"]))
-                orders_payload.append(
-                    {
-                        "odoo_id": so_odoo_id,
-                        "partner_id": None,
-                        "date_order": row["issueddate"],
-                        "amount_total": float(row["total_total"]) if pd.notna(row["total_total"]) else 0.0,
-                        "state": "done",
-                    }
-                )
-
-            upsert_sale_orders(session, orders_payload)
-            total_orders += len(orders_payload)
-
-            # Mapear order_id locales por odoo_id
-            order_id_map = id_map_by_odoo_id(session, SaleOrder)
-
-            # Construir líneas: mantener el guard para no insertar product_id NULL
-            lines_payload: List[dict] = []
-            for _, row in chunk_filtered.iterrows():
-                so_odoo_id = deterministic_negative_id(str(row["salesinvoiceid"]))
-                sol_odoo_id = deterministic_negative_id(str(row["salesinvoiceid"]), str(row["items_product_sku"]) or "")
-                order_id = order_id_map.get(so_odoo_id)
-                product_id = product_map.get(str(row["items_product_sku"]))
-
-                if product_id is None:
-                    continue  # mantener el guard
-
-                lines_payload.append({
-                    "odoo_id": sol_odoo_id,
-                    "order_id": order_id,
-                    "product_id": product_id,
-                    "product_uom_id": None,
-                    "quantity": float(row["items_quantity"]) if pd.notna(row["items_quantity"]) else 0.0,
-                    "unit_price": float(row["items_unitprice"]) if pd.notna(row["items_unitprice"]) else 0.0,
-                })
-
-            upsert_sale_order_lines(session, lines_payload)
-            total_lines += len(lines_payload)
-
-        # Progreso
-        processed_rows += original_rows
-        if total_rows > 0:
-            logger.progress("Carga de ventas históricas", processed_rows, total_rows, progress_id="legacy_load")
-
-    return total_orders, total_lines
+    # Step 8: Completado
+    logger.progress("8/8 Completado", 8, total_steps, progress_id=progress_id)
+    return int(orders_count or 0), int(lines_count or 0)
 
 
 def main():
-    # Default path
-    default_path = Path(__file__).resolve().parent.parent / "data" / "ventas_historico.csv"
+    # Default path (data directory is at project root, not under src)
+    default_path = Path(__file__).resolve().parent.parent.parent / "data" / "ventas_historico.csv"
 
     # If provided, use the first CLI arg as path, otherwise default
     csv_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
