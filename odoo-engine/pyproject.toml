@@ -15,6 +15,7 @@ dependencies = [
   "pandas (>=2.0,<3.0)",
   "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@odoo-sync#subdirectory=dev-utils",
   "pytest (>=8.4.2,<9.0.0)",
+  "openai (>=1.50.2,<2.0.0)",
 ]
 
 [tool.poetry]

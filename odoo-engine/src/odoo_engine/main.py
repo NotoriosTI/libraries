@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from odoo_engine.models import Base
@@ -73,6 +73,45 @@ def main():
         for idx, (name, method_name) in enumerate(steps, start=1):
             getattr(sync, method_name)()
             logger.progress("Sincronización Odoo", idx, total_steps, progress_id="odoo_sync")
+
+        # Post-sync: populate product embeddings
+        sync.populate_product_embeddings(batch_size=100)
+
+        # After sync, print a tree of tables and columns with row counts
+        def print_db_tree(engine, logger):
+            insp = inspect(engine)
+            try:
+                tables = insp.get_table_names(schema="public")
+            except Exception:
+                tables = insp.get_table_names()
+
+            tables = sorted(tables)
+            for tbl in tables:
+                # Get row count (best-effort)
+                try:
+                    with engine.connect() as conn:
+                        rc = conn.execute(text(f'SELECT COUNT(*) FROM public."{tbl}"')).scalar()
+                except Exception:
+                    rc = None
+
+                logger.info(tbl)
+                try:
+                    cols = insp.get_columns(tbl, schema="public")
+                except Exception:
+                    cols = insp.get_columns(tbl)
+
+                for col in cols:
+                    col_name = col.get("name")
+                    logger.info(f"  |__{col_name} ({rc if rc is not None else 'N/A'})")
+
+        print_db_tree(engine, logger)
+
+        # If --init is passed to main, also run the legacy sales loader after sync
+        import sys
+        if "--init" in sys.argv:
+            from odoo_engine.load_legacy_sales import main as legacy_main
+            logger.info("--init flag detected: running legacy sales loader")
+            legacy_main()
 
     print("✅ Full sync completed successfully!")
 

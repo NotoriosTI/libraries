@@ -54,6 +54,8 @@ class Product(Base):
     uom_id = Column(BigInteger, ForeignKey("uom.id"))
     type = Column(Text)
     barcode = Column(Text)
+    # Nueva columna para vincular cada producto con su embedding
+    embedding_id = Column(BigInteger, ForeignKey("product_embedding.id"), index=True)
     raw_json = Column(JSON)
     write_date = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -62,6 +64,8 @@ class Product(Base):
     )
 
     uom = relationship("UnitOfMeasure", back_populates="products")
+    # Relación uno-a-uno con el embedding asociado
+    embedding = relationship("ProductEmbedding", uselist=False)
     boms = relationship("Bom", back_populates="product")
     bom_lines = relationship("BomLine", back_populates="component_product")
     sale_order_lines = relationship("SaleOrderLine", back_populates="product")
@@ -73,6 +77,21 @@ class Product(Base):
         Index("idx_product_created_at", "created_at"),
         Index("idx_product_updated_at", "updated_at"),
         Index("idx_product_write_date", "write_date"),
+    )
+
+
+class ProductEmbedding(Base):
+    __tablename__ = "product_embedding"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Vector de embedding almacenado como JSON (lista de floats)
+    vector = Column(JSON, nullable=False)
+    # Metadatos opcionales
+    model = Column(Text)
+    dimension = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_product_embedding_created_at", "created_at"),
     )
 
 

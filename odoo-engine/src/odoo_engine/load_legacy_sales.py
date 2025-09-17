@@ -282,11 +282,12 @@ def process_csv(path: Path, batch_size: int = 10000) -> Tuple[int, int]:
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Uso: poetry run python -m odoo_engine.load_legacy_sales <ruta_csv>")
-        sys.exit(1)
+    # Default path
+    default_path = Path(__file__).resolve().parent.parent / "data" / "ventas_historico.csv"
 
-    csv_path = Path(sys.argv[1])
+    # If provided, use the first CLI arg as path, otherwise default
+    csv_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
+
     if not csv_path.exists() or not csv_path.is_file():
         print(f"Archivo CSV inválido: {csv_path}")
         sys.exit(1)

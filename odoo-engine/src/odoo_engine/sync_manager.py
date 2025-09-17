@@ -21,6 +21,8 @@ from odoo_engine.models import (
     PurchaseOrder,
     PurchaseOrderLine,
 )
+from odoo_engine.models import ProductEmbedding
+from odoo_engine.embedding_generator import EmbeddingGenerator
 
 logger = logging.getLogger(__name__)
 BATCH_SIZE = 5000  # Records per Odoo fetch batch
@@ -434,3 +436,70 @@ class SyncManager:
         self.sync_purchase_orders()
         self.sync_purchase_order_lines()
         logger.info("🎉 Full sync completed successfully!")
+
+    # ------------------------
+    # Embeddings population (post-sync)
+    # ------------------------
+    def populate_product_embeddings(self, model: str = "text-embedding-3-small", batch_size: int = 100):
+        """
+        Generate embeddings for all products with NULL embedding_id using product name.
+
+        - Creates rows in product_embedding with the generated vector and metadata
+        - Updates product.embedding_id to reference the newly created embedding row
+        """
+        logger.info("🧠 Populating product embeddings (post-sync)...")
+
+        # Fetch target products
+        rows = self.session.execute(
+            select(Product.id, Product.name).where(
+                Product.name.isnot(None), Product.embedding_id.is_(None)
+            )
+        ).all()
+
+        if not rows:
+            logger.info("No products pending embedding population.")
+            return
+
+        gen = EmbeddingGenerator(model=model)
+        dimension = gen.get_embedding_dimension()
+
+        total = len(rows)
+        processed = 0
+
+        # Use PrettyLogger.progress to show batch-level progress
+        from dev_utils.pretty_logger import PrettyLogger
+        pretty = PrettyLogger("odoo-sync-embeddings")
+
+        for i in range(0, total, batch_size):
+            batch = rows[i : i + batch_size]
+            product_ids = [r[0] for r in batch]
+            texts = [r[1] or "" for r in batch]
+
+            embeddings = gen.generate(texts)
+            if not embeddings or len(embeddings) != len(product_ids):
+                raise RuntimeError("Embedding generation size mismatch with product batch")
+
+            # Insert embeddings and link back to products
+            embedding_objs = []
+            for vec in embeddings:
+                embedding_objs.append(
+                    ProductEmbedding(vector=vec, model=model, dimension=dimension)
+                )
+            self.session.add_all(embedding_objs)
+            self.session.flush()  # assign IDs
+
+            # Update products with the corresponding embedding_id
+            for pid, emb_obj in zip(product_ids, embedding_objs):
+                prod = self.session.get(Product, pid)
+                if prod is not None:
+                    prod.embedding_id = emb_obj.id
+                    self.session.add(prod)
+
+            self.session.commit()
+            processed += len(batch)
+
+            # Update pretty progress bar (showing processed products)
+            pretty.progress("Embedding batches", processed, total, progress_id="embeddings")
+
+        pretty.progress("Embedding batches", processed, total, progress_id="embeddings")
+        pretty.success("🧠 Product embeddings population completed", processed=processed)
