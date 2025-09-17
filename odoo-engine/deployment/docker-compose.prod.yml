@@ -1,0 +1,17 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for Odoo Engine PRODUCTION (using shared proxy)
+# -----------------------------------------------------------------------------
+version: '3.8'
+
+services:
+  odoo-engine:
+    image: gcr.io/${PROJECT_ID}/odoo-engine:latest
+    container_name: odoo-engine-prod
+    restart: "no"
+    environment:
+      - ENVIRONMENT=production
+      - GCP_PROJECT_ID=${PROJECT_ID}
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+    network_mode: "host"
+

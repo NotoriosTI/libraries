@@ -1,0 +1,19 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for SHARED CLOUD SQL PROXY (used by odoo-engine)
+# -----------------------------------------------------------------------------
+version: '3.8'
+
+services:
+  shared-cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: shared-cloud-sql-proxy
+    restart: unless-stopped
+    command: /cloud_sql_proxy -instances=${PROJECT_ID}:${REGION}:app-temp=tcp:0.0.0.0:5432
+    network_mode: "host"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
