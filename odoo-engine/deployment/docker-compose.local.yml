@@ -1,0 +1,40 @@
+# -----------------------------------------------------------------------------
+# Docker Compose for Odoo Engine (local)
+# -----------------------------------------------------------------------------
+version: '3.8'
+
+services:
+  odoo-engine:
+    build:
+      context: ..
+      dockerfile: ./deployment/Dockerfile
+    container_name: odoo-engine
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-local_container}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - DB_HOST=cloud-sql-proxy
+      - DB_PORT=5432
+    volumes:
+      - ../src:/app/src:ro
+    depends_on:
+      - cloud-sql-proxy
+    command: python -m odoo_engine.main
+
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
+    container_name: odoo-cloud-sql-proxy
+    restart: unless-stopped
+    command: /cloud_sql_proxy -instances=${GCP_PROJECT_ID}:${REGION:-us-central1}:app-temp=tcp:0.0.0.0:5432
+    volumes:
+      - ../credentials.json:/config/credentials.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/config/credentials.json
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+

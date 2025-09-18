@@ -1,0 +1,49 @@
+# Development files
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Environment files (use Secret Manager in production)
+.env
+.env.local
+.env.prod
+
+# Version control
+.git/
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Test files
+tests/
+coverage.xml
+.coverage
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development data
+data/
+logs/
+*.log
+
+# Poetry lock file (using requirements.txt in production)
+poetry.lock
+
+# Temporary files
+tmp/
+temp/
+

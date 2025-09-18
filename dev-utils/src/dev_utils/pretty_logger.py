@@ -82,18 +82,21 @@ class PrettyLogger:
     Beautiful logging class with colors, emojis, and structured formatting
     """
     
-    def __init__(self, service_name: str = "app", enable_colors: bool = True, 
+    def __init__(self, service_name: str = __name__, enable_colors: bool = True,
                  enable_timestamps: bool = True, min_level: LogLevel = LogLevel.INFO):
         self.service_name = service_name
         self.enable_colors = enable_colors and self._supports_color()
         self.enable_timestamps = enable_timestamps
         self.min_level = min_level
         self.start_time = time.time()
-        
+
         # Track progress and context
         self._current_step = 0
         self._total_steps = 0
         self._context = {}
+        # Progress line management
+        self._active_progress_id: Optional[str] = None
+        self._progress_text_by_id: Dict[str, str] = {}
     
     def _supports_color(self) -> bool:
         """Check if terminal supports color output"""
@@ -132,6 +135,11 @@ class PrettyLogger:
         if not self._should_log(level):
             return
         
+        # If a progress bar is active, clear it temporarily
+        if self._active_progress_id is not None and self._supports_color():
+            # Move to line start and clear line
+            print("\r\033[2K", end="", flush=True)
+
         level_name, emoji, color = level.value
         timestamp = self._format_timestamp()
         
@@ -169,6 +177,12 @@ class PrettyLogger:
         
         # Print the formatted line
         print(" ".join(parts))
+
+        # Re-render the active progress bar at the bottom
+        if self._active_progress_id is not None and self._supports_color():
+            text = self._progress_text_by_id.get(self._active_progress_id)
+            if text:
+                print(f"\r{text}", end="", flush=True)
     
     # Basic logging methods
     def debug(self, message: str, **kwargs):
@@ -234,15 +248,44 @@ class PrettyLogger:
         metric_text = f"{name}: {self._colorize(value_str, LogColors.BRIGHT_GREEN)}"
         self._log(LogLevel.INFO, f"📊 {metric_text}", **kwargs)
     
-    def progress(self, name: str, current: int, total: int, **kwargs):
-        """Log progress with a progress bar"""
-        percentage = (current / total) * 100
+    def progress(self, name: str, current: int, total: int, progress_id: Optional[str] = None, **kwargs):
+        """Render or update a single persistent progress bar for this logger.
+
+        - If a progress bar with the same progress_id is active, update it in place.
+        - If a different bar is active, finalize it and start a new one.
+        - If not a TTY/ANSI environment, fallback to regular log lines.
+        """
+        # Compute text
+        safe_total = max(total, 1)
+        percentage = (current / safe_total) * 100
         bar_width = 20
-        filled = int(bar_width * current / total)
+        filled = int(bar_width * current / safe_total)
         bar = "█" * filled + "░" * (bar_width - filled)
-        
-        progress_text = f"{name}: {self._colorize(bar, LogColors.BRIGHT_GREEN)} {percentage:.1f}% ({current:,}/{total:,})"
-        self._log(LogLevel.INFO, f"⏳ {progress_text}", **kwargs)
+        pid = progress_id or name
+        progress_text = f"⏳ {name}: {self._colorize(bar, LogColors.BRIGHT_GREEN)} {percentage:.1f}% ({current:,}/{total:,})"
+
+        # Non-TTY: just print as a normal line
+        if not self._supports_color():
+            self._log(LogLevel.INFO, progress_text, **kwargs)
+            return
+
+        # If another bar is active and it's different, finalize previous with newline
+        if self._active_progress_id is not None and self._active_progress_id != pid:
+            # Clear the previous progress line without printing it again
+            print("\r\033[2K", end="", flush=True)
+            self._active_progress_id = None
+
+        # Mark this bar as active and render in place
+        self._active_progress_id = pid
+        self._progress_text_by_id[pid] = progress_text
+
+        # Clear current line and print without newline so it can be updated
+        print(f"\r\033[2K{progress_text}", end="", flush=True)
+
+        # If finished, add newline and deactivate
+        if current >= total:
+            print()  # newline to finalize the bar
+            self._active_progress_id = None
     
     def duration(self, message: str, start_time: float = None, **kwargs):
         """Log a message with duration"""
@@ -296,7 +339,7 @@ class PrettyLogger:
 
 
 # Global convenience functions
-_default_logger = PrettyLogger("app")
+_default_logger = PrettyLogger(__name__)
 
 def set_default_service(service_name: str):
     """Set the default service name for convenience functions"""
@@ -372,7 +415,7 @@ class timer:
 # Demo function
 def demo():
     """Demonstrate the pretty logger capabilities"""
-    logger = PrettyLogger("demo-service")
+    logger = PrettyLogger(__name__)
     
     logger.header("Pretty Logger Demo")
     
