@@ -20,7 +20,13 @@ pip install -e dev-utils/
 
 ### Importación
 ```python
-from dev_utils import pydantic_partial_update
+from dev_utils import (
+  pydantic_partial_update,
+  PrettyLogger,
+  log_success, log_error, log_info, log_warning, log_debug, log_critical,
+  log_step, log_metric, log_progress, log_header, log_table,
+  set_default_service, timer,
+)
 ```
 
 ### Ejemplo Básico
@@ -100,6 +106,17 @@ print(updated_user)
 ```bash
 cd dev-utils
 poetry run pytest
+```
+
+## 🖨️ Logging bonito (`pretty_logger`)
+
+```python
+from dev_utils import PrettyLogger, log_success, log_progress
+
+logger = PrettyLogger("my-service")
+log_success("Ready")
+for i in range(3):
+    log_progress("Step", i+1, 3)
 ```
 
 ## 📋 Requisitos
