@@ -98,9 +98,10 @@ INSTANCE_NAME=$INSTANCE_NAME
 ENVIRONMENT=production
 EOF
   echo 'Ensuring shared Cloud SQL proxy...'
-  sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
+  sudo docker compose --env-file .env -f docker-compose.shared-proxy.yml up -d
   echo 'Starting odoo-engine once for verification...'
-  sudo docker-compose --env-file .env -f docker-compose.prod.yml up -d
+  sudo docker compose --env-file .env -f docker-compose.prod.yml pull odoo-engine
+  sudo docker compose --env-file .env -f docker-compose.prod.yml up -d
   sleep 5
   sudo docker ps -a --format 'table {{.Names}}\t{{.Status}}' | grep odoo-engine-prod || (echo 'Container failed' && exit 1)
 "
@@ -151,11 +152,10 @@ else
   gcloud compute ssh $VM_NAME --zone=$ZONE --command="cd /opt/odoo-engine && timeout 60s sudo ./run_odoo_engine.sh test || true"
 fi
 
-echo "Ejecutando sincronización inmediatamente después del deploy..."
-gcloud compute ssh $VM_NAME --zone=$ZONE --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.prod.yml up odoo-engine"
+echo "Ejecutando sincronización inmediatamente después del deploy (con logs en tiempo real)..."
+gcloud compute ssh $VM_NAME --zone=$ZONE --command="cd /opt/odoo-engine && sudo docker compose --env-file .env -f docker-compose.prod.yml pull odoo-engine && sudo docker compose --env-file .env -f docker-compose.prod.yml up --no-build --no-deps --exit-code-from odoo-engine odoo-engine"
 
-echo "🛑 Stopping verification container (keeping logs)..."
-gcloud compute ssh $VM_NAME --zone=$ZONE --command="cd /opt/odoo-engine && sudo docker stop odoo-engine-prod 2>/dev/null || true"
+echo "✅ Sincronización post-deploy finalizada"
 
 echo "✅ Deployment completed!"
 

@@ -100,6 +100,8 @@ class Partner(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     odoo_id = Column(BigInteger, nullable=False, unique=True)
     name = Column(Text)
+    # RUT/VAT del partner (puede ser NULL cuando Odoo reporta False)
+    rut = Column(Text)
     is_company = Column(Boolean)
     supplier_rank = Column(Integer)
     customer_rank = Column(Integer)
@@ -113,6 +115,7 @@ class Partner(Base):
 
     __table_args__ = (
         Index("idx_partner_odoo_id", "odoo_id"),
+        Index("idx_partner_rut", "rut"),
         Index("idx_partner_write_date", "write_date"),
     )
 
