@@ -34,6 +34,9 @@ class SyncManager:
     def __init__(self, session: Session, client):
         self.client = client
         self.session = session
+        # Mapa de ID remoto de partner -> ID remoto canónico (por VAT)
+        # Se construye en sync_partners() y se usa para remapear relaciones
+        self.partner_remote_to_canonical = {}
 
     # ------------------------
     # Generic helpers
@@ -184,20 +187,98 @@ class SyncManager:
         logger.info("✅ Synced %d UoMs", len(data))
 
     def sync_partners(self):
+        # Reiniciar el mapa de canónicos en cada corrida
+        self.partner_remote_to_canonical = {}
+
         records = self._fetch_in_batches(
-            "res.partner", ["id", "name", "supplier_rank", "customer_rank"]
+            "res.partner",
+            [
+                "id",
+                "name",
+                "is_company",
+                "supplier_rank",
+                "customer_rank",
+                "email",
+                "phone",
+                "vat",
+                "write_date",
+            ],
         )
-        data = [
-            {
-                "odoo_id": rec["id"],
-                "name": rec.get("name"),
-                "supplier_rank": rec.get("supplier_rank", 0),
-                "customer_rank": rec.get("customer_rank", 0),
-            }
-            for rec in records
-        ]
+
+        # Separar por presencia de VAT (RUT)
+        with_vat = []
+        without_vat = []
+        for rec in records:
+            vat_val = rec.get("vat")
+            if vat_val:
+                # Parsear write_date para selección del más reciente
+                rec["_wd"] = self._parse_write_date(rec.get("write_date"))
+                with_vat.append(rec)
+            else:
+                without_vat.append(rec)
+
+        # Agrupar partners por VAT y seleccionar el más reciente por write_date
+        by_vat = {}
+        for rec in with_vat:
+            by_vat.setdefault(rec["vat"], []).append(rec)
+
+        canonical_by_vat = {}
+        for vat_val, recs in by_vat.items():
+            # Ordenar descendente por write_date (None al final)
+            recs.sort(key=lambda r: (r.get("_wd") or datetime.datetime.min), reverse=True)
+            chosen = recs[0]
+            canonical_by_vat[vat_val] = chosen
+            # Mapear todos los IDs remotos del grupo al ID canónico
+            for r in recs:
+                self.partner_remote_to_canonical[r["id"]] = chosen["id"]
+
+        # Los partners sin VAT se mapean a sí mismos
+        for r in without_vat:
+            self.partner_remote_to_canonical[r["id"]] = r["id"]
+
+        # Preparar UPSERT sólo con: (a) canónicos por VAT, (b) sin VAT
+        data = []
+
+        # a) canónicos por VAT
+        for vat_val, chosen in canonical_by_vat.items():
+            wd = chosen.get("_wd")
+            data.append(
+                {
+                    "odoo_id": chosen["id"],
+                    "name": chosen.get("name"),
+                    "is_company": chosen.get("is_company"),
+                    "supplier_rank": chosen.get("supplier_rank", 0),
+                    "customer_rank": chosen.get("customer_rank", 0),
+                    "email": chosen.get("email"),
+                    "phone": chosen.get("phone"),
+                    # Guardar RUT (VAT). Si False/no presente, quedará NULL
+                    "rut": vat_val,
+                    "write_date": wd,
+                }
+            )
+
+        # b) sin VAT
+        for rec in without_vat:
+            wd = self._parse_write_date(rec.get("write_date"))
+            data.append(
+                {
+                    "odoo_id": rec["id"],
+                    "name": rec.get("name"),
+                    "is_company": rec.get("is_company"),
+                    "supplier_rank": rec.get("supplier_rank", 0),
+                    "customer_rank": rec.get("customer_rank", 0),
+                    "email": rec.get("email"),
+                    "phone": rec.get("phone"),
+                    "rut": None,
+                    "write_date": wd,
+                }
+            )
+
         self._upsert(Partner, data)
-        logger.info("✅ Synced %d Partners", len(data))
+        logger.info(
+            "✅ Synced %d Partners (canónicos por VAT + sin VAT)",
+            len(data),
+        )
 
     def sync_products(self, delete_policy="mark_inactive"):
         # Excluir productos de tipo servicio
@@ -359,7 +440,13 @@ class SyncManager:
         data = [
             {
                 "odoo_id": rec["id"],
-                "partner_id": partner_map.get(rec["partner_id"][0]) if rec.get("partner_id") else None,
+                "partner_id": (
+                    partner_map.get(
+                        self.partner_remote_to_canonical.get(rec["partner_id"][0], rec["partner_id"][0])
+                    )
+                    if rec.get("partner_id")
+                    else None
+                ),
                 "date_order": rec.get("date_order"),
                 "amount_total": rec.get("amount_total", 0),
                 "state": rec.get("state"),
@@ -400,7 +487,13 @@ class SyncManager:
         data = [
             {
                 "odoo_id": rec["id"],
-                "partner_id": partner_map.get(rec["partner_id"][0]) if rec.get("partner_id") else None,
+                "partner_id": (
+                    partner_map.get(
+                        self.partner_remote_to_canonical.get(rec["partner_id"][0], rec["partner_id"][0])
+                    )
+                    if rec.get("partner_id")
+                    else None
+                ),
                 "date_order": rec.get("date_order"),
                 "amount_total": rec.get("amount_total", 0),
                 "state": rec.get("state"),

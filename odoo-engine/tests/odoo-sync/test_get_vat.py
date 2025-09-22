@@ -46,4 +46,8 @@ def test_get_all_vats_from_odoo():
     # Basic sanity check to keep pytest happy without asserting environment-dependent counts
     assert isinstance(vats, list)
 
+    for vat in vats:
+        print(vat) if vat else print("None")
 
+if __name__ == "__main__":
+    test_get_all_vats_from_odoo()
