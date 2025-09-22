@@ -19,47 +19,35 @@ A Python library designed to streamline interaction with the Odoo ERP API. It pr
 
 ## Installation
 
-This library is not yet available on PyPI. You can install it directly from the repository.
-
-First, clone the repository:
+Using Poetry locally:
 
 ```bash
-git clone <your-repository-url>
 cd odoo-api
+poetry install
 ```
 
-Next, install the required dependencies using pip:
+As a dependency from the monorepo:
 
 ```bash
-pip install -r requirements.txt
+pip install -e odoo-api/
 ```
-
-The library depends on the following packages:
-
-  * `pandas`
-  * `python-decouple`
-  * `langchain`
-  * `langgraph`
 
 ## Configuration
 
-The library uses a `.env` file to manage database credentials securely. Create a `.env` file in the root of your project. The library can handle connections to both a production and a test database.
+You can construct clients directly by passing credentials, or use `config-manager` to centralize environment configuration. Example using explicit credentials:
 
-Populate the `.env` file with your Odoo instance credentials as follows:
+```python
+from odoo_api.product import OdooProduct
 
-```env
-# Production Database Credentials
-ODOO_URL=https://your-odoo-domain.com
-ODOO_DB=your_production_db_name
-ODOO_USERNAME=your_username
-ODOO_PASSWORD=your_api_key_or_password
-
-# Test Database Credentials
-ODOO_TEST_URL=https://your-odoo-domain.com
-ODOO_TEST_DB=your_test_db_name
-ODOO_TEST_USERNAME=your_test_username
-ODOO_TEST_PASSWORD=your_test_api_key_or_password
+client = OdooProduct(
+  db="your_db",
+  url="https://your-odoo",
+  username="user",
+  password="pass",
+)
 ```
+
+When used together with `config-manager`, read secrets from environment/Secret Manager and pass them to the constructor.
 
 ## Quick Start
 
