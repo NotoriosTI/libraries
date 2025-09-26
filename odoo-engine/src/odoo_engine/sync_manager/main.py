@@ -1,9 +1,9 @@
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
-from odoo_engine.models import Base
-from odoo_engine.odoo_client import OdooClient
-from odoo_engine.sync_manager import SyncManager
+from odoo_engine.sync_manager.models import Base
+from odoo_engine.sync_manager.odoo_client import OdooClient
+from odoo_engine.sync_manager.sync_manager import SyncManager
 
 from config_manager import secrets
 from dev_utils.pretty_logger import PrettyLogger
@@ -150,7 +150,7 @@ def main():
         # If --init is passed to main, also run the legacy sales loader after sync
         import sys
         if "--init" in sys.argv:
-            from odoo_engine.load_legacy_sales import main as legacy_main
+            from odoo_engine.sync_manager.load_legacy_sales import main as legacy_main
             logger.info("--init flag detected: running legacy sales loader")
             # Ensure legacy loader uses its default path rather than interpreting
             # the current --init arg as a CSV path. Temporarily clear argv.

@@ -1,6 +1,6 @@
 [project]
 name = "odoo-engine"
-version = "1.1.0"
+version = "1.1.1"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
@@ -24,6 +24,9 @@ dependencies = [
 
 [tool.poetry]
 packages = [{ include = "odoo_engine", from = "src" }]
+
+[project.scripts]
+sync = "odoo_engine.sync_manager.main:main"
 
 [tool.pyright]
 venvpath = "."

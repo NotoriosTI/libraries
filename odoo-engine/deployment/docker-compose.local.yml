@@ -19,7 +19,7 @@ services:
       - ../src:/app/src:ro
     depends_on:
       - cloud-sql-proxy
-    command: python -m odoo_engine.main
+    command: python -m odoo_engine.sync_manager.main
 
   cloud-sql-proxy:
     image: gcr.io/cloudsql-docker/gce-proxy:1.33.2

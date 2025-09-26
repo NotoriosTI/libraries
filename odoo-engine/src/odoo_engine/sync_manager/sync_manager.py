@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import datetime
 
-from odoo_engine.models import (
+from odoo_engine.sync_manager.models import (
     SyncState,
     Product,
     Partner,
@@ -21,8 +21,8 @@ from odoo_engine.models import (
     PurchaseOrder,
     PurchaseOrderLine,
 )
-from odoo_engine.models import ProductEmbedding
-from odoo_engine.embedding_generator import EmbeddingGenerator
+from odoo_engine.sync_manager.models import ProductEmbedding
+from odoo_engine.sync_manager.embedding_generator import EmbeddingGenerator
 import tiktoken
 
 logger = logging.getLogger(__name__)

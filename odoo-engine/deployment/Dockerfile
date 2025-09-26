@@ -52,5 +52,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
 # Default command
-CMD ["python", "-m", "odoo_engine.main"]
+CMD ["python", "-m", "odoo_engine.sync_manager.main"]
 
