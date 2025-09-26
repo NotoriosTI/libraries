@@ -13,23 +13,13 @@ Uso:
 
 import sys
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from config_manager import secrets
 from dev_utils.pretty_logger import PrettyLogger
-from odoo_engine.sync_manager.odoo_client import OdooClient
-
-
-def get_pg_dsn() -> str:
-    user = secrets.DB_USER
-    password = secrets.DB_PASSWORD
-    host = secrets.DB_HOST
-    port = secrets.DB_PORT
-    db = secrets.JUAN_DB_NAME
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+from odoo_engine.utils import OdooClient, get_pg_dsn
 
 
 @dataclass

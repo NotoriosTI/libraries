@@ -23,6 +23,7 @@ from odoo_engine.sync_manager.models import (
 )
 from odoo_engine.sync_manager.models import ProductEmbedding
 from odoo_engine.sync_manager.embedding_generator import EmbeddingGenerator
+from odoo_engine.utils import OdooClient
 import tiktoken
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ UPSERT_CHUNK = 1000  # Records per UPSERT chunk
 
 
 class SyncManager:
-    def __init__(self, session: Session, client):
+    def __init__(self, session: Session, client: OdooClient):
         self.client = client
         self.session = session
         # Mapa de ID remoto de partner -> ID remoto canónico (por VAT)
