@@ -1,8 +1,6 @@
 # -----------------------------------------------------------------------------
 # Docker Compose for Odoo Engine PRODUCTION (using shared proxy)
 # -----------------------------------------------------------------------------
-version: '3.8'
-
 services:
   odoo-engine:
     image: gcr.io/${PROJECT_ID}/odoo-engine:latest

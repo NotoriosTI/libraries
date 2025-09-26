@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from config_manager import secrets
 
-from odoo_engine.models import Base, SaleOrder, SaleOrderLine, Product
+from odoo_engine.sync_manager.models import Base, SaleOrder, SaleOrderLine, Product
 from dev_utils.pretty_logger import PrettyLogger
 
 

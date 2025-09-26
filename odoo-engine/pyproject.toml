@@ -1,6 +1,6 @@
 [project]
 name = "odoo-engine"
-version = "1.1.0"
+version = "1.1.1"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
@@ -17,10 +17,16 @@ dependencies = [
   "tiktoken (>=0.4.0,<0.9.0)",
   "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
   "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=dev-utils",
+  "google-cloud-bigquery (>=3.38.0,<4.0.0)",
+  "scikit-learn (>=1.7.2,<2.0.0)",
+  "db-dtypes (>=1.4.3,<2.0.0)",
 ]
 
 [tool.poetry]
 packages = [{ include = "odoo_engine", from = "src" }]
+
+[project.scripts]
+sync = "odoo_engine.sync_manager.main:main"
 
 [tool.pyright]
 venvpath = "."

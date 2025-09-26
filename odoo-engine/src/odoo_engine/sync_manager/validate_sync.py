@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from config_manager import secrets
 from dev_utils.pretty_logger import PrettyLogger
-from odoo_engine.odoo_client import OdooClient
+from odoo_engine.sync_manager.odoo_client import OdooClient
 
 
 def get_pg_dsn() -> str:
