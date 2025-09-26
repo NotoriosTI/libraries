@@ -1,8 +1,6 @@
 # -----------------------------------------------------------------------------
 # Docker Compose for SHARED CLOUD SQL PROXY (used by odoo-engine)
 # -----------------------------------------------------------------------------
-version: '3.8'
-
 services:
   shared-cloud-sql-proxy:
     image: gcr.io/cloudsql-docker/gce-proxy:1.33.2
