@@ -2,8 +2,8 @@ import pytest
 from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from odoo_engine.models import Base, Product
-from odoo_engine.sync_manager import SyncManager
+from odoo_engine.sync_manager.models import Base, Product
+from odoo_engine.sync_manager.sync_manager import SyncManager
 
 @pytest.fixture
 def in_memory_session():

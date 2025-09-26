@@ -1,7 +1,7 @@
 import pytest
 
 try:
-    from odoo_engine.odoo_client import OdooClient
+    from odoo_engine.sync_manager.odoo_client import OdooClient
 except Exception as _import_exc:  # pragma: no cover
     OdooClient = None  # type: ignore
 
