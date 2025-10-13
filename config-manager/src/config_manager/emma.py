@@ -50,7 +50,6 @@ class ShopifyAPISecret(Secret):
 # Chatwoot
 # --------------------------------------------------
 class ChatwootSecret(Secret):
-    url: Optional[str] = Field(default=None, alias="EMMA_CHATWOOT_BASE_URL")
     account_id: Optional[str] = Field(default=None, alias="EMMA_CHATWOOT_ACCOUNT_ID")
     token: Optional[str] = Field(default=None, alias="EMMA_CHATWOOT_TOKEN")
 
