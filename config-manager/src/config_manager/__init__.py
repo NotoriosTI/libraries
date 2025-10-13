@@ -7,8 +7,8 @@ from config_manager import common, juan, emma, emilia
 
 __all__ = [
     "secrets",
-    "common",
     "juan",
     "emma",
     "emilia",
+    "common",
 ]
