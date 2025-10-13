@@ -1,6 +1,6 @@
 [project]
 name = "config-manager"
-version = "1.4.0"
+version = "1.4.1"
 description = "Centralized configuration and secret management"
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
