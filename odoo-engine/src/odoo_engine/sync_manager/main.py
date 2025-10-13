@@ -2,27 +2,11 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from odoo_engine.sync_manager.models import Base
-from odoo_engine.sync_manager.odoo_client import OdooClient
+from odoo_engine.utils import OdooClient, get_pg_dsn
 from odoo_engine.sync_manager.sync_manager import SyncManager
 
 from config_manager import secrets
 from dev_utils.pretty_logger import PrettyLogger
-
-
-def get_pg_dsn() -> str:
-    """
-    Build PostgreSQL DSN from environment variables.
-    Example DSN: postgresql+psycopg2://user:password@localhost:5432/mydb
-    """
-    user = secrets.DB_USER
-    password = secrets.DB_PASSWORD
-    host = secrets.DB_HOST
-    port = secrets.DB_PORT
-    db = secrets.JUAN_DB_NAME
-
-    pg_dsn = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
-    return pg_dsn
-
 
 def main():
     # -----------------------

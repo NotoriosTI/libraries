@@ -1,0 +1,331 @@
+from odoo_engine.sale_order_manager import SaleOrderManager
+import sys
+
+
+def test_purchase_order_creation(manager: SaleOrderManager) -> int | None:
+    """Test function to create a purchase order for a random critical priority item"""
+    print("\n" + "="*60)
+    print("🧪 TESTING PURCHASE ORDER CREATION")
+    print("="*60)
+
+    final_df = manager.get_missing_components_final_df()
+
+    if final_df.empty:
+        print("❌ No data available for testing")
+        return None
+
+    # Find all critical priority items
+    critical_items = final_df[final_df['priority'] == 'CRITICAL']
+
+    if critical_items.empty:
+        print("❌ No critical priority items found for testing")
+        print("Available priorities:", final_df['priority'].unique())
+        return None
+
+    # Pick a random critical priority item
+    import random
+    random_critical = critical_items.iloc[random.randint(0, len(critical_items) - 1)]
+
+    print(f"📦 Testing with random CRITICAL priority item ({len(critical_items)} available):")
+    print(f"   Product: {random_critical['product_name']} (ID: {random_critical['product_id']})")
+    print(f"   Default Code: {random_critical['default_code']}")
+    print(f"   Required Qty: {random_critical['required_qty']}")
+    print(f"   Supplier: {random_critical['supplier_name']} (ID: {random_critical['supplier_id']})")
+    print(f"   Avg Price: {random_critical['avg_price']}")
+    print(f"   Priority: {random_critical['priority']}")
+
+    # Create purchase order
+    try:
+        # Convert values to proper types
+        product_id = int(float(random_critical['product_id']))
+        supplier_id = int(float(random_critical['supplier_id']))
+        quantity = float(random_critical['required_qty'])
+        unit_price = float(random_critical['avg_price'].replace(',', '.'))
+
+        po_id = manager.odoo_client.create_purchase_order(
+            product_id=product_id,
+            supplier_id=supplier_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            product_name=random_critical['product_name']
+        )
+        return po_id
+    except Exception as e:
+        print(f"❌ Error creating purchase order: {str(e)}")
+        return None
+
+
+def test_purchase_order_for_component(component_product_id: int, manager: SaleOrderManager) -> int | None:
+    """Create a purchase order for a specific component_product_id using the final dataframe.
+
+    Picks the cheapest supplier (lowest avg_price) among matches, and orders the required_qty.
+    """
+    print("\n" + "="*60)
+    print(f"🧪 TESTING PO FOR component_product_id={component_product_id}")
+    print("="*60)
+
+    final_df = manager.get_missing_components_final_df()
+
+    if final_df.empty:
+        print("❌ No data available for testing")
+        return None
+
+    # Ensure correct typing for filtering and numeric ops
+    df = final_df.copy()
+    df['id'] = df['id'].astype(str)
+
+    target_rows = df[df['id'] == str(component_product_id)]
+    if target_rows.empty:
+        print(f"❌ No rows found for component_product_id={component_product_id}")
+        return None
+
+    # Convert avg_price to float for sorting (values are strings like '32838.000')
+    def _to_float_safe(v):
+        try:
+            return float(str(v).replace(',', '.'))
+        except Exception:
+            return float('inf')
+
+    target_rows = target_rows.assign(_avg_price_num=target_rows['avg_price'].apply(_to_float_safe))
+
+    # Prefer CRITICAL if present
+    critical_subset = target_rows[target_rows['priority'] == 'CRITICAL']
+    if not critical_subset.empty:
+        target_rows = critical_subset
+
+    # Pick the cheapest supplier option
+    chosen = target_rows.sort_values('_avg_price_num', ascending=True).iloc[0]
+
+    print("📦 Selected row:")
+    print(f"   Product: {chosen['product_name']} (ID: {chosen['product_id']})")
+    print(f"   Default Code: {chosen['default_code']}")
+    print(f"   Required Qty: {chosen['required_qty']}")
+    print(f"   Supplier: {chosen['supplier_name']} (ID: {chosen['supplier_id']})")
+    print(f"   Avg Price: {chosen['avg_price']}")
+    print(f"   Priority: {chosen['priority']}")
+
+    try:
+        product_id = int(float(chosen['product_id']))
+        supplier_id = int(float(chosen['supplier_id']))
+        quantity = float(chosen['required_qty'])
+        unit_price = float(str(chosen['avg_price']).replace(',', '.'))
+
+        po_id = manager.odoo_client.create_purchase_order(
+            product_id=product_id,
+            supplier_id=supplier_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            product_name=chosen['product_name']
+        )
+        return po_id
+    except Exception as e:
+        print(f"❌ Error creating purchase order: {str(e)}")
+        return None
+
+
+def test_final_dataframe(manager: SaleOrderManager):
+    """Test function to demonstrate the final dataframe"""
+    print("Testing final missing components dataframe...")
+    final_df = manager.get_missing_components_final_df()
+    print(f"Final dataframe shape: {final_df.shape}")
+    print("Columns:", list(final_df.columns))
+    print("\nSample data:")
+    print(final_df.head())
+    return final_df
+
+
+def test_purchase_order_creation_random(manager: SaleOrderManager):
+    """Test function to create a purchase order for a random critical priority item"""
+    print("\n" + "="*60)
+    po_id = test_purchase_order_creation(manager)
+    if po_id:
+        print(f"\n✅ Purchase order test completed successfully! PO ID: {po_id}")
+    else:
+        print("\n❌ Purchase order test failed or was skipped")
+
+
+def test_purchase_order_creation_component(manager: SaleOrderManager, component_product_id: int):
+    """Test function to create a purchase order for a specific component_product_id"""
+    print("\n" + "="*60)
+    po_id = test_purchase_order_for_component(component_product_id, manager)
+    if po_id:
+        print(f"\n✅ Purchase order test completed successfully! PO ID: {po_id}")
+    else:
+        print("\n❌ Purchase order test failed or was skipped")
+
+
+def test_purchase_orders_grouped_by_supplier(manager: SaleOrderManager) -> int | None:
+    """Group CRITICAL missing components by supplier and create a single PO per supplier.
+
+    Picks one random supplier and creates a single PO with multiple lines for that supplier.
+    """
+    print("\n" + "="*60)
+    print("🧪 TESTING GROUPED PO CREATION (by supplier, random CRITICAL supplier)")
+    print("="*60)
+
+    final_df = manager.get_missing_components_final_df()
+    if final_df.empty:
+        print("❌ No data available for testing")
+        return None
+
+    critical_df = final_df[final_df['priority'] == 'CRITICAL'].copy()
+    if critical_df.empty:
+        print("❌ No CRITICAL items to process")
+        return None
+
+    # Ensure numeric types
+    critical_df['supplier_id'] = critical_df['supplier_id'].astype(float)
+    critical_df['product_id'] = critical_df['product_id'].astype(float)
+    critical_df['required_qty'] = critical_df['required_qty'].astype(float)
+
+    # Choose random supplier
+    import random
+    suppliers = sorted(critical_df['supplier_id'].unique())
+    chosen_supplier = random.choice(suppliers)
+
+    supplier_rows = critical_df[critical_df['supplier_id'] == chosen_supplier].copy()
+
+    # Build lines for bulk PO
+    def _pfloat(v):
+        try:
+            return float(str(v).replace(',', '.'))
+        except Exception:
+            return 0.0
+
+    lines = []
+    for _, row in supplier_rows.iterrows():
+        lines.append({
+            'product_id': int(float(row['product_id'])),
+            'product_qty': float(row['required_qty']),
+            'price_unit': _pfloat(row['avg_price']),
+            'name': f"Auto PO - {row['product_name']}"
+        })
+
+    print(f"📦 Creating bulk PO for supplier {int(chosen_supplier)} with {len(lines)} lines")
+    po_id = manager.odoo_client.create_purchase_order_bulk(
+        supplier_id=int(chosen_supplier),
+        lines=lines,
+    )
+    return po_id
+
+
+def test_purchase_orders_all_critical_grouped(manager: SaleOrderManager) -> dict:
+    """Create ALL required purchase orders for CRITICAL items, grouped by supplier.
+
+    Iterates suppliers sequentially; creates one PO per supplier with multiple lines.
+    Returns a summary dict with successes and failures.
+    """
+    print("\n" + "="*60)
+    print("🚚 CREATING ALL CRITICAL PURCHASE ORDERS (grouped by supplier)")
+    print("="*60)
+
+    results = {"success": [], "failed": []}
+
+    final_df = manager.get_missing_components_final_df()
+    if final_df.empty:
+        print("❌ No data available for creating purchase orders")
+        return results
+
+    df = final_df.copy()
+    df = df[df['priority'] == 'CRITICAL']
+    if df.empty:
+        print("❌ No CRITICAL items found")
+        return results
+
+    # Ensure numeric types
+    def _to_float(s):
+        try:
+            return float(str(s).replace(',', '.'))
+        except Exception:
+            return 0.0
+
+    df['supplier_id'] = df['supplier_id'].astype(float)
+    df['product_id'] = df['product_id'].astype(float)
+    df['required_qty'] = df['required_qty'].astype(float)
+    df['avg_price_num'] = df['avg_price'].apply(_to_float)
+
+    # Group by supplier and create a PO per supplier
+    suppliers = sorted(df['supplier_id'].unique())
+    print(f"Found {len(suppliers)} suppliers with CRITICAL items")
+
+    for supplier in suppliers:
+        supplier_rows = df[df['supplier_id'] == supplier]
+        if supplier_rows.empty:
+            continue
+
+        lines = []
+        for _, row in supplier_rows.iterrows():
+            qty = float(row['required_qty'])
+            if qty <= 0:
+                continue
+            lines.append({
+                'product_id': int(float(row['product_id'])),
+                'product_qty': qty,
+                'price_unit': _to_float(row['avg_price']),
+                'name': f"Auto PO - {row['product_name']}"
+            })
+
+        if not lines:
+            print(f"Skipping supplier {int(supplier)}: no valid lines")
+            continue
+
+        print(f"\n📦 Creating PO for supplier {int(supplier)} with {len(lines)} lines...")
+        po_id = manager.odoo_client.create_purchase_order_bulk(
+            supplier_id=int(supplier),
+            lines=lines,
+        )
+        if po_id:
+            print(f"✅ PO {po_id} created for supplier {int(supplier)}")
+            results['success'].append({"supplier_id": int(supplier), "po_id": int(po_id), "lines": len(lines)})
+        else:
+            print(f"❌ Failed to create PO for supplier {int(supplier)}")
+            results['failed'].append({"supplier_id": int(supplier)})
+
+    # Summary
+    print("\n" + "-"*60)
+    print("Summary:")
+    print(f"  Successful POs: {len(results['success'])}")
+    print(f"  Failed suppliers: {len(results['failed'])}")
+    return results
+
+
+if __name__ == "__main__":
+    # For standalone execution, run all reports
+    sale_order_manager = SaleOrderManager()
+    results = sale_order_manager.run_all_reports()
+    print("\n" + "="*50)
+    print("All reports completed successfully!")
+
+    # Test the final dataframe
+    print("\nTesting final dataframe:")
+    test_final_dataframe(sale_order_manager)
+
+    # Show final dataframe structure
+    print("\n" + "="*50)
+    print("Final Missing Components DataFrame:")
+    final_df = results['final_missing_components']
+    if not final_df.empty:
+        print(f"Shape: {final_df.shape}")
+        print("Columns:", list(final_df.columns))
+        print("\nFirst 5 rows:")
+        print(final_df.head(20))
+
+        if len(sys.argv) > 1:
+            try:
+                if sys.argv[1] == "--all-critical":
+                    summary = test_purchase_orders_all_critical_grouped(sale_order_manager)
+                    print(f"\nSummary: {summary}")
+                else:
+                    component_id = int(sys.argv[1])
+                    test_purchase_order_creation_component(sale_order_manager, component_id)
+            except Exception as arg_exc:
+                print(f"Invalid arg: {arg_exc}")
+        else:
+            # Default: group by supplier and create one random supplier PO
+            po_id = test_purchase_orders_grouped_by_supplier(sale_order_manager)
+            if po_id:
+                print(f"\n✅ Grouped PO test completed successfully! PO ID: {po_id}")
+            else:
+                print("\n❌ Grouped PO test failed or was skipped")
+    else:
+        print("No missing components data available")
