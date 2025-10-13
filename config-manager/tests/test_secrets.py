@@ -4,12 +4,13 @@ from config_manager.emma import ChatwootSecret
 from config_manager.juan import JuanDBSecret
 
 if __name__ == "__main__":
-    odoo_secrets = OdooProductionSecret()
-    emiliadb_secrets = EmiliaDBSecret()
     juandb_secrets = JuanDBSecret()
-    chatwoot_secrets = ChatwootSecret()
+    # odoo_secrets = OdooProductionSecret()
+    # emiliadb_secrets = EmiliaDBSecret()
+    # chatwoot_secrets = ChatwootSecret()
 
-    print(f"{odoo_secrets.db = }")
-    print(f"{emiliadb_secrets.host = }")
     print(f"{juandb_secrets.host = }")
-    print(f"{chatwoot_secrets.account_id = }")
+    print(f"{juandb_secrets.name = }")
+    print(f"{juandb_secrets.username = }")
+    print(f"{juandb_secrets.password = }")
+    print(f"{juandb_secrets.port = }")

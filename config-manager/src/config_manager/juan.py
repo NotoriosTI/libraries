@@ -11,6 +11,14 @@ class OpenAISecret(Secret):
 
 
 # --------------------------------------------------
+# Anthropic
+# --------------------------------------------------
+class AnthropicSecret(Secret):
+    api_key: Optional[str] = Field(default=None, alias="JUAN_ANTHROPIC_API_KEY")
+    llm_model: Optional[str] = Field(default=None, alias="JUAN_ANTHROPIC_LLM_MODEL")
+
+
+# --------------------------------------------------
 # Slack
 # --------------------------------------------------
 class SlackSecret(Secret):
