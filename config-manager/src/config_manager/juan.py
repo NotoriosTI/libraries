@@ -53,3 +53,8 @@ class JuanDBSecret(Secret):
     port: Optional[str] = Field(default=None, alias="JUAN_DB_PORT")
     username: Optional[str] = Field(default=None, alias="JUAN_DB_USER")
     password: Optional[str] = Field(default=None, alias="JUAN_DB_PASSWORD")
+
+
+class BigqueryDataset(Secret):
+    project_name: Optional[str] = Field(default=None, alias="JUAN_BQ_PROJECT_NAME")
+    dataset: Optional[str] = Field(default=None, alias="JUAN_BQ_SALES_DATASET")
