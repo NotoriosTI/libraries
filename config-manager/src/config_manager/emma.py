@@ -7,7 +7,7 @@ class OpenAISecret(Secret):
     api_key: Optional[str] = Field(default=None, alias="EMMA_OPENAI_API_KEY")
 
 class EnvironmentSecret(Secret):
-    environment: Optional[str] = Field(default="production", alias="EMMA_ENVIRONMENT")
+    emma_environment: Optional[str] = Field(default=None, alias="EMMA_ENVIRONMENT")
 
 # --------------------------------------------------
 # Databases
