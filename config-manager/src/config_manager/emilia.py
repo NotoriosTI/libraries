@@ -13,6 +13,22 @@ class EmiliaDBSecret(Secret):
     username: Optional[str] = Field(default=None, alias="EMILIA_DB_USER")
     password: Optional[str] = Field(default=None, alias="EMILIA_DB_PASSWORD")
 
+class EnvironmentSecret(Secret):
+    emilia_environment: Optional[str] = Field(default=None, alias="EMILIA_ENVIRONMENT")
+
+# --------------------------------------------------
+# Chatwoot
+# --------------------------------------------------
+class ChatwootSecret(Secret):
+    token: Optional[str] = Field(default=None, alias="EMILIA_CHATWOOT_TOKEN")
+    account_id: Optional[str] = Field(default=None, alias="EMILIA_CHATWOOT_ACCOUNT_ID")
+
+
+# --------------------------------------------------
+# OpenAI
+# --------------------------------------------------
+class OpenAISecret(Secret):
+    api_key: Optional[str] = Field(default=None, alias="EMILIA_OPENAI_API_KEY")
 
 # --------------------------------------------------
 # Google Cloud Platform
