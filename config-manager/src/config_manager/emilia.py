@@ -34,6 +34,7 @@ class OpenAISecret(Secret):
 # Google Cloud Platform
 # --------------------------------------------------
 class GoogleDocsSecret(Secret):
+    credentials_path: Optional[str] = Field(default=None, alias="EMILIA_CREDENTIALS_PATH")
     sales_id: Optional[str] = Field(default=None, alias="EMILIA_DOCS_SALES_ID")
     docs_summary_id: Optional[str] = Field(default=None, alias="EMILIA_DOCS_SUMMARY_ID")
 

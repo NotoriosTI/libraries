@@ -105,15 +105,6 @@ class Settings:
                 "EMILIA_DB_PASSWORD", gcp_client
             )
 
-            # Chatwoot
-            self.CHATWOOT_BASE_URL = self._fetch_gcp_secret(
-                "CHATWOOT_BASE_URL", gcp_client
-            )
-            self.CHATWOOT_ACCOUNT_ID = self._fetch_gcp_secret(
-                "CHATWOOT_ACCOUNT_ID", gcp_client
-            )
-            self.CHATWOOT_TOKEN = self._fetch_gcp_secret("CHATWOOT_TOKEN", gcp_client)
-
             # Emilia Google Docs IDs
             self.EMILIA_DOCS_SALES_ID = self._fetch_gcp_secret(
                 "EMILIA_DOCS_SALES_ID", gcp_client
@@ -126,21 +117,6 @@ class Settings:
             self.EMILIA_SERVICE_ACCOUNT_EMAIL = self._fetch_gcp_secret(
                 "EMILIA_SERVICE_ACCOUNT_EMAIL", gcp_client
             )
-
-            # Shopify Configuration
-            self.EMILIA_SHOPIFY_SHOP_URL = self._fetch_gcp_secret(
-                "EMILIA_SHOPIFY_SHOP_URL", gcp_client
-            )
-            self.EMILIA_SHOPIFY_TOKEN_API_ADMIN = self._fetch_gcp_secret(
-                "EMILIA_SHOPIFY_TOKEN_API_ADMIN", gcp_client
-            )
-            self.EMILIA_SHOPIFY_API_VERSION = self._fetch_gcp_secret(
-                "EMILIA_SHOPIFY_API_VERSION", gcp_client
-            )
-            self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = self._fetch_gcp_secret(
-                "EMILIA_SHOPIFY_TOKEN_API_STOREFRONT", gcp_client
-            )
-
 
             # Nombre base de datos central juan
             self.JUAN_DB_NAME = self._fetch_gcp_secret("JUAN_DB_NAME", gcp_client)
@@ -199,30 +175,6 @@ class Settings:
             self.EMILIA_DB_NAME = config("EMILIA_DB_NAME", default="emiliadb")
             self.EMILIA_DB_USER = config("EMILIA_DB_USER", default="automation_admin")
             self.EMILIA_DB_PASSWORD = config("EMILIA_DB_PASSWORD", default="password")
-
-            # Chatwoot
-            self.CHATWOOT_BASE_URL = config("CHATWOOT_BASE_URL", default="")
-            self.CHATWOOT_ACCOUNT_ID = config("CHATWOOT_ACCOUNT_ID", default="")
-            self.CHATWOOT_TOKEN = config("CHATWOOT_TOKEN", default="")
-
-            # Emilia Google Docs IDs
-            self.EMILIA_DOCS_SALES_ID = config("EMILIA_DOCS_SALES_ID", default="")
-            self.EMILIA_DOCS_SUMMARY_ID = config("EMILIA_DOCS_SUMMARY_ID", default="")
-
-            # Emilia Credentials Path (solo para uso local)
-            self.EMILIA_CREDENTIALS_PATH = config("EMILIA_CREDENTIALS_PATH", default="")
-
-            # Shopify Configuration
-            self.EMILIA_SHOPIFY_SHOP_URL = config("EMILIA_SHOPIFY_SHOP_URL", default="")
-            self.EMILIA_SHOPIFY_TOKEN_API_ADMIN = config(
-                "EMILIA_SHOPIFY_TOKEN_API_ADMIN", default=""
-            )
-            self.EMILIA_SHOPIFY_API_VERSION = config(
-                "EMILIA_SHOPIFY_API_VERSION", default="2025-01"
-            )
-            self.EMILIA_SHOPIFY_TOKEN_API_STOREFRONT = config(
-                "EMILIA_SHOPIFY_TOKEN_API_STOREFRONT", default=""
-            )
 
             # Juan DB
             self.JUAN_DB_NAME = config("JUAN_DB_NAME", default="juandb")
@@ -299,31 +251,6 @@ class Settings:
             "user": self.EMILIA_DB_USER,
             "password": self.EMILIA_DB_PASSWORD,
         }
-
-    def get_chatwoot_config(self) -> dict:
-        """Get chatwoot configuration for sales-engine."""
-        return {
-            "base_url": self.CHATWOOT_BASE_URL,
-            "account_id": self.CHATWOOT_ACCOUNT_ID,
-            "token": self.CHATWOOT_TOKEN,
-        }
-
-    def get_emilia_docs_config(self) -> dict:
-        """Get Emilia Google Docs configuration."""
-        config = {
-            "sales_id": self.EMILIA_DOCS_SALES_ID,
-            "summary_id": self.EMILIA_DOCS_SUMMARY_ID,
-        }
-
-        # Solo incluir credentials_path en entornos locales
-        if self.ENVIRONMENT in ("local_container", "local_machine"):
-            config["credentials_path"] = self.EMILIA_CREDENTIALS_PATH
-
-        # Solo incluir service_account_email en producción
-        if self.ENVIRONMENT == "production":
-            config["service_account_email"] = self.EMILIA_SERVICE_ACCOUNT_EMAIL
-
-        return config
 
     def get_shopify_config(self, use_admin_api: bool = False) -> dict:
         """Get Shopify configuration for both Admin and Storefront APIs."""
