@@ -60,3 +60,9 @@ class ChatwootSecret(Secret):
 # --------------------------------------------------
 class LocalCredentialSecret(Secret):
     credential_path: Optional[str] = Field(default=None, alias="EMMA_CREDENTIALS_PATH")
+
+class OdooSecret(Secret):
+    url: Optional[str] = Field(default=None, alias="EMMA_ODOO_URL")
+    db: Optional[str] = Field(default=None, alias="EMMA_ODOO_DB")
+    username: Optional[str] = Field(default=None, alias="EMMA_ODOO_USERNAME")
+    password: Optional[str] = Field(default=None, alias="EMMA_ODOO_PASSWORD")
