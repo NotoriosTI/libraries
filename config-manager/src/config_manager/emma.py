@@ -6,6 +6,9 @@ from pydantic import Field
 class OpenAISecret(Secret):
     api_key: Optional[str] = Field(default=None, alias="EMMA_OPENAI_API_KEY")
 
+class AnthropicSecret(Secret):
+    api_key: Optional[str] = Field(default=None, alias="EMMA_ANTHROPIC_API_KEY")
+
 class EnvironmentSecret(Secret):
     emma_environment: Optional[str] = Field(default=None, alias="EMMA_ENVIRONMENT")
 
