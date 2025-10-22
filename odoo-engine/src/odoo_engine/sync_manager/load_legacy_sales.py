@@ -24,10 +24,9 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import insert
 
-from config_manager import secrets
-
 from odoo_engine.sync_manager.models import Base, SaleOrder, SaleOrderLine, Product
 from dev_utils.pretty_logger import PrettyLogger
+from odoo_engine.utils import get_pg_dsn
 
 
 # --------------------------- Utilidades ---------------------------
@@ -63,16 +62,6 @@ def deterministic_negative_id(*parts: str) -> int:
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
     as_int = int(digest[:15], 16)  # 60 bits aprox.
     return -as_int
-
-
-def get_pg_dsn() -> str:
-    user = secrets.DB_USER
-    password = secrets.DB_PASSWORD
-    host = secrets.DB_HOST
-    port = secrets.DB_PORT
-    db = secrets.JUAN_DB_NAME
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
-
 
 def read_csv_headerless(path: Path, chunksize: int) -> Iterable[pd.DataFrame]:
     return pd.read_csv(path, names=CSV_COLUMNS, encoding="utf-8", chunksize=chunksize)
