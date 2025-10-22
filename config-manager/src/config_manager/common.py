@@ -104,11 +104,7 @@ class OdooTestSecret(Secret):
     username: Optional[str] = Field(default=None, alias="ODOO_TEST_USERNAME")
     password: Optional[str] = Field(default=None, alias="ODOO_TEST_PASSWORD")
 
+
 # Run as a script for quick testing
 if __name__ == "__main__":
-    secret = OdooProductionSecret()
-
-    print(f"{secret.url = }")
-    print(f"{secret.db = }")
-    print(f"{secret.username = }")
-    print(f"{secret.password = }")
+    pass
