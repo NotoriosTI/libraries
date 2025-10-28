@@ -152,7 +152,9 @@ class ConfigManager:
             for name, definition in self._variables.items()
         }
 
-        fetched = loader.get_many(list(sources.values()))
+        # Only fetch from loader if there are sources with non-None values
+        sources_to_fetch = [s for s in sources.values() if s is not None]
+        fetched = loader.get_many(sources_to_fetch) if sources_to_fetch else {}
 
         required = set(self._validation.get("required", []) or [])
         optional = set(self._validation.get("optional", []) or [])
@@ -162,7 +164,7 @@ class ConfigManager:
             target_type = str(definition.get("type", "str"))
             has_default = "default" in definition
             default_value = definition.get("default") if has_default else None
-            raw_value = fetched.get(source)
+            raw_value = fetched.get(source) if source else None
             missing_value = raw_value is None
 
             if missing_value:
@@ -170,10 +172,10 @@ class ConfigManager:
                     f"Variable '{var_name}' not found in source '{source}' "
                     f"using origin '{self.secret_origin}'."
                 )
-                if self.strict:
+                if self.strict and source is not None:
                     logger.error(message)
                     raise RuntimeError(message)
-                if var_name in required:
+                if var_name in required and not has_default:
                     logger.error(
                         f"Required variable {var_name} not found"
                     )
@@ -188,7 +190,7 @@ class ConfigManager:
                         "Ensure the secret exists and the service has access."
                         % (var_name, origin_context)
                     )
-                if var_name in optional:
+                if var_name in optional and source is not None:
                     logger.warning(
                         f"Optional variable {var_name} not found"
                     )
@@ -219,16 +221,27 @@ class ConfigManager:
 
     def _validate_variable_definition(
         self, name: str, definition: Any
-    ) -> str:
+    ) -> Optional[str]:
         if not isinstance(definition, dict):
             raise ValueError(
                 f"Invalid configuration for '{name}'. Expected a mapping."
             )
+        
         source = definition.get("source")
-        if not source or not isinstance(source, str):
+        has_default = "default" in definition
+        
+        # Either source or default must be present, but not necessarily both
+        if not source and not has_default:
             raise ValueError(
-                f"Variable '{name}' must define a string 'source' entry."
+                f"Variable '{name}' must define either 'source' or 'default' (or both)."
             )
+        
+        # If source is present, it must be a non-empty string
+        if source and not isinstance(source, str):
+            raise ValueError(
+                f"Variable '{name}': 'source' must be a string if provided."
+            )
+        
         v_type = str(definition.get("type", "str"))
         if v_type not in {"str", "int", "float", "bool"}:
             raise ValueError(

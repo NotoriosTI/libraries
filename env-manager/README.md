@@ -63,6 +63,10 @@ variables:
     type: str                 # str (default), int, float, bool
     default: "optional"       # fallback if secret missing
 
+  LOG_LEVEL:
+    type: str                 # no source needed if default is always used
+    default: "INFO"
+
 validation:
   strict: false               # validate all variables before loading
   required:                   # raise immediately when missing
@@ -74,7 +78,11 @@ validation:
 Guidelines:
 
 - `variables` is a mapping of configuration keys to their source definitions.
-- `source` names the underlying secret identifier.
+- **`source` and `default` requirements**: Each variable must define **at least one** of `source` or `default`:
+  - `source` specifies where to load the variable (from `.env` or GCP Secret Manager)
+  - `default` provides a fallback value if the variable is not found
+  - Both can be specified together: the variable is loaded from `source`, and `default` is used if not found
+  - Variables with neither `source` nor `default` will raise a `ValueError` during initialization
 - `type` controls coercion (`str`, `int`, `float`, `bool`). Defaults to `str`.
 - `default` values are coerced just like loaded secrets.
 - `validation.strict` enforces that every variable is present (ignores defaults).
@@ -230,6 +238,58 @@ os.environ["DEBUG"]  # → "false" (string)
 ## Resolving Configuration Variables
 
 ## Resolving Configuration Variables
+
+### Variable Definition Flexibility
+
+Each variable must define **at least one** of `source` or `default`. This provides flexibility for different use cases:
+
+#### 1. Constants (default only)
+
+For constant values that never change:
+
+```yaml
+variables:
+  LOG_LEVEL:
+    type: str
+    default: "INFO"
+  
+  TIMEOUT:
+    type: int
+    default: 30
+```
+
+```python
+init_config("config/config_vars.yaml")
+log_level = get_config("LOG_LEVEL")   # → "INFO"
+timeout = get_config("TIMEOUT")       # → 30
+```
+
+#### 2. Optional with fallback (source + default)
+
+For variables that may or may not be present:
+
+```yaml
+variables:
+  PORT:
+    source: PORT
+    type: int
+    default: 8080
+```
+
+The loader attempts to fetch `PORT` from `.env` or GCP. If not found, it uses the `default`.
+
+#### 3. Required from external source (source only)
+
+For variables that must come from an external source:
+
+```yaml
+variables:
+  API_KEY:
+    source: API_KEY
+    type: str
+```
+
+If `API_KEY` is not found, an error is raised (unless it's marked as `optional`).
 
 ### SECRET_ORIGIN Resolution
 
