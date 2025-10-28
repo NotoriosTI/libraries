@@ -17,14 +17,40 @@ After updating, install with Poetry or pip as usual.
 
 ## Quickstart
 
+For most applications, use the **singleton API** with `init_config` and `get_config`:
+
 ```python
+# main.py or application startup
 from env_manager import init_config, get_config
 
+# Initialize once at application startup
 init_config("config/config_vars.yaml")
+
+# Use get_config anywhere in your code
 db_password = get_config("DB_PASSWORD")
+api_timeout = get_config("API_TIMEOUT", 30)  # with default
 ```
 
-The configuration file defines which secrets to load and how to coerce them. By default, `SECRET_ORIGIN` falls back to `local` and reads from `.env`. Set `SECRET_ORIGIN=gcp` to fetch secrets from Google Secret Manager instead.
+**Key points:**
+
+- Call `init_config()` **once** during application startup (e.g., in `main.py` or application factory).
+- Use `get_config(key, default)` throughout your code to retrieve configuration values.
+- Variables are automatically loaded, validated, type-coerced, and assigned to `os.environ`.
+- External libraries (LangChain, LangGraph, etc.) automatically detect variables in `os.environ` without requiring additional imports.
+- Type coercion is applied: `PORT` defined as `int` in YAML becomes an actual integer, not a string.
+
+### Configuring Secret Origin
+
+By default, `SECRET_ORIGIN` falls back to `local` and reads from `.env`. To use Google Cloud Secret Manager, set `SECRET_ORIGIN=gcp`.
+
+**Priority order for `SECRET_ORIGIN`:**
+
+1. Explicit parameter: `init_config(..., secret_origin="gcp")`
+2. Environment variable: `export SECRET_ORIGIN=gcp`
+3. `.env` file: `SECRET_ORIGIN=gcp` (automatically detected)
+4. Default: `"local"`
+
+The `.env` file is read without loading the entire file to `os.environ`, so only `SECRET_ORIGIN` and `GCP_PROJECT_ID` are detected from `.env` for configuration resolution.
 
 ## Configuration Schema
 
@@ -57,7 +83,31 @@ Guidelines:
 
 ## API Reference
 
-### Instance API
+### Singleton API (Recommended for most cases)
+
+```python
+from env_manager import init_config, get_config, require_config
+
+# Initialize once at application startup
+init_config("config/config_vars.yaml")
+
+# Use anywhere in your code
+value = get_config("VARIABLE_NAME")                    # -> value or None
+value = get_config("VARIABLE_NAME", "default_value")  # -> value or provided default
+value = require_config("REQUIRED_VARIABLE")            # -> raises RuntimeError if missing
+```
+
+**Why use this?**
+- Simple and direct for most applications
+- No wrapper or factory pattern needed
+- Built-in singleton management
+- Type coercion and validation included
+
+Calling `init_config` multiple times replaces the existing singleton and emits a warning.
+
+### Instance API (ConfigManager)
+
+Use `ConfigManager` directly **only if** you need multiple configurations, advanced testing, or dependency injection:
 
 ```python
 from env_manager import ConfigManager
@@ -68,28 +118,77 @@ manager = ConfigManager(
     gcp_project_id=None,     # overrides discovery from env/.env
     strict=None,             # overrides YAML strict flag
     auto_load=True,          # eagerly load and validate
-  debug=False,             # set True to log raw secret values
+    debug=False,             # set True to log raw secret values
 )
 
 manager.get("DB_PASSWORD")            # -> value or None
 manager.get("DEBUG_MODE", False)      # -> value or provided default
 manager.require("API_KEY")            # -> raises RuntimeError if missing
-manager.values                          # -> dict of coerced values
+manager.values                        # -> dict of coerced values
 ```
 
-### Singleton API
+## When to Use ConfigManager
+
+**You probably don't need ConfigManager.** The singleton API (`init_config` + `get_config`) is sufficient for 90% of applications.
+
+Use `ConfigManager` directly only in these scenarios:
+
+### 1. Multiple Configurations Simultaneously
 
 ```python
-from env_manager import init_config, get_config, require_config
+# Load different configs for different environments
+prod_config = ConfigManager("config/prod.yaml")
+dev_config = ConfigManager("config/dev.yaml")
 
-init_config("config/config_vars.yaml")
-get_config("PORT", 8080)
-require_config("DB_PASSWORD")
+prod_db = prod_config.get("DB_PASSWORD")
+dev_db = dev_config.get("DB_PASSWORD")
 ```
 
-Calling `init_config` multiple times replaces the existing singleton and emits a warning. Use this pattern when you want application-wide access without passing around instances.
+### 2. Advanced Testing with Dependency Injection
+
+```python
+class DatabaseService:
+    def __init__(self, config: ConfigManager = None):
+        self.config = config or ConfigManager("config/config_vars.yaml")
+        self.host = self.config.get("DB_HOST")
+
+# Easy to test with a custom config
+def test_database_service():
+    test_config = ConfigManager("config/test.yaml")
+    service = DatabaseService(config=test_config)
+    # Test in isolation
+```
+
+### 3. Complex Microservices Architecture
+
+If you're building a large system with multiple services that need their own configurations, create a factory:
+
+```python
+# config.py
+_config = None
+
+def get_manager():
+    global _config
+    if _config is None:
+        _config = ConfigManager("config/config_vars.yaml")
+    return _config
+
+# In your services
+from config import get_manager
+
+class MyService:
+    def __init__(self):
+        self.config = get_manager()
+        self.db_host = self.config.get("DB_HOST")
+```
+
+**For simple applications, skip this pattern entirely and just use `init_config + get_config`.**
 
 ## Type Coercion
+
+## Type Coercion
+
+env-manager applies type coercion according to your YAML configuration:
 
 - `str`: leaves values untouched.
 - `int`: uses `int(value)` and raises when conversion fails.
@@ -97,6 +196,92 @@ Calling `init_config` multiple times replaces the existing singleton and emits a
 - `bool`: accepts only `"true"`, `"True"`, `"1"`, `"false"`, `"False"`, `"0"`.
 
 Both loaded values and defaults go through the same coercion path so you can rely on consistent types.
+
+### Important: Type Coercion with get_config vs os.environ
+
+When you use `get_config()` or `ConfigManager.get()`, you receive properly coerced types:
+
+```python
+from env_manager import init_config, get_config
+
+init_config("config/config_vars.yaml")
+
+# Assuming PORT is defined as type: int in YAML
+port = get_config("PORT")       # → 8080 (actual int)
+debug = get_config("DEBUG")     # → False (actual bool)
+timeout = get_config("TIMEOUT") # → 30.5 (actual float)
+```
+
+However, variables are also assigned to `os.environ` for external libraries. Since `os.environ` only stores strings, accessing them directly returns strings:
+
+```python
+import os
+
+# This is assigned to os.environ internally
+os.environ["PORT"]   # → "8080" (string)
+os.environ["DEBUG"]  # → "false" (string)
+
+# External libraries (LangChain, LangGraph) read from os.environ
+# They typically handle string parsing correctly
+```
+
+**Best practice:** Use `get_config()` for your application logic and let external libraries read from `os.environ` automatically.
+
+## Resolving Configuration Variables
+
+## Resolving Configuration Variables
+
+### SECRET_ORIGIN Resolution
+
+`SECRET_ORIGIN` determines whether to load secrets from local `.env` files or Google Cloud Secret Manager. It's resolved using this priority:
+
+1. **Explicit parameter**: `init_config(..., secret_origin="gcp")`
+2. **Environment variable**: `export SECRET_ORIGIN=gcp`
+3. **`.env` file**: `SECRET_ORIGIN=gcp` (automatically detected without loading entire file)
+4. **Default**: `"local"`
+
+Example with `.env`:
+
+```bash
+# .env
+SECRET_ORIGIN=gcp
+GCP_PROJECT_ID=my-project
+```
+
+```python
+from env_manager import init_config
+
+# Automatically detects SECRET_ORIGIN=gcp from .env
+init_config("config/config_vars.yaml")
+```
+
+**Priority order in action:**
+
+```bash
+# .env contains SECRET_ORIGIN=gcp
+
+# Option 1: Uses .env value
+python main.py
+# Result: SECRET_ORIGIN=gcp
+
+# Option 2: Environment variable overrides .env
+export SECRET_ORIGIN=local
+python main.py
+# Result: SECRET_ORIGIN=local
+
+# Option 3: Parameter overrides everything
+# In code: init_config(..., secret_origin="local")
+# Result: SECRET_ORIGIN=local
+```
+
+### GCP_PROJECT_ID Resolution
+
+Similarly, `GCP_PROJECT_ID` is resolved with this priority:
+
+1. **Explicit parameter**: `init_config(..., gcp_project_id="my-project")`
+2. **Environment variable**: `export GCP_PROJECT_ID=my-project`
+3. **`.env` file**: `GCP_PROJECT_ID=my-project` (automatically detected)
+4. **Not set** (logs warning if needed for GCP origin)
 
 ## Validation Controls
 

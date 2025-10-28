@@ -64,10 +64,33 @@ class ConfigManager:
         return {key: value for key, value in values.items() if value is not None}
 
     def _resolve_secret_origin(self, provided: Optional[str]) -> str:
-        origin = provided or os.environ.get("SECRET_ORIGIN") or "local"
-        return origin.strip().lower()
+        # Priority order:
+        # 1. Explicitly provided parameter
+        # 2. Environment variable
+        # 3. Value from .env file (read without loading entire file)
+        # 4. Default: "local"
+        if provided:
+            return provided.strip().lower()
+        
+        # Check os.environ first
+        env_origin = os.environ.get("SECRET_ORIGIN")
+        if env_origin:
+            return env_origin.strip().lower()
+        
+        # Check .env file without loading entire file to os.environ
+        if self._dotenv_values:
+            dotenv_origin = self._dotenv_values.get("SECRET_ORIGIN")
+            if dotenv_origin:
+                return dotenv_origin.strip().lower()
+        
+        return "local"
 
     def _resolve_gcp_project_id(self, provided: Optional[str]) -> Optional[str]:
+        # Priority order:
+        # 1. Explicitly provided parameter
+        # 2. Environment variable
+        # 3. Value from .env file
+        # 4. Not set
         candidate = (
             provided
             or os.environ.get("GCP_PROJECT_ID")
