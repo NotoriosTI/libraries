@@ -59,6 +59,9 @@ def coerce_type(raw_value: Any, target_type: str, variable_name: str) -> Any:
         return None
 
     if target_type == "str":
+        # Convert booleans to lowercase string for consistency
+        if isinstance(raw_value, bool):
+            return "true" if raw_value else "false"
         return str(raw_value)
 
     value_str = str(raw_value)

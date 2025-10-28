@@ -1,6 +1,6 @@
 [project]
 name = "env-manager"
-version = "0.1.2"
+version = "0.1.4"
 description = "Environment-aware configuration loader with GCP Secret Manager support"
 authors = [{ name = "Bastian Ibañez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
@@ -20,3 +20,8 @@ packages = [{ include = "env_manager", from = "src" }]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (require real GCP access)",
+]
