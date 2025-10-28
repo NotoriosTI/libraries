@@ -1,0 +1,21 @@
+variables:
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+  OPENAI_API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+  JUAN_ANTHROPIC_API_KEY:
+    source: JUAN_ANTHROPIC_API_KEY
+    type: str
+  SLACK_BOT_TOKEN:
+    source: SLACK_BOT_TOKEN
+    type: str
+
+validation:
+  strict: false
+  required:
+    - ODOO_PROD_URL
+    - OPENAI_API_KEY
+    - JUAN_ANTHROPIC_API_KEY
+    - SLACK_BOT_TOKEN
