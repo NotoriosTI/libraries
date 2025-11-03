@@ -56,3 +56,7 @@ class MockDBAdapter(MessageReader, MessageWriter):
                 if message.id == msg_id:
                     return message
         return None
+
+    async def list_messages(self) -> List[Message]:
+        async with self._lock:
+            return list(self.messages)

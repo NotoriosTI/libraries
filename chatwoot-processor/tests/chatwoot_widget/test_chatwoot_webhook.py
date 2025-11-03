@@ -78,6 +78,38 @@ async def _run_chatwoot_flow() -> None:
             assert outbound_body["direction"] == "outbound"
             assert outbound_body["status"] == "queued"
 
+            conversation_payload = {
+                "event": "conversation_created",
+                "conversation": {
+                    "id": 3003,
+                    "messages": [
+                        {
+                            "id": 777,
+                            "content": "First contact",
+                            "conversation_id": 3003,
+                            "message_type": 0,
+                            "created_at": timestamp.timestamp(),
+                            "sender": {"name": "Visitor 2", "email": "visitor2@example.com"},
+                        }
+                    ],
+                    "meta": {
+                        "sender": {
+                            "name": "Visitor 2",
+                            "email": "visitor2@example.com",
+                        }
+                    },
+                },
+            }
+
+            conversation_response = await client.post(
+                "/webhook/chatwoot", json=conversation_payload
+            )
+            assert conversation_response.status_code == 200
+            conversation_body = conversation_response.json()
+            assert conversation_body["direction"] == "inbound"
+            assert conversation_body["status"] == "received"
+            assert conversation_body["persisted"] == 1
+
             async def wait_for_status(msg_id: int, expected: str):
                 for _ in range(50):
                     message = await db.get_message(msg_id)
@@ -92,5 +124,12 @@ async def _run_chatwoot_flow() -> None:
             assert outbound_message.direction == "outbound"
             assert outbound_message.sender == "Agent Smith"
             assert outbound_message.content == outbound_payload["content"]
+
+            conversation_message = await db.get_message(conversation_body["msg_id"])
+            assert conversation_message is not None
+            assert conversation_message.direction == "inbound"
+            assert conversation_message.sender == "visitor2@example.com"
+            assert conversation_message.content == "[conversation_created]"
+            assert conversation_message.conversation_id == 3003
     finally:
         await lifespan.__aexit__(None, None, None)

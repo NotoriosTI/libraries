@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
 from src.adapters.mock_db_adapter import MockDBAdapter
 from src.dependencies import set_chatwoot_adapter, set_db_adapter
-from src.routers import health, inbound
+from src.routers import health, inbound, monitor
 from src.workers.outbound_worker import OutboundWorker
 
 init_config("config/config_vars.yaml")
@@ -41,3 +41,4 @@ app = FastAPI(title="Chatwoot Processor (Mock)", lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(inbound.router)
+app.include_router(monitor.router)
