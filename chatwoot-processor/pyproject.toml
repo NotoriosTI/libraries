@@ -1,0 +1,27 @@
+[project]
+name = "chatwoot-processor"
+version = "0.1.0"
+description = ""
+authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi (>=0.121.0,<0.122.0)",
+  "uvicorn (>=0.38.0,<0.39.0)",
+  "pydantic (>=2.12.3,<3.0.0)",
+]
+
+[tool.poetry]
+packages = [{ include = "chatwoot_processor", from = "src" }]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+  "pytest (>=8.4.2,<9.0.0)",
+  "httpx (>=0.28.1,<0.29.0)",
+  "black (>=25.9.0,<26.0.0)",
+  "isort (>=7.0.0,<8.0.0)",
+]
