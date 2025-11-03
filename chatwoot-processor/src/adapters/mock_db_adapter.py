@@ -17,8 +17,11 @@ class MockDBAdapter(MessageReader, MessageWriter):
 
     async def persist_message(self, msg: Message) -> None:
         async with self._lock:
-            msg.id = self._id_counter
-            self._id_counter += 1
+            if msg.id <= 0:
+                msg.id = self._id_counter
+                self._id_counter += 1
+            else:
+                self._id_counter = max(self._id_counter, msg.id + 1)
             self.messages.append(msg)
             print(f"[DB] Persisted message: {msg.model_dump()}")
 

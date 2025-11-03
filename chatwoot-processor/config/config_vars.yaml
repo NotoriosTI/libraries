@@ -1,0 +1,21 @@
+variables:
+  CHATWOOT_API_KEY:
+    source: CHATWOOT_PROCESSOR_TOKEN
+    type: str
+  CHATWOOT_ACCOUNT_ID:
+    source: CHATWOOT_PROCESSOR_ACCOUNT_ID
+    type: int
+  CHATWOOT_BASE_URL:
+    source: CHATWOOT_BASE_URL
+    type: str
+    default: "https://app.chatwoot.com"
+  PORT:
+    source: CHATWOOT_PROCESSOR_PORT
+    type: int
+    default: 8000
+
+validation:
+  strict: false
+  required:
+    - CHATWOOT_API_KEY
+    - CHATWOOT_ACCOUNT_ID

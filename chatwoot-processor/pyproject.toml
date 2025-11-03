@@ -9,6 +9,7 @@ dependencies = [
   "fastapi (>=0.121.0,<0.122.0)",
   "uvicorn (>=0.38.0,<0.39.0)",
   "pydantic (>=2.12.3,<3.0.0)",
+  "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
 ]
 
 [tool.poetry]
