@@ -112,7 +112,7 @@ To execute the live test:
 Configuration Notes
 -------------------
 
-- `env-manager` loads `config/config_vars.yaml` on import, so configuration values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `PORT`) are available via `env_manager.get_config`.
+- Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`), and the resulting values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `PORT`) are accessible through `env_manager.get_config` and cached on `app.state.settings`.
 - The outbound worker poll interval and mock Chatwoot failure rate can be tuned in code (`MockChatwootAdapter(failure_rate=...)`, `OutboundWorker(..., poll_interval=...)`).
 
 Extending / Integrating

@@ -9,24 +9,33 @@ from src.dependencies import set_chatwoot_adapter, set_db_adapter
 from src.routers import health, inbound, monitor
 from src.workers.outbound_worker import OutboundWorker
 
-init_config("config/config_vars.yaml")
-
-CHATWOOT_API_KEY = get_config("CHATWOOT_API_KEY")
-CHATWOOT_ACCOUNT_ID = get_config("CHATWOOT_ACCOUNT_ID")
-CHATWOOT_BASE_URL = get_config("CHATWOOT_BASE_URL")
-PORT = get_config("PORT")
-
-print(f"[Config] Loaded Chatwoot account={CHATWOOT_ACCOUNT_ID}, base_url={CHATWOOT_BASE_URL}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_config("config/config_vars.yaml")
+
+    settings = {
+        "chatwoot_account_id": get_config("CHATWOOT_ACCOUNT_ID"),
+        "chatwoot_base_url": get_config("CHATWOOT_BASE_URL"),
+        "chatwoot_api_key": get_config("CHATWOOT_API_KEY"),
+        "port": get_config("PORT"),
+    }
+
+    print(
+        "[Config] Loaded Chatwoot account="
+        f"{settings['chatwoot_account_id']}, base_url={settings['chatwoot_base_url']}"
+    )
+
     db_adapter = MockDBAdapter()
     chatwoot_adapter = MockChatwootAdapter()
     worker = OutboundWorker(db_adapter, chatwoot_adapter)
 
     set_db_adapter(db_adapter)
     set_chatwoot_adapter(chatwoot_adapter)
+
+    app.state.db_adapter = db_adapter
+    app.state.chatwoot_adapter = chatwoot_adapter
+    app.state.settings = settings
 
     await worker.start()
     app.state.outbound_worker = worker
