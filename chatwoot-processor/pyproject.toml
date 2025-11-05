@@ -51,7 +51,7 @@ files = [
   "src/db",
   "src/models/conversation.py",
   "src/models/message.py",
-  "tests/test_phase2_1_schema.py",
+  "tests/phase2_1/test_schema.py",
 ]
 ignore_missing_imports = true
 

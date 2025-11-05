@@ -17,7 +17,7 @@ from src.db.session import get_async_engine, get_async_sessionmaker
 from src.models.conversation import Conversation, ConversationChannel
 from src.models.message import MessageDirection, MessageRecord, MessageStatus
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _run_alembic(command_name: str, revision: str) -> None:
@@ -30,10 +30,12 @@ def _run_alembic(command_name: str, revision: str) -> None:
 
 @pytest.fixture(scope="session")
 def database_url(tmp_path_factory: pytest.TempPathFactory) -> str:
-    db_dir = tmp_path_factory.mktemp("phase2_1_db")
+    db_dir = tmp_path_factory.mktemp("phase2_schema_db")
     db_path = db_dir / "communication.sqlite"
     database_url = f"sqlite+aiosqlite:///{db_path}"
     os.environ["TEST_DATABASE_URL"] = database_url
+    get_async_engine.cache_clear()
+    get_async_sessionmaker.cache_clear()
     return database_url
 
 
@@ -70,7 +72,7 @@ async def test_tables_exist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unique_active_constraint(db_session) -> None:
+async def test_unique_active_constraint(db_session: AsyncSession) -> None:
     conversation_one = Conversation(
         user_identifier="unique-user",
         channel=ConversationChannel.EMAIL,
@@ -91,7 +93,7 @@ async def test_unique_active_constraint(db_session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cascade_delete_removes_messages(db_session) -> None:
+async def test_cascade_delete_removes_messages(db_session: AsyncSession) -> None:
     conversation = Conversation(
         user_identifier="cascade-user",
         channel=ConversationChannel.WHATSAPP,
@@ -117,7 +119,7 @@ async def test_cascade_delete_removes_messages(db_session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_enum_rejected(db_session) -> None:
+async def test_invalid_enum_rejected(db_session: AsyncSession) -> None:
     conversation = Conversation(
         user_identifier="enum-user",
         channel=ConversationChannel.WEB,

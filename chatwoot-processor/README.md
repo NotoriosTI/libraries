@@ -126,6 +126,14 @@ Database & Migrations
 - The database URL is resolved from `TEST_DATABASE_URL` (during tests) or `DATABASE_URL` (runtime) and defaults to a local SQLite file if neither is present.
 - A partial unique index on `conversation (user_identifier, channel)` with the `WHERE is_active = true` predicate enforces a single active conversation per user/channel while allowing historical inactive records to accumulate.
 
+Conversation Logic
+------------------
+
+- `resolve_sender` normalises Chatwoot webhook payloads to `(user_identifier, channel)` pairs, treating web widget traffic as the email channel with a fallback identity of `test@chatwoot.widget` when no email is supplied.
+- `get_or_open_conversation` guarantees at most one active conversation per user/channel, deactivating any lingering records before opening a new session, while `close_active_conversations` can be used to force closures for deterministic tests.
+- `persist_inbound` and `persist_outbound` gate message creation to active conversations, storing UTC timestamps and defaulting statuses to `received` and `queued`, respectively.
+- `update_message_status` enforces tight transitions—`received → read` for inbound, `queued → sent | failed` for outbound—raising `ValueError` on invalid state changes to preserve auditability.
+
 Extending / Integrating
 -----------------------
 
