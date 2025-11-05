@@ -1,9 +1,11 @@
 import asyncio
 from contextlib import suppress
+from typing import Any, cast
 from datetime import datetime, timezone
 
 from src.adapters.base_db_adapter import BaseDBAdapter
-from src.interfaces.protocols import MessageDeliveryClient
+from src.interfaces.protocols import ChatwootAdapter
+from src.models.message import Message
 
 
 class OutboundWorker:
@@ -14,7 +16,7 @@ class OutboundWorker:
     def __init__(
         self,
         db: BaseDBAdapter,
-        chatwoot: MessageDeliveryClient,
+    chatwoot: ChatwootAdapter,
         poll_interval: float = 3.0,
     ) -> None:
         self.db = db
@@ -45,13 +47,29 @@ class OutboundWorker:
             return
 
         for message in outbound_queued:
-            success = await self.chatwoot.send_message(message)
-            new_status = "sent" if success else "failed"
-            await self.db.update_status(message.id, new_status)
             timestamp = datetime.now(timezone.utc).isoformat()
-            print(  # noqa: T201
-                f"[Worker] {timestamp} :: msg={message.id} → {new_status}"
-            )
+            try:
+                await self._dispatch(message)
+            except Exception as exc:  # pragma: no cover - background worker safety
+                await self.db.update_status(message.id, "failed")
+                print(  # noqa: T201
+                    f"[Worker] {timestamp} :: msg={message.id} → failed ({exc})"
+                )
+            else:
+                await self.db.update_status(message.id, "sent")
+                print(  # noqa: T201
+                    f"[Worker] {timestamp} :: msg={message.id} → sent"
+                )
+
+    async def _dispatch(self, message: Message) -> None:
+        try:
+            await self.chatwoot.send_message(message.conversation_id, message.content)
+        except TypeError as first_error:
+            # Legacy compatibility path for adapters still expecting Message objects.
+            try:
+                await cast(Any, self.chatwoot).send_message(message)
+            except Exception:
+                raise first_error
 
     async def start(self) -> None:
         if self._task is None or self._task.done():

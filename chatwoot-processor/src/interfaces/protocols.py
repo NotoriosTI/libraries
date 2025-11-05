@@ -1,4 +1,5 @@
-from typing import List, Protocol
+from datetime import datetime
+from typing import List, Protocol, runtime_checkable
 
 from src.models.message import Message
 
@@ -28,3 +29,22 @@ class MessageWriter(Protocol):
 class MessageDeliveryClient(Protocol):
     async def send_message(self, msg: Message) -> bool:
         ...
+
+
+@runtime_checkable
+class ChatwootAdapter(Protocol):
+    async def send_message(self, conversation_id: int, content: str) -> dict:
+        ...
+
+    async def fetch_incoming_messages(
+        self, since: datetime | None = None
+    ) -> list[dict]:
+        ...
+
+
+__all__ = [
+    "MessageReader",
+    "MessageWriter",
+    "MessageDeliveryClient",
+    "ChatwootAdapter",
+]

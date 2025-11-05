@@ -8,9 +8,11 @@ Features
 
 - Fully async FastAPI app with background worker that dequeues outbound messages and simulates delivery.
 - In‑memory mock database implementing the message reader/writer protocols.
-- Mock Chatwoot adapter for printing outbound delivery attempts (configurable failure rate).
+- Mock Chatwoot adapter for printing outbound delivery attempts (configurable failure rate + async I/O simulation).
+- Real Chatwoot REST adapter powered by `httpx`, selected via the adapter factory for production environments.
 - Real Chatwoot webhook payload parsing, including conversation creation events.
 - Centralised configuration via `env-manager` (`.env` + optional GCP Secret Manager).
+- Transactional dispatcher that persists outbound messages, calls the adapter, and records `sent`/`failed` transitions deterministically.
 - Monitoring routes (`/messages/count`, `/messages/latest`) for tests and manual inspection.
 
 Project Layout
@@ -138,5 +140,29 @@ Extending / Integrating
 -----------------------
 
 - Swap `MockDBAdapter` for a real persistence layer by implementing the `MessageReader` and `MessageWriter` protocols from `src/interfaces/protocols.py`.
-- Swap in a real API client by keeping the same method signature (`async def send_message(msg: Message) -> bool`).
+- Implement additional outbound providers by conforming to the `ChatwootAdapter` protocol (`send_message(conversation_id, content)` + `fetch_incoming_messages`).
+- Use `src.adapters.get_chatwoot_adapter(env)` to obtain the appropriate adapter (mock in non-production, REST client in production) and call `dispatch_outbound_message` for a single, transactional delivery flow.
 - Filter out conversation_created entries downstream by checking for `content == "[conversation_created]"` (or by modifying `_extract_messages_from_payload` to gate on a feature flag).
+
+Adapters Integration
+--------------------
+
+- **Environment variables** — the real adapter expects `CHATWOOT_BASE_URL`, `CHATWOOT_API_KEY`, and `CHATWOOT_ACCOUNT_ID`, all resolved through `env-manager` (`config/config_vars.yaml`).
+- **Factory behaviour** — `src.adapters.get_chatwoot_adapter(env)` returns the REST adapter when `env == "production"`; every other value yields the async mock adapter with simulated latency/failures.
+- **Mock adapter** — configurable `failure_rate` (default `0.2`), 50 ms artificial latency, and helper methods for seeding inbound messages during tests.
+- **Dispatcher example**:
+
+   ```python
+   from src.adapters import get_chatwoot_adapter
+   from src.db.session import get_session
+   from src.services.conversation_service import get_or_open_conversation
+   from src.services.message_dispatcher import dispatch_outbound_message
+
+   adapter = get_chatwoot_adapter(env="production")
+
+   async with get_session() as session:
+         conversation = await get_or_open_conversation(session, "+123456", "whatsapp")
+         await dispatch_outbound_message(session, adapter, conversation, "Hello from Chatwoot!")
+   ```
+
+- The dispatcher wraps `persist_outbound`/`update_message_status` in explicit transactions so that queued messages promote to `sent` on success or `failed` on any adapter exception.

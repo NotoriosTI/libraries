@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
 
-from env_manager import get_config, init_config
 from fastapi import FastAPI
 
-from src.adapters.chatwoot_rest_adapter import ChatwootRESTAdapter
+from src.adapters.chatwoot_real import ChatwootRESTAdapter
 from src.adapters.sqlite_db_adapter import SQLiteDBAdapter
 from src.dependencies import set_chatwoot_adapter, set_db_adapter
 from src.routers import health, inbound, monitor
 from src.workers.outbound_worker import OutboundWorker
+from src.env_manager import get_config, init_config
 
 
 @asynccontextmanager
@@ -29,7 +29,11 @@ async def lifespan(app: FastAPI):
     db_adapter = SQLiteDBAdapter()
     await db_adapter.init_db()
     print("[DB] SQLite initialized.")
-    chatwoot_adapter = ChatwootRESTAdapter()
+    chatwoot_adapter = ChatwootRESTAdapter(
+        settings["chatwoot_base_url"],
+        settings["chatwoot_api_key"],
+        str(settings["chatwoot_account_id"]),
+    )
     worker = OutboundWorker(db_adapter, chatwoot_adapter)
 
     set_db_adapter(db_adapter)
