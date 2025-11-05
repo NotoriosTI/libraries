@@ -2,17 +2,15 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from src.dependencies import get_db_adapter
 from src.main import app
 
 
-def test_webhook_persists_and_worker_sends() -> None:
-    asyncio.run(_run_message_flow())
-
-
-async def _run_message_flow() -> None:
+@pytest.mark.asyncio
+async def test_webhook_persists_and_worker_sends() -> None:
     lifespan = app.router.lifespan_context(app)
     await lifespan.__aenter__()
     try:
@@ -75,4 +73,7 @@ async def _run_message_flow() -> None:
             outbound_message = await wait_for_status("sent")
             assert outbound_message.direction == "outbound"
     finally:
+        db_adapter = getattr(app.state, "db_adapter", None)
+        if db_adapter is not None:
+            await db_adapter.engine.dispose(close=True)
         await lifespan.__aexit__(None, None, None)

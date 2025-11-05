@@ -119,6 +119,13 @@ Configuration Notes
 - Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`), and the resulting values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `CHATWOOT_PROCESSOR_BASE_URL`, `CHATWOOT_LIVE_TEST_ENABLED`, `CHATWOOT_LIVE_TEST_TIMEOUT`, `CHATWOOT_LIVE_TEST_POLL`, `CHATWOOT_SQLITE_DB_PATH`, `PORT`, etc.) are accessible through `env_manager.get_config` and cached on `app.state.settings`.
 - The outbound worker poll interval can be tuned directly in code (`OutboundWorker(..., poll_interval=...)`).
 
+Database & Migrations
+---------------------
+
+- Apply the async Alembic migrations with `alembic upgrade head`; revert to a clean slate using `alembic downgrade base`.
+- The database URL is resolved from `TEST_DATABASE_URL` (during tests) or `DATABASE_URL` (runtime) and defaults to a local SQLite file if neither is present.
+- A partial unique index on `conversation (user_identifier, channel)` with the `WHERE is_active = true` predicate enforces a single active conversation per user/channel while allowing historical inactive records to accumulate.
+
 Extending / Integrating
 -----------------------
 

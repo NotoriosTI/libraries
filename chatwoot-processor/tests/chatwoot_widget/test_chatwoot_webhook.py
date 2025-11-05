@@ -1,5 +1,16 @@
+from __future__ import annotations
+
 import os
+import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from src.dependencies import get_db_adapter
+from src.main import app
 
 TEST_DB_PATH = Path("test_chatwoot_webhook.db")
 if TEST_DB_PATH.exists():
@@ -11,21 +22,9 @@ os.environ.setdefault("CHATWOOT_PROCESSOR_PORT", "8000")
 os.environ.setdefault("CHATWOOT_BASE_URL", "https://app.chatwoot.com")
 os.environ.setdefault("CHATWOOT_DATABASE_URL", f"sqlite+aiosqlite:///{TEST_DB_PATH}")
 
-import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock
 
-from httpx import ASGITransport, AsyncClient
-
-from src.dependencies import get_db_adapter
-from src.main import app
-
-
-def test_chatwoot_webhook_integration() -> None:
-    asyncio.run(_run_chatwoot_flow())
-
-
-async def _run_chatwoot_flow() -> None:
+@pytest.mark.asyncio
+async def test_chatwoot_webhook_integration() -> None:
     lifespan = app.router.lifespan_context(app)
     await lifespan.__aenter__()
     try:
@@ -79,7 +78,9 @@ async def _run_chatwoot_flow() -> None:
                 "created_at": timestamp_iso,
             }
 
-            outbound_response = await client.post("/webhook/chatwoot", json=outbound_payload)
+            outbound_response = await client.post(
+                "/webhook/chatwoot", json=outbound_payload
+            )
             assert outbound_response.status_code == 200
             outbound_body = outbound_response.json()
             assert outbound_body["direction"] == "outbound"
@@ -96,7 +97,10 @@ async def _run_chatwoot_flow() -> None:
                             "conversation_id": 3003,
                             "message_type": 0,
                             "created_at": timestamp.timestamp(),
-                            "sender": {"name": "Visitor 2", "email": "visitor2@example.com"},
+                            "sender": {
+                                "name": "Visitor 2",
+                                "email": "visitor2@example.com",
+                            },
                         }
                     ],
                     "meta": {
@@ -139,4 +143,7 @@ async def _run_chatwoot_flow() -> None:
             assert conversation_message.content == "[conversation_created]"
             assert conversation_message.conversation_id == 3003
     finally:
+        db_adapter = getattr(app.state, "db_adapter", None)
+        if db_adapter is not None:
+            await db_adapter.engine.dispose(close=True)
         await lifespan.__aexit__(None, None, None)
