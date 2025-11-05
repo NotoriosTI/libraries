@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from src.adapters.chatwoot_real import ChatwootRESTAdapter
 from src.adapters.sqlite_db_adapter import SQLiteDBAdapter
 from src.dependencies import set_chatwoot_adapter, set_db_adapter
-from src.routers import health, inbound, monitor
+from src.routers import health, monitor, outbound, webhook
 from src.workers.outbound_worker import OutboundWorker
 from src.env_manager import get_config, init_config
 
@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Chatwoot Processor", lifespan=lifespan)
 
+app.include_router(webhook.router)
+app.include_router(outbound.router)
 app.include_router(health.router)
-app.include_router(inbound.router)
 app.include_router(monitor.router)

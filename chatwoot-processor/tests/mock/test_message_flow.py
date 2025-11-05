@@ -1,77 +1,72 @@
-import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.dependencies import get_db_adapter
+from sqlalchemy import select
+
+from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
+from src.db.session import get_async_sessionmaker
 from src.main import app
+from src.models.conversation import Conversation
+from src.models.message import MessageDirection, MessageRecord, MessageStatus
+from src.routers import outbound as outbound_router
 
 
 @pytest.mark.asyncio
-async def test_webhook_persists_and_worker_sends() -> None:
+async def test_webhook_persists_and_worker_sends(monkeypatch: pytest.MonkeyPatch) -> None:
     lifespan = app.router.lifespan_context(app)
     await lifespan.__aenter__()
     try:
         transport = ASGITransport(app=app)
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            worker = app.state.outbound_worker
-            assert worker is not None
-
-            worker.poll_interval = 0.05
-            worker.chatwoot.send_message = AsyncMock(return_value=True)
-
-            timestamp = datetime.now(timezone.utc).isoformat()
-
             inbound_payload = {
-                "id": 0,
-                "conversation_id": 1,
-                "sender": "contact",
+                "inbox": {"channel_type": "email"},
+                "contact": {"email": "contact@example.com"},
                 "content": "Hello there",
-                "timestamp": timestamp,
-                "direction": "inbound",
-                "status": "received",
             }
 
             inbound_response = await client.post("/webhook/chatwoot", json=inbound_payload)
             assert inbound_response.status_code == 200
+            inbound_body = inbound_response.json()
+            assert inbound_body["status"] == MessageStatus.RECEIVED.value
 
-            inbound_id = inbound_response.json()["msg_id"]
-            db = get_db_adapter()
+            session_factory = get_async_sessionmaker()
+            async with session_factory() as session:
+                conversation = await session.get(Conversation, inbound_body["conversation_id"])
+                assert conversation is not None
+                assert conversation.user_identifier == "contact@example.com"
 
-            inbound_message = await db.get_message(inbound_id)
-            assert inbound_message is not None
-            assert inbound_message.direction == "inbound"
-            assert inbound_message.status == "received"
+                inbound_record = await session.get(MessageRecord, inbound_body["message_id"])
+                assert inbound_record is not None
+                assert inbound_record.status == MessageStatus.RECEIVED
 
-            outbound_payload = {
-                "id": 0,
-                "conversation_id": 2,
-                "sender": "agent",
-                "content": "Hi! How can I help?",
-                "timestamp": timestamp,
-                "direction": "outbound",
-                "status": "queued",
-            }
+            adapter = MockChatwootAdapter(failure_rate=0.0, random_func=lambda: 0.8)
+            monkeypatch.setattr(outbound_router, "get_chatwoot_adapter", lambda env: adapter)
 
-            outbound_response = await client.post("/webhook/chatwoot", json=outbound_payload)
+            outbound_response = await client.post(
+                "/outbound/send",
+                json={
+                    "conversation_id": inbound_body["conversation_id"],
+                    "content": "Hi! How can I help?",
+                },
+            )
             assert outbound_response.status_code == 200
-            outbound_id = outbound_response.json()["msg_id"]
+            outbound_payload = outbound_response.json()["response"]
+            assert outbound_payload["status"] == "sent"
 
-            async def wait_for_status(expected_status: str):
-                for _ in range(50):
-                    message = await db.get_message(outbound_id)
-                    if message and message.status == expected_status:
-                        return message
-                    await asyncio.sleep(0.1)
-                raise AssertionError(
-                    f"Timed out waiting for outbound message to reach '{expected_status}'"
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(MessageRecord)
+                    .where(
+                        MessageRecord.conversation_id == inbound_body["conversation_id"],
+                        MessageRecord.direction == MessageDirection.OUTBOUND,
+                    )
+                    .order_by(MessageRecord.id.desc())
+                    .limit(1)
                 )
-
-            outbound_message = await wait_for_status("sent")
-            assert outbound_message.direction == "outbound"
+                outbound_record = result.scalars().first()
+                assert outbound_record is not None
+                assert outbound_record.status == MessageStatus.SENT
     finally:
         db_adapter = getattr(app.state, "db_adapter", None)
         if db_adapter is not None:

@@ -6,13 +6,11 @@ An async FastAPI microservice that sits between Chatwoot webhooks and provider�
 Features
 --------
 
-- Fully async FastAPI app with background worker that dequeues outbound messages and simulates delivery.
-- In‑memory mock database implementing the message reader/writer protocols.
-- Mock Chatwoot adapter for printing outbound delivery attempts (configurable failure rate + async I/O simulation).
-- Real Chatwoot REST adapter powered by `httpx`, selected via the adapter factory for production environments.
-- Real Chatwoot webhook payload parsing, including conversation creation events.
-- Centralised configuration via `env-manager` (`.env` + optional GCP Secret Manager).
-- Transactional dispatcher that persists outbound messages, calls the adapter, and records `sent`/`failed` transitions deterministically.
+- Fully async FastAPI app backed by Alembic-managed SQLite for conversations and messages.
+- `/webhook/chatwoot` endpoint that resolves senders, opens conversations, and persists inbound payloads.
+- `/outbound/send` endpoint that dispatches queued messages via the adapter factory with transactional status updates.
+- Mock Chatwoot adapter with configurable latency/failure plus a REST adapter powered by `httpx`.
+- Centralised configuration via `env-manager` (`.env` + optional GCP Secret Manager`).
 - Monitoring routes (`/messages/count`, `/messages/latest`) for tests and manual inspection.
 
 Project Layout
@@ -23,7 +21,7 @@ src/
   adapters/         # Mock DB + mock Chatwoot client
   dependencies.py   # Simple DI setters/getters used by FastAPI Depends
   models/           # Pydantic models (Message + conversation state + webhook payload)
-  routers/          # Health, inbound webhook, monitoring
+   routers/          # Health, webhook ingest, outbound dispatch, monitoring
   workers/          # Outbound worker loop
 tests/
   mock/             # Phase 1.1 message flow test (legacy payload)
@@ -79,8 +77,41 @@ poetry run uvicorn src.main:app --reload --port 8000
 Available endpoints:
 
 - `GET /health` — basic liveness check.
-- `POST /webhook/chatwoot` — accepts both Phase 1.1 mock payloads and real Chatwoot webhook bodies. Persists inbound messages (status `received`) and queues outbound ones (status `queued`).
-- `GET /messages/count` and `GET /messages/latest` — expose contents of the in-memory store for tests/monitoring.
+- `POST /webhook/chatwoot` — resolves senders, opens/reattaches conversations, and persists inbound messages with status `received`.
+- `POST /outbound/send` — dispatches queued outbound content via the adapter factory, promoting statuses to `sent`/`failed`.
+- `GET /messages/count` and `GET /messages/latest` — expose contents of the store for tests/monitoring.
+
+Webhook & End-to-End Flow
+-------------------------
+
+`POST /webhook/chatwoot` ingests raw Chatwoot webhooks, normalises the payload, resolves the sender, and guarantees a single active conversation per `(identifier, channel)` pair before persisting an inbound message. Minimal payload example:
+
+```json
+{
+   "inbox": {"channel_type": "whatsapp"},
+   "contact": {"phone_number": "+15551234567"},
+   "content": "New inbound message"
+}
+```
+
+`POST /outbound/send` consumes queued outbound events and pushes them through the adapter selected by `get_chatwoot_adapter`. Provide a conversation id and message body; optionally set `"live": true` to request the production adapter.
+
+```json
+{
+   "conversation_id": 42,
+   "content": "Thanks for reaching out!",
+   "live": false
+}
+```
+
+Web widget traffic defaults to the email channel with the synthetic sender `test@chatwoot.widget` when `contact.email` is blank, ensuring the processor can still open a conversation and persist the message.
+
+Test the webhook locally with:
+
+```bash
+curl -X POST http://localhost:8000/webhook/chatwoot -H "Content-Type: application/json" \
+       -d '{"inbox": {"channel_type": "webwidget"}, "contact": {"email": ""}, "content": "Hello!"}'
+```
 
 Logs show database persistence, outbound delivery attempts, and state transitions driven solely by the worker.
 
@@ -90,11 +121,12 @@ Testing
 Run the full suite (excluding live webhook by default):
 
 ```bash
-poetry run pytest tests/mock tests/chatwoot_widget tests/chatwoot_delivery
+poetry run pytest
 ```
 
 Useful groups:
 
+- `tests/webhook_flow/test_end_to_end.py` — Phase 2.4 webhook ingest + outbound dispatch integration tests.
 - `tests/mock/test_message_flow.py` — legacy Phase 1.1 payload flow.
 - `tests/chatwoot_widget/test_chatwoot_webhook.py` — structured webhook payloads (message + conversation_created + outbound worker checks).
 - `tests/chatwoot_delivery/test_synthetic_delivery.py` — synthetic outbound cycle using the worker with a patched delivery client.

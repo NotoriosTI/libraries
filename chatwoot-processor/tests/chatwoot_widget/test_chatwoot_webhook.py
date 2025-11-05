@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import os
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.dependencies import get_db_adapter
+from sqlalchemy import select
+
+from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
+from src.db.session import get_async_sessionmaker
 from src.main import app
+from src.models.conversation import Conversation
+from src.models.message import MessageDirection, MessageRecord, MessageStatus
+from src.routers import outbound as outbound_router
 
 TEST_DB_PATH = Path("test_chatwoot_webhook.db")
 if TEST_DB_PATH.exists():
@@ -24,19 +28,13 @@ os.environ.setdefault("CHATWOOT_DATABASE_URL", f"sqlite+aiosqlite:///{TEST_DB_PA
 
 
 @pytest.mark.asyncio
-async def test_chatwoot_webhook_integration() -> None:
+async def test_chatwoot_webhook_integration(monkeypatch: pytest.MonkeyPatch) -> None:
     lifespan = app.router.lifespan_context(app)
     await lifespan.__aenter__()
     try:
         transport = ASGITransport(app=app)
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            worker = app.state.outbound_worker
-            assert worker is not None
-
-            worker.poll_interval = 0.05
-            worker.chatwoot.send_message = AsyncMock(return_value=True)
-
             timestamp = datetime.now(timezone.utc)
             timestamp_iso = timestamp.isoformat()
 
@@ -54,94 +52,49 @@ async def test_chatwoot_webhook_integration() -> None:
             inbound_response = await client.post("/webhook/chatwoot", json=inbound_payload)
             assert inbound_response.status_code == 200
             inbound_body = inbound_response.json()
-            assert inbound_body["direction"] == "inbound"
-            assert inbound_body["status"] == "received"
+            assert inbound_body["direction"] == MessageDirection.INBOUND.value
+            assert inbound_body["status"] == MessageStatus.RECEIVED.value
 
-            db = get_db_adapter()
-            inbound_message = await db.get_message(inbound_payload["id"])
-            assert inbound_message is not None
-            assert inbound_message.direction == "inbound"
-            assert inbound_message.status == "received"
-            assert inbound_message.sender == "visitor@example.com"
-            assert inbound_message.content == inbound_payload["content"]
-            assert inbound_message.conversation_id == inbound_payload["conversation_id"]
-            assert inbound_message.timestamp.isoformat() == timestamp_iso
+            session_factory = get_async_sessionmaker()
+            async with session_factory() as session:
+                conversation = await session.get(Conversation, inbound_body["conversation_id"])
+                assert conversation is not None
+                assert conversation.user_identifier == "visitor@example.com"
 
-            outbound_payload = {
-                "event": "message_created",
-                "id": 502,
-                "account_id": 12,
-                "conversation_id": 2002,
-                "message_type": "outgoing",
-                "content": "Agent reply",
-                "sender": {"name": "Agent Smith"},
-                "created_at": timestamp_iso,
-            }
+                inbound_record = await session.get(MessageRecord, inbound_body["message_id"])
+                assert inbound_record is not None
+                assert inbound_record.status == MessageStatus.RECEIVED
+                assert inbound_record.content == inbound_payload["content"]
+                assert inbound_record.timestamp.isoformat().startswith(timestamp_iso[:19])
+
+            adapter = MockChatwootAdapter(failure_rate=0.0, random_func=lambda: 0.95)
+            monkeypatch.setattr(outbound_router, "get_chatwoot_adapter", lambda env: adapter)
 
             outbound_response = await client.post(
-                "/webhook/chatwoot", json=outbound_payload
+                "/outbound/send",
+                json={
+                    "conversation_id": inbound_body["conversation_id"],
+                    "content": "Agent reply",
+                },
             )
             assert outbound_response.status_code == 200
-            outbound_body = outbound_response.json()
-            assert outbound_body["direction"] == "outbound"
-            assert outbound_body["status"] == "sent"
+            outbound_payload = outbound_response.json()["response"]
+            assert outbound_payload["status"] == "sent"
 
-            conversation_payload = {
-                "event": "conversation_created",
-                "conversation": {
-                    "id": 3003,
-                    "messages": [
-                        {
-                            "id": 777,
-                            "content": "First contact",
-                            "conversation_id": 3003,
-                            "message_type": 0,
-                            "created_at": timestamp.timestamp(),
-                            "sender": {
-                                "name": "Visitor 2",
-                                "email": "visitor2@example.com",
-                            },
-                        }
-                    ],
-                    "meta": {
-                        "sender": {
-                            "name": "Visitor 2",
-                            "email": "visitor2@example.com",
-                        }
-                    },
-                },
-            }
-
-            conversation_response = await client.post(
-                "/webhook/chatwoot", json=conversation_payload
-            )
-            assert conversation_response.status_code == 200
-            conversation_body = conversation_response.json()
-            assert conversation_body["direction"] == "inbound"
-            assert conversation_body["status"] == "received"
-            assert conversation_body["persisted"] == 1
-
-            async def wait_for_status(msg_id: int, expected: str):
-                for _ in range(50):
-                    message = await db.get_message(msg_id)
-                    if message and message.status == expected:
-                        return message
-                    await asyncio.sleep(0.1)
-                raise AssertionError(
-                    f"Timed out waiting for message {msg_id} to reach status '{expected}'"
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(MessageRecord)
+                    .where(
+                        MessageRecord.conversation_id == inbound_body["conversation_id"],
+                        MessageRecord.direction == MessageDirection.OUTBOUND,
+                    )
+                    .order_by(MessageRecord.id.desc())
+                    .limit(1)
                 )
-
-            outbound_message = await wait_for_status(outbound_payload["id"], "sent")
-            assert outbound_message.direction == "outbound"
-            assert outbound_message.sender == "Agent Smith"
-            assert outbound_message.content == outbound_payload["content"]
-
-            conversation_message = await db.get_message(conversation_body["msg_id"])
-            assert conversation_message is not None
-            assert conversation_message.direction == "inbound"
-            assert conversation_message.sender == "visitor2@example.com"
-            assert conversation_message.content == "[conversation_created]"
-            assert conversation_message.conversation_id == 3003
+                outbound_record = result.scalars().first()
+                assert outbound_record is not None
+                assert outbound_record.status == MessageStatus.SENT
+                assert outbound_record.content == "Agent reply"
     finally:
         db_adapter = getattr(app.state, "db_adapter", None)
         if db_adapter is not None:
