@@ -1,8 +1,9 @@
 import asyncio
 from contextlib import suppress
+from datetime import datetime, timezone
 
 from src.adapters.base_db_adapter import BaseDBAdapter
-from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
+from src.interfaces.protocols import MessageDeliveryClient
 
 
 class OutboundWorker:
@@ -13,7 +14,7 @@ class OutboundWorker:
     def __init__(
         self,
         db: BaseDBAdapter,
-        chatwoot: MockChatwootAdapter,
+        chatwoot: MessageDeliveryClient,
         poll_interval: float = 3.0,
     ) -> None:
         self.db = db
@@ -47,6 +48,10 @@ class OutboundWorker:
             success = await self.chatwoot.send_message(message)
             new_status = "sent" if success else "failed"
             await self.db.update_status(message.id, new_status)
+            timestamp = datetime.now(timezone.utc).isoformat()
+            print(  # noqa: T201
+                f"[Worker] {timestamp} :: msg={message.id} → {new_status}"
+            )
 
     async def start(self) -> None:
         if self._task is None or self._task.done():

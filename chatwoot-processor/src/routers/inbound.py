@@ -126,7 +126,22 @@ def _extract_messages_from_payload(payload: Dict[str, Any]) -> List[Message]:
         return messages
 
     direction = "inbound" if message_type == "incoming" else "outbound"
-    status = "received" if direction == "inbound" else "queued"
+
+    status_override = (
+        message_data.get("status")
+        or payload.get("status")
+        or data.get("status")
+    )
+    if status_override:
+        status = status_override
+    else:
+        status = "received" if direction == "inbound" else "queued"
+        if direction == "outbound" and message_type == "outgoing" and message_event in {
+            "message_created",
+            "message_updated",
+            None,
+        }:
+            status = "sent"
 
     sender_info: Union[str, Dict[str, Any], None] = (
         message_data.get("sender")

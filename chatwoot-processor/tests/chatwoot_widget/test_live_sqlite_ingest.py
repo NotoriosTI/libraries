@@ -1,20 +1,21 @@
 import asyncio
-import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 import aiosqlite
 import httpx
 import pytest
 from rich.console import Console
 
+from env_manager import get_config
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-BASE_URL = os.getenv("CHATWOOT_PROCESSOR_BASE_URL", DEFAULT_BASE_URL)
-TIMEOUT_SECONDS = int(os.getenv("CHATWOOT_LIVE_TEST_TIMEOUT", "120"))
-POLL_INTERVAL = float(os.getenv("CHATWOOT_LIVE_TEST_POLL", "2"))
-LIVE_TEST_ENABLED = os.getenv("CHATWOOT_LIVE_TEST_ENABLED") == "1"
-SQLITE_PATH = os.getenv("CHATWOOT_SQLITE_DB_PATH", "chatwoot_messages.db")
+
+BASE_URL = get_config("CHATWOOT_PROCESSOR_BASE_URL")
+TIMEOUT_SECONDS = int(get_config("CHATWOOT_LIVE_TEST_TIMEOUT"))
+POLL_INTERVAL = float(get_config("CHATWOOT_LIVE_TEST_POLL"))
+LIVE_TEST_ENABLED = bool(get_config("CHATWOOT_LIVE_TEST_ENABLED"))
+SQLITE_PATH = Path(get_config("CHATWOOT_SQLITE_DB_PATH"))
 
 console = Console()
 
@@ -29,7 +30,7 @@ def test_live_sqlite_ingest() -> None:
 
 
 async def _monitor_live_ingest() -> None:
-    if not os.path.exists(SQLITE_PATH):
+    if not SQLITE_PATH.exists():
         pytest.skip(f"SQLite database not found at '{SQLITE_PATH}' – ensure uvicorn is running")
 
     console.print(
@@ -113,7 +114,7 @@ async def _fetch_message_count(client: httpx.AsyncClient) -> int:
 
 
 async def _fetch_latest_row() -> dict | None:
-    async with aiosqlite.connect(SQLITE_PATH) as db:
+    async with aiosqlite.connect(str(SQLITE_PATH)) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """

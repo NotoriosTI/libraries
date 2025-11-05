@@ -9,6 +9,30 @@ variables:
     source: CHATWOOT_BASE_URL
     type: str
     default: "https://app.chatwoot.com"
+  CHATWOOT_LIVE_TEST_ENABLED:
+    source: CHATWOOT_LIVE_TEST_ENABLED
+    type: bool
+    default: false
+  CHATWOOT_LIVE_CONVERSATION_ID:
+    source: CHATWOOT_LIVE_CONVERSATION_ID
+    type: int
+    default: 0
+  CHATWOOT_PROCESSOR_BASE_URL:
+    source: CHATWOOT_PROCESSOR_BASE_URL
+    type: str
+    default: "http://127.0.0.1:8000"
+  CHATWOOT_LIVE_TEST_TIMEOUT:
+    source: CHATWOOT_LIVE_TEST_TIMEOUT
+    type: int
+    default: 120
+  CHATWOOT_LIVE_TEST_POLL:
+    source: CHATWOOT_LIVE_TEST_POLL
+    type: float
+    default: 2.0
+  CHATWOOT_SQLITE_DB_PATH:
+    source: CHATWOOT_SQLITE_DB_PATH
+    type: str
+    default: "chatwoot_messages.db"
   PORT:
     source: CHATWOOT_PROCESSOR_PORT
     type: int

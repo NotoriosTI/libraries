@@ -1,10 +1,10 @@
 from typing import Optional
 
 from src.adapters.base_db_adapter import BaseDBAdapter
-from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
+from src.interfaces.protocols import MessageDeliveryClient
 
 _db_adapter: Optional[BaseDBAdapter] = None
-_chatwoot_adapter: Optional[MockChatwootAdapter] = None
+_chatwoot_adapter: Optional[MessageDeliveryClient] = None
 
 
 def set_db_adapter(adapter: BaseDBAdapter) -> None:
@@ -18,12 +18,12 @@ def get_db_adapter() -> BaseDBAdapter:
     return _db_adapter
 
 
-def set_chatwoot_adapter(adapter: MockChatwootAdapter) -> None:
+def set_chatwoot_adapter(adapter: MessageDeliveryClient) -> None:
     global _chatwoot_adapter
     _chatwoot_adapter = adapter
 
 
-def get_chatwoot_adapter() -> MockChatwootAdapter:
+def get_chatwoot_adapter() -> MessageDeliveryClient:
     if _chatwoot_adapter is None:
         raise RuntimeError("Chatwoot adapter has not been configured")
     return _chatwoot_adapter

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 from httpx import ASGITransport, AsyncClient
 
@@ -22,7 +23,7 @@ async def _run_message_flow() -> None:
             assert worker is not None
 
             worker.poll_interval = 0.05
-            worker.chatwoot.failure_rate = 0.0
+            worker.chatwoot.send_message = AsyncMock(return_value=True)
 
             timestamp = datetime.now(timezone.utc).isoformat()
 

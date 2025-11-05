@@ -1,5 +1,4 @@
 import asyncio
-import os
 import time
 
 import httpx
@@ -7,13 +6,13 @@ import pytest
 from rich.console import Console
 from rich.tree import Tree
 
+from env_manager import get_config
 from src.models.message import Message
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-BASE_URL = os.getenv("CHATWOOT_PROCESSOR_BASE_URL", DEFAULT_BASE_URL)
-TIMEOUT_SECONDS = int(os.getenv("CHATWOOT_LIVE_TEST_TIMEOUT", "60"))
-POLL_INTERVAL = float(os.getenv("CHATWOOT_LIVE_TEST_POLL", "2"))
-LIVE_TEST_ENABLED = os.getenv("CHATWOOT_LIVE_TEST_ENABLED") == "1"
+BASE_URL = get_config("CHATWOOT_PROCESSOR_BASE_URL")
+TIMEOUT_SECONDS = int(get_config("CHATWOOT_LIVE_TEST_TIMEOUT"))
+POLL_INTERVAL = float(get_config("CHATWOOT_LIVE_TEST_POLL"))
+LIVE_TEST_ENABLED = bool(get_config("CHATWOOT_LIVE_TEST_ENABLED"))
 
 console = Console()
 

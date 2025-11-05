@@ -39,10 +39,21 @@ class SQLiteDBAdapter(BaseDBAdapter):
 
     async def persist_message(self, msg: Message) -> None:
         async with self._sessionmaker() as session:
+            if msg.id > 0:
+                existing = await session.get(DBMessage, msg.id)
+                if existing:
+                    existing.conversation_id = msg.conversation_id
+                    existing.sender = msg.sender
+                    existing.content = msg.content
+                    existing.timestamp = msg.timestamp
+                    existing.direction = Direction(msg.direction)
+                    existing.status = Status(msg.status)
+                    await session.commit()
+                    return
+
             db_msg = self._to_db_message(msg)
             session.add(db_msg)
             await session.flush()
-            # propagate auto-generated id back to the input message for parity with mock adapter
             if msg.id <= 0:
                 msg.id = db_msg.id
             await session.commit()
@@ -77,6 +88,22 @@ class SQLiteDBAdapter(BaseDBAdapter):
             )
             db_rows = result.scalars().all()
             return [self._to_message(row) for row in db_rows]
+
+    async def consume_inbound(self, provider_id: str) -> List[Message]:
+        consumed: list[Message] = []
+        async with self._sessionmaker() as session:
+            result = await session.execute(
+                select(DBMessage).where(
+                    (DBMessage.status == Status.received)
+                    & (DBMessage.direction == Direction.inbound)
+                )
+            )
+            db_rows = result.scalars().all()
+            for row in db_rows:
+                row.status = Status.read
+                consumed.append(self._to_message(row))
+            await session.commit()
+        return consumed
 
     async def update_status(self, msg_id: int, status: str) -> None:
         new_status = Status(status)

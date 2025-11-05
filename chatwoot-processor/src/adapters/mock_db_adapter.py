@@ -48,6 +48,12 @@ class MockDBAdapter(MessageReader, MessageWriter):
                 if m.direction == "inbound" and m.status == "received"
             ]
 
+    async def consume_inbound(self, provider_id: str) -> List[Message]:
+        unread = await self.fetch_unread_inbound(provider_id)
+        for message in unread:
+            message.status = "read"
+        return unread
+
     async def update_status(self, msg_id: int, status: str) -> None:
         async with self._lock:
             for message in self.messages:

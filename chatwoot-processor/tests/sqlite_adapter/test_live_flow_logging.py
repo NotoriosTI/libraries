@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 import pytest
@@ -8,17 +7,18 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.pool import StaticPool
 
+from env_manager import get_config
 from src.adapters.sqlite_db_adapter import SQLiteDBAdapter
 from src.dependencies import get_db_adapter
 from src.models.message import Message
 from src.routers import inbound
 
 
-LIVE_FLOW_ENABLED = os.getenv("CHATWOOT_LIVE_TEST_ENABLED") == "1"
+LIVE_FLOW_ENABLED = bool(get_config("CHATWOOT_LIVE_TEST_ENABLED"))
 
 pytestmark = pytest.mark.skipif(
     not LIVE_FLOW_ENABLED,
-    reason="SQLite live walkthrough disabled; set CHATWOOT_SQLITE_LIVE_TEST_ENABLED=1",
+    reason="SQLite live walkthrough disabled; set CHATWOOT_LIVE_TEST_ENABLED=1",
 )
 
 

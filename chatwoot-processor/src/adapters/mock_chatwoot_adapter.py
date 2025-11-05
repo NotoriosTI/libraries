@@ -1,10 +1,11 @@
 import asyncio
 from random import random
 
+from src.interfaces.protocols import MessageDeliveryClient
 from src.models.message import Message
 
 
-class MockChatwootAdapter:
+class MockChatwootAdapter(MessageDeliveryClient):
     """
     Mock Chatwoot client that simulates network delivery.
     """

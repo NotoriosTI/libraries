@@ -24,6 +24,9 @@ class BaseDBAdapter(Protocol):
     async def update_status(self, msg_id: int, status: str) -> None:
         ...
 
+    async def consume_inbound(self, provider_id: str) -> List[Message]:
+        ...
+
     async def get_message(self, msg_id: int) -> Optional[Message]:
         ...
 
