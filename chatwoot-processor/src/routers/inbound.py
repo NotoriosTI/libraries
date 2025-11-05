@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union
 
 from fastapi import APIRouter, Depends, Request
 
-from src.adapters.mock_db_adapter import MockDBAdapter
+from src.adapters.base_db_adapter import BaseDBAdapter
 from src.dependencies import get_db_adapter
 from src.models.message import Message
 
@@ -12,7 +12,7 @@ router = APIRouter(tags=["messages"])
 
 @router.post("/webhook/chatwoot")
 async def receive_chatwoot_webhook(
-    request: Request, db: MockDBAdapter = Depends(get_db_adapter)
+    request: Request, db: BaseDBAdapter = Depends(get_db_adapter)
 ) -> dict:
     """
     Persist incoming Chatwoot webhook payloads or legacy mock messages.

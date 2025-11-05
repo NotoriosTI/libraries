@@ -10,6 +10,9 @@ class MessageReader(Protocol):
     async def fetch_unread_inbound(self, provider_id: str) -> List[Message]:
         ...
 
+    async def fetch_pending(self) -> List[Message]:
+        ...
+
 
 class MessageWriter(Protocol):
     async def persist_message(self, msg: Message) -> None:

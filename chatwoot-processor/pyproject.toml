@@ -10,6 +10,10 @@ dependencies = [
   "uvicorn (>=0.38.0,<0.39.0)",
   "pydantic (>=2.12.3,<3.0.0)",
   "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
+  "sqlalchemy (>=2.0.44,<3.0.0)",
+  "aiosqlite (>=0.21.0,<0.22.0)",
+  "greenlet (>=3.1.1,<4.0.0)",
+  "rich (>=14.2.0,<15.0.0)",
 ]
 
 [tool.poetry]
@@ -25,5 +29,6 @@ dev = [
   "httpx (>=0.28.1,<0.29.0)",
   "black (>=25.9.0,<26.0.0)",
   "isort (>=7.0.0,<8.0.0)",
-  "rich (>=14.2.0,<15.0.0)",
+  "pytest-asyncio (>=1.2.0,<2.0.0)",
+  "mypy (>=1.18.2,<2.0.0)",
 ]

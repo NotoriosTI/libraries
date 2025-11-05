@@ -89,12 +89,30 @@ async def _wait_for_new_message(
         count_resp.raise_for_status()
         current_count = count_resp.json()["count"]
 
+        console.log(f"Polling /messages/count -> {current_count} (was {last_seen})")
+
         if current_count > last_seen:
             latest_resp = await client.get("/messages/latest")
             latest_resp.raise_for_status()
             return latest_resp.json(), current_count
 
+        # grab latest message for visibility even if not new
+        latest_probe = await client.get("/messages/latest")
+        if latest_probe.status_code == 200:
+            console.log(
+                ":mag: Latest message snapshot: "
+                f"{latest_probe.json().get('id')} -> {latest_probe.json().get('status')}"
+            )
+        else:
+            console.log(":mag: Latest message snapshot unavailable (no messages yet)")
+
         await asyncio.sleep(POLL_INTERVAL)
+
+    console.log(
+        ":warning: Timed out waiting for new message. "
+        "Verify the Chatwoot webhook target matches the processor `BASE_URL` "
+        "and that the payload reaches /webhook/chatwoot."
+    )
 
     raise AssertionError("Timed out waiting for Chatwoot webhook to persist a message")
 

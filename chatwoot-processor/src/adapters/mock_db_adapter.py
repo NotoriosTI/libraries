@@ -15,6 +15,10 @@ class MockDBAdapter(MessageReader, MessageWriter):
         self._id_counter = 1
         self._lock = asyncio.Lock()
 
+    async def init_db(self) -> None:
+        # No-op for in-memory adapter
+        return None
+
     async def persist_message(self, msg: Message) -> None:
         async with self._lock:
             if msg.id <= 0:
@@ -32,6 +36,9 @@ class MockDBAdapter(MessageReader, MessageWriter):
                 for m in self.messages
                 if m.direction == "outbound" and m.status == "queued"
             ]
+
+    async def fetch_pending(self) -> List[Message]:
+        return await self.fetch_queued_outbound()
 
     async def fetch_unread_inbound(self, provider_id: str) -> List[Message]:
         async with self._lock:

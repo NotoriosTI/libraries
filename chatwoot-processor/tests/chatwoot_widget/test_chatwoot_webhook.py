@@ -1,9 +1,15 @@
 import os
+from pathlib import Path
+
+TEST_DB_PATH = Path("test_chatwoot_webhook.db")
+if TEST_DB_PATH.exists():
+    TEST_DB_PATH.unlink()
 
 os.environ.setdefault("CHATWOOT_PROCESSOR_TOKEN", "test-token")
 os.environ.setdefault("CHATWOOT_PROCESSOR_ACCOUNT_ID", "12")
 os.environ.setdefault("CHATWOOT_PROCESSOR_PORT", "8000")
 os.environ.setdefault("CHATWOOT_BASE_URL", "https://app.chatwoot.com")
+os.environ.setdefault("CHATWOOT_DATABASE_URL", f"sqlite+aiosqlite:///{TEST_DB_PATH}")
 
 import asyncio
 from datetime import datetime, timezone

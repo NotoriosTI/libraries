@@ -4,7 +4,7 @@ from env_manager import get_config, init_config
 from fastapi import FastAPI
 
 from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
-from src.adapters.mock_db_adapter import MockDBAdapter
+from src.adapters.sqlite_db_adapter import SQLiteDBAdapter
 from src.dependencies import set_chatwoot_adapter, set_db_adapter
 from src.routers import health, inbound, monitor
 from src.workers.outbound_worker import OutboundWorker
@@ -26,7 +26,9 @@ async def lifespan(app: FastAPI):
         f"{settings['chatwoot_account_id']}, base_url={settings['chatwoot_base_url']}"
     )
 
-    db_adapter = MockDBAdapter()
+    db_adapter = SQLiteDBAdapter()
+    await db_adapter.init_db()
+    print("[DB] SQLite initialized.")
     chatwoot_adapter = MockChatwootAdapter()
     worker = OutboundWorker(db_adapter, chatwoot_adapter)
 
@@ -46,7 +48,7 @@ async def lifespan(app: FastAPI):
         app.state.outbound_worker = None
 
 
-app = FastAPI(title="Chatwoot Processor (Mock)", lifespan=lifespan)
+app = FastAPI(title="Chatwoot Processor", lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(inbound.router)

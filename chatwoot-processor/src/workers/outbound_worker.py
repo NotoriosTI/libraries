@@ -1,8 +1,8 @@
 import asyncio
 from contextlib import suppress
 
+from src.adapters.base_db_adapter import BaseDBAdapter
 from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
-from src.adapters.mock_db_adapter import MockDBAdapter
 
 
 class OutboundWorker:
@@ -12,7 +12,7 @@ class OutboundWorker:
 
     def __init__(
         self,
-        db: MockDBAdapter,
+        db: BaseDBAdapter,
         chatwoot: MockChatwootAdapter,
         poll_interval: float = 3.0,
     ) -> None:
@@ -38,11 +38,12 @@ class OutboundWorker:
             self._running = False
 
     async def _process_outbound_messages(self) -> None:
-        queued = await self.db.fetch_queued_outbound()
-        if not queued:
+        queued = await self.db.fetch_pending()
+        outbound_queued = [m for m in queued if m.direction == "outbound"]
+        if not outbound_queued:
             return
 
-        for message in queued:
+        for message in outbound_queued:
             success = await self.chatwoot.send_message(message)
             new_status = "sent" if success else "failed"
             await self.db.update_status(message.id, new_status)
