@@ -88,31 +88,35 @@ Testing
 Run the full suite (excluding live webhook by default):
 
 ```bash
-poetry run pytest tests/mock tests/chatwoot_widget
+poetry run pytest tests/mock tests/chatwoot_widget tests/chatwoot_delivery
 ```
 
-Test groups:
+Useful groups:
 
-- `tests/mock/test_message_flow.py` — legacy Phase 1.1 payload coverage.
-- `tests/chatwoot_widget/test_chatwoot_webhook.py` — structured Chatwoot payloads (message + conversation_created + outbound worker checks).
-- `tests/chatwoot_widget/test_live_webhook.py` — optional integration that listens for real webhooks, prints stored messages with Rich tree formatting, and validates schema.
+- `tests/mock/test_message_flow.py` — legacy Phase 1.1 payload flow.
+- `tests/chatwoot_widget/test_chatwoot_webhook.py` — structured webhook payloads (message + conversation_created + outbound worker checks).
+- `tests/chatwoot_delivery/test_synthetic_delivery.py` — synthetic outbound cycle using the worker with a patched delivery client.
+- `tests/chatwoot_delivery/test_synthetic_consume.py` — synthetic inbound webhook → consume flow with detailed DB logging.
+- `tests/chatwoot_widget/test_live_webhook.py` / `tests/chatwoot_widget/test_live_sqlite_ingest.py` — optional live webhook + DB tail utilities.
+- `tests/chatwoot_delivery/test_live_delivery.py` / `tests/chatwoot_delivery/test_live_consume.py` — optional end-to-end outbound + inbound consume checks.
 
-To execute the live test:
+Running the live suites:
 
-1. Ensure the FastAPI app is running locally on the same port you expose via ngrok.
-2. Point Chatwoot’s webhook integration at `https://<ngrok-subdomain>.ngrok.io/webhook/chatwoot`.
-3. Run:
+1. Start the FastAPI app locally on the port exposed via ngrok (or your tunnel of choice).
+2. Point Chatwoot’s webhook integration at the tunnel URL (e.g. `https://<ngrok>.ngrok.io/webhook/chatwoot`).
+3. Ensure env-manager can resolve the live settings (see **Configuration Notes**) or export them manually, then run the desired suite, for example:
 
    ```bash
-   CHATWOOT_LIVE_TEST_ENABLED=1 poetry run pytest -vs tests/chatwoot_widget/test_live_webhook.py
+   export CHATWOOT_LIVE_TEST_ENABLED=1
+   poetry run pytest -vs tests/chatwoot_delivery/test_live_delivery.py
    ```
 
-4. Trigger a message from the Chatwoot widget. The test prints both the conversation_created record and the first actual message.
+4. Follow the prompts printed by the tests—open the widget, start a conversation, send a message, and watch the logs to confirm read/delivery transitions.
 
 Configuration Notes
 -------------------
 
-- Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`), and the resulting values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `PORT`) are accessible through `env_manager.get_config` and cached on `app.state.settings`.
+- Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`), and the resulting values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `CHATWOOT_PROCESSOR_BASE_URL`, `CHATWOOT_LIVE_TEST_ENABLED`, `CHATWOOT_LIVE_TEST_TIMEOUT`, `CHATWOOT_LIVE_TEST_POLL`, `CHATWOOT_SQLITE_DB_PATH`, `PORT`, etc.) are accessible through `env_manager.get_config` and cached on `app.state.settings`.
 - The outbound worker poll interval can be tuned directly in code (`OutboundWorker(..., poll_interval=...)`).
 
 Extending / Integrating
