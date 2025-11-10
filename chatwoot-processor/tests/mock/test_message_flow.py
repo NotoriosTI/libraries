@@ -1,18 +1,59 @@
+import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-
 from sqlalchemy import select
 
 from src.adapters.mock_chatwoot_adapter import MockChatwootAdapter
-from src.db.session import get_async_sessionmaker
+from src.db.session import get_async_engine, get_async_sessionmaker
 from src.main import app
 from src.models.conversation import Conversation
 from src.models.message import MessageDirection, MessageRecord, MessageStatus
 from src.routers import outbound as outbound_router
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TEST_DB_PATH = PROJECT_ROOT / "test_mock_message_flow.db"
+TEST_DATABASE_URL = f"sqlite+aiosqlite:///{TEST_DB_PATH}"
+
+
+def _run_alembic(command_name: str, revision: str) -> None:
+    subprocess.run(
+        [sys.executable, "-m", "alembic", command_name, revision],
+        check=True,
+        cwd=PROJECT_ROOT,
+    )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _setup_database() -> None:
+    os.environ["TEST_DATABASE_URL"] = TEST_DATABASE_URL
+    get_async_engine.cache_clear()
+    get_async_sessionmaker.cache_clear()
+
+    _run_alembic("upgrade", "head")
+    try:
+        yield
+    finally:
+        engine = get_async_engine()
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(engine.dispose())
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            loop.close()
+        _run_alembic("downgrade", "base")
+        get_async_engine.cache_clear()
+        get_async_sessionmaker.cache_clear()
+        if TEST_DB_PATH.exists():
+            TEST_DB_PATH.unlink()
+
 
 @pytest.mark.asyncio
-async def test_webhook_persists_and_worker_sends(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_webhook_persists_and_outbound_sends(monkeypatch: pytest.MonkeyPatch) -> None:
     lifespan = app.router.lifespan_context(app)
     await lifespan.__aenter__()
     try:
@@ -68,7 +109,4 @@ async def test_webhook_persists_and_worker_sends(monkeypatch: pytest.MonkeyPatch
                 assert outbound_record is not None
                 assert outbound_record.status == MessageStatus.SENT
     finally:
-        db_adapter = getattr(app.state, "db_adapter", None)
-        if db_adapter is not None:
-            await db_adapter.engine.dispose(close=True)
         await lifespan.__aexit__(None, None, None)

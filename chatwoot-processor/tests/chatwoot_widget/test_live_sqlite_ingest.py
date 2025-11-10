@@ -102,7 +102,7 @@ async def _wait_for_new_ingest(client: httpx.AsyncClient, baseline_count: int, b
 
     console.print(
         ":warning: Timed out waiting for live webhook. Check that Chatwoot targets the ngrok URL "
-        "and that uvicorn is running with the SQLite adapter."
+        "and that uvicorn is writing to the same SQLite database."
     )
     raise AssertionError("Timed out waiting for live webhook to hit SQLite")
 
@@ -118,8 +118,15 @@ async def _fetch_latest_row() -> dict | None:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
-            SELECT id, conversation_id, sender, content, direction, status, timestamp
-            FROM messages
+            SELECT m.id,
+                   m.conversation_id,
+                   COALESCE(c.user_identifier, 'unknown') AS sender,
+                   m.content,
+                   m.direction,
+                   m.status,
+                   m.timestamp
+            FROM message AS m
+            JOIN conversation AS c ON c.id = m.conversation_id
             ORDER BY id DESC
             LIMIT 1
             """

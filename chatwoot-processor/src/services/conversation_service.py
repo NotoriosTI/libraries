@@ -1,3 +1,12 @@
+"""
+Conversation and message helpers for Chatwoot webhook processing.
+
+The service owns sender resolution, conversation lifecycle transitions, and message
+persistence. Concurrency is guarded by a per-(user_identifier, channel) asyncio lock
+plus database-level row locks so that concurrent webhook events cannot open multiple
+active conversations for the same participant.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -202,6 +211,8 @@ async def _get_or_open_conversation_impl(
     user_identifier: str,
     channel_enum: ConversationChannel,
 ) -> Conversation:
+    """Return an existing active conversation or create a new one with row locks."""
+
     result = await session.execute(
         sa.select(Conversation)
         .where(
@@ -243,6 +254,8 @@ async def _get_or_open_conversation_impl(
 async def _lock_conversation(
     session: AsyncSession, conversation_id: int
 ) -> Conversation | None:
+    """Fetch and lock a conversation row for updates within the current transaction."""
+
     result = await session.execute(
         sa.select(Conversation)
         .where(Conversation.id == conversation_id)
@@ -253,6 +266,8 @@ async def _lock_conversation(
 
 @asynccontextmanager
 async def _ensure_transaction(session: AsyncSession) -> AsyncIterator[None]:
+    """Ensure work executes within a transaction, reusing any existing scope."""
+
     if session.in_transaction() or session.in_nested_transaction():
         yield
         return
@@ -265,6 +280,14 @@ async def _ensure_transaction(session: AsyncSession) -> AsyncIterator[None]:
 async def _acquire_conversation_lock(
     user_identifier: str, channel: ConversationChannel
 ) -> AsyncIterator[None]:
+    """
+    Acquire the asyncio-level mutex for a (user_identifier, channel) pair.
+
+    Database row locks alone are insufficient because concurrent webhook requests may
+    attempt to open separate conversations before hitting the unique constraint. The
+    in-memory lock serialises those attempts per logical participant.
+    """
+
     async with _LOCK_REGISTRY_MUTEX:
         lock = _CONVERSATION_LOCKS.get((user_identifier, channel))
         if lock is None:
@@ -279,6 +302,8 @@ async def _acquire_conversation_lock(
 
 
 def _coerce_channel(channel: str | ConversationChannel) -> ConversationChannel:
+    """Normalise a channel value to the ConversationChannel enum."""
+
     if isinstance(channel, ConversationChannel):
         return channel
 
@@ -289,6 +314,8 @@ def _coerce_channel(channel: str | ConversationChannel) -> ConversationChannel:
 
 
 def _conversation_identity(conversation: Conversation) -> int:
+    """Return the primary key for a SQLAlchemy Conversation instance."""
+
     inspector = sa.inspect(conversation)
     identity = inspector.identity
     if not identity:
@@ -302,6 +329,8 @@ def _conversation_identity(conversation: Conversation) -> int:
 
 
 def _coerce_status(status: str | MessageStatus) -> MessageStatus:
+    """Normalise raw status values to the MessageStatus enum."""
+
     if isinstance(status, MessageStatus):
         return status
 
@@ -312,6 +341,8 @@ def _coerce_status(status: str | MessageStatus) -> MessageStatus:
 
 
 def _utcnow() -> datetime:
+    """Timezone-aware UTC helper for consistent timestamps."""
+
     return datetime.now(timezone.utc)
 
 

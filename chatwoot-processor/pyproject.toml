@@ -64,13 +64,5 @@ module = "src.adapters.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = "src.models.db_message"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tests.chatwoot_delivery.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
 module = "tests.chatwoot_widget.*"
 ignore_errors = true

@@ -1,31 +1,33 @@
-Chatwoot Processor (Mock)
-=========================
+Chatwoot Processor
+==================
 
-An async FastAPI microservice that sits between Chatwoot webhooks and provider‑side message processing. Phase 1.2 focuses on a local, dependency‑free simulation that mirrors the production architecture while wiring real Chatwoot webhook payloads and configuration management through `env-manager`.
+An async FastAPI microservice that sits between Chatwoot webhooks and provider‑side message processing. Phases 1 and 2 are complete: the app now ingests real Chatwoot payloads, guarantees a single active conversation per sender/channel, persists messages in the Phase 2 schema, and dispatches outbound replies via the adapter factory while staying dependency-light for local development.
 
 Features
 --------
 
-- Fully async FastAPI app backed by Alembic-managed SQLite for conversations and messages.
-- `/webhook/chatwoot` endpoint that resolves senders, opens conversations, and persists inbound payloads.
-- `/outbound/send` endpoint that dispatches queued messages via the adapter factory with transactional status updates.
-- Mock Chatwoot adapter with configurable latency/failure plus a REST adapter powered by `httpx`.
-- Centralised configuration via `env-manager` (`.env` + optional GCP Secret Manager`).
-- Monitoring routes (`/messages/count`, `/messages/latest`) for tests and manual inspection.
+- Fully async FastAPI app backed by Alembic-managed Postgres schema (with SQLite fallback for local tests).
+- Phase 2 conversation/message models with strict status transitions and per-sender locking to avoid duplicate active conversations.
+- `/webhook/chatwoot` + `/outbound/send` endpoints that persist inbound payloads and dispatch outbound replies transactionally through the adapter factory.
+- Mock and REST Chatwoot adapters (failure injection, latency simulation, HTTP transport override) selected via `get_chatwoot_adapter(env)`.
+- Centralised configuration via `env-manager` (`.env` + optional GCP Secret Manager) wired into the FastAPI lifespan.
+- Monitoring routes (`/messages/count`, `/messages/latest`) that read from the canonical schema for quick sanity checks.
 
 Project Layout
 --------------
 
 ```
 src/
-  adapters/         # Mock DB + mock Chatwoot client
-  dependencies.py   # Simple DI setters/getters used by FastAPI Depends
-  models/           # Pydantic models (Message + conversation state + webhook payload)
-   routers/          # Health, webhook ingest, outbound dispatch, monitoring
-  workers/          # Outbound worker loop
+  adapters/         # Mock + REST Chatwoot clients and adapter factory
+  db/               # Async SQLAlchemy engine/session helpers + metadata
+  models/           # SQLAlchemy models + Pydantic DTOs
+  routers/          # Health, webhook ingest, outbound dispatch, monitoring
+  services/         # Conversation lifecycle + outbound dispatcher logic
 tests/
-  mock/             # Phase 1.1 message flow test (legacy payload)
-  chatwoot_widget/  # Phase 1.2 structured + live webhook tests
+  mock/             # FastAPI lifespan + adapter stubs smoke test
+  chatwoot_widget/  # Structured webhook + optional live flows
+  phase2_*          # Schema + conversation logic regression suites
+  webhook_flow/     # Phase 2 E2E flows (webhook + outbound)
 config/
   config_vars.yaml  # env-manager variable map
 ```
@@ -113,7 +115,7 @@ curl -X POST http://localhost:8000/webhook/chatwoot -H "Content-Type: applicatio
        -d '{"inbox": {"channel_type": "webwidget"}, "contact": {"email": ""}, "content": "Hello!"}'
 ```
 
-Logs show database persistence, outbound delivery attempts, and state transitions driven solely by the worker.
+Logs show database persistence, outbound delivery attempts, and transactional status transitions driven by `conversation_service` + `message_dispatcher`.
 
 Testing
 -------
@@ -127,12 +129,11 @@ poetry run pytest
 Useful groups:
 
 - `tests/webhook_flow/test_end_to_end.py` — Phase 2.4 webhook ingest + outbound dispatch integration tests.
-- `tests/mock/test_message_flow.py` — legacy Phase 1.1 payload flow.
-- `tests/chatwoot_widget/test_chatwoot_webhook.py` — structured webhook payloads (message + conversation_created + outbound worker checks).
-- `tests/chatwoot_delivery/test_synthetic_delivery.py` — synthetic outbound cycle using the worker with a patched delivery client.
-- `tests/chatwoot_delivery/test_synthetic_consume.py` — synthetic inbound webhook → consume flow with detailed DB logging.
+- `tests/phase2_conversation_logic/test_logic.py` — sender resolution, conversation locking, and message rules.
+- `tests/phase2_schema/test_schema.py` — Alembic migration assertions and schema diff safeguards.
+- `tests/mock/test_message_flow.py` — FastAPI lifespan smoke test covering webhook ingest + outbound dispatch via the mock adapter.
+- `tests/chatwoot_widget/test_chatwoot_webhook.py` — structured webhook payloads (message + conversation_created + outbound dispatch).
 - `tests/chatwoot_widget/test_live_webhook.py` / `tests/chatwoot_widget/test_live_sqlite_ingest.py` — optional live webhook + DB tail utilities.
-- `tests/chatwoot_delivery/test_live_delivery.py` / `tests/chatwoot_delivery/test_live_consume.py` — optional end-to-end outbound + inbound consume checks.
 
 Running the live suites:
 
@@ -142,7 +143,7 @@ Running the live suites:
 
    ```bash
    export CHATWOOT_LIVE_TEST_ENABLED=1
-   poetry run pytest -vs tests/chatwoot_delivery/test_live_delivery.py
+   poetry run pytest -vs tests/chatwoot_widget/test_live_webhook.py
    ```
 
 4. Follow the prompts printed by the tests—open the widget, start a conversation, send a message, and watch the logs to confirm read/delivery transitions.
@@ -150,8 +151,8 @@ Running the live suites:
 Configuration Notes
 -------------------
 
-- Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`), and the resulting values (`CHATWOOT_API_KEY`, `CHATWOOT_ACCOUNT_ID`, `CHATWOOT_BASE_URL`, `CHATWOOT_PROCESSOR_BASE_URL`, `CHATWOOT_LIVE_TEST_ENABLED`, `CHATWOOT_LIVE_TEST_TIMEOUT`, `CHATWOOT_LIVE_TEST_POLL`, `CHATWOOT_SQLITE_DB_PATH`, `PORT`, etc.) are accessible through `env_manager.get_config` and cached on `app.state.settings`.
-- The outbound worker poll interval can be tuned directly in code (`OutboundWorker(..., poll_interval=...)`).
+- Configuration is loaded during the FastAPI lifespan startup via `env-manager` (`config/config_vars.yaml`). Read values anywhere in the app via `env_manager.get_config`.
+- Set `DATABASE_URL` (runtime) or `TEST_DATABASE_URL` (tests) to point at the desired Postgres or SQLite database; the fallback is `sqlite+aiosqlite:///./chatwoot_processor.db`.
 
 Database & Migrations
 ---------------------
@@ -159,6 +160,13 @@ Database & Migrations
 - Apply the async Alembic migrations with `alembic upgrade head`; revert to a clean slate using `alembic downgrade base`.
 - The database URL is resolved from `TEST_DATABASE_URL` (during tests) or `DATABASE_URL` (runtime) and defaults to a local SQLite file if neither is present.
 - A partial unique index on `conversation (user_identifier, channel)` with the `WHERE is_active = true` predicate enforces a single active conversation per user/channel while allowing historical inactive records to accumulate.
+
+Concurrency & Locking
+---------------------
+
+- `conversation_service.get_or_open_conversation` wraps each `(user_identifier, channel)` pair in an asyncio mutex before touching the database so concurrent webhooks cannot open duplicate active threads.
+- Row-level locks (`SELECT … FOR UPDATE`) keep existing conversations locked while the service inspects or mutates them, pairing the in-process lock with database guarantees.
+- Every write helper shares `_ensure_transaction`, so state transitions (`persist_inbound`, `persist_outbound`, `update_message_status`) occur atomically and safely rollback if the adapter raises.
 
 Conversation Logic
 ------------------
@@ -171,7 +179,7 @@ Conversation Logic
 Extending / Integrating
 -----------------------
 
-- Swap `MockDBAdapter` for a real persistence layer by implementing the `MessageReader` and `MessageWriter` protocols from `src/interfaces/protocols.py`.
+- Reuse `src.db.session.get_async_sessionmaker()` (or `get_session()`) plus the helpers in `src/services.conversation_service` for any background jobs that need to inspect or mutate conversations/messages.
 - Implement additional outbound providers by conforming to the `ChatwootAdapter` protocol (`send_message(conversation_id, content)` + `fetch_incoming_messages`).
 - Use `src.adapters.get_chatwoot_adapter(env)` to obtain the appropriate adapter (mock in non-production, REST client in production) and call `dispatch_outbound_message` for a single, transactional delivery flow.
 - Filter out conversation_created entries downstream by checking for `content == "[conversation_created]"` (or by modifying `_extract_messages_from_payload` to gate on a feature flag).
