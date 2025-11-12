@@ -4,7 +4,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 
-from config_manager import secrets
+
+from env_manager import init_config, get_config, require_config
+
+init_config(
+    "config/config_vars.yaml",
+    secret_origin=None, 
+    gcp_project_id=None,
+    strict=None,
+    dotenv_path=None,
+    debug=False,
+)
 
 
 class EmbeddingGenerator:
@@ -16,7 +26,7 @@ class EmbeddingGenerator:
     """
 
     def __init__(self, api_key: Optional[str] = None, model: str = "text-embedding-3-small"):
-        self.api_key = api_key or secrets.OPENAI_API_KEY
+        self.api_key = api_key or get_config("OPENAI_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured.")
         self.model = model
