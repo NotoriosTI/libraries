@@ -30,6 +30,28 @@ variables:
     source: LANGSMITH_API_KEY
     type: str
 
+  # Odoo Configuration
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+
+  ODOO_PROD_DB:
+    source: ODOO_PROD_DB
+    type: str
+
+  ODOO_PROD_USERNAME:
+    source: ODOO_PROD_USERNAME
+    type: str
+
+  ODOO_PROD_PASSWORD:
+    source: ODOO_PROD_PASSWORD
+    type: str
+
+  # OpenIA Configuration
+  API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+
   # Application Settings
   DEBUG_MODE:
     source: DEBUG_MODE
@@ -47,6 +69,11 @@ validation:
     - DB_PASSWORD
     - API_KEY
     - LANGSMITH_PROJECT_ID
+    - ODOO_PROD_URL
+    - ODOO_PROD_DB
+    - ODOO_PROD_USERNAME
+    - ODOO_PROD_PASSWORD
+    - OPENAI_API_KEY
   optional:
     - DEBUG_MODE
     - LOG_LEVEL
