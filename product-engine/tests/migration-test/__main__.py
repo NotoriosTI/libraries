@@ -19,7 +19,7 @@ try:
         gcp_project_id=None,
         strict=None,
         dotenv_path=None,
-        debug=False,
+        debug=True,
     )
     # Verify that the environment has loaded and log in.
     current_env = require_config("ENVIRONMENT")

@@ -1,0 +1,94 @@
+
+variables:
+  # product Database credentials
+  PRODUCT_DB_HOST:
+    source: PRODUCT_DB_HOST
+    type: str
+
+  PRODUCT_DB_PORT:
+    source: PRODUCT_DB_PORT
+    type: int
+    default: 5432
+
+  PRODUCT_DB_NAME:
+    source: PRODUCT_DB_NAME
+    type: str
+
+  PRODUCT_DB_USER:
+    source: PRODUCT_DB_NAME
+    type: str
+
+  PRODUCT_DB_PASSWORD:
+    source: PRODUCT_DB_PASSWORD
+    type: str
+
+  # API Configuration
+  OPENAI_API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+
+  API_TIMEOUT:
+    source: API_TIMEOUT
+    type: int
+    default: 30
+
+  # Odoo configuration
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+
+  ODOO_PROD_DB:
+    source: ODOO_PROD_DB
+    type: str
+
+  ODOO_PROD_USERNAME:
+    source: ODOO_PROD_USERNAME
+    type: str
+
+  ODOO_PROD_PASSWORD:
+    source: ODOO_PROD_PASSWORD
+    type: str
+
+  #Entorno
+  ENVIRONMENT:
+    source: ENVIRONMENT
+    type: str
+    default: "development"
+
+
+  # LangSmith Configuration
+  #   LANGSMITH_PROJECT_ID:
+  #    source: LANGSMITH_PROJECT_ID
+  #    type: str
+
+  #   LANGSMITH_API_KEY:
+  #    source: LANGSMITH_API_KEY
+  #    type: str
+
+  # Application Settings
+  DEBUG_MODE:
+    source: DEBUG_MODE
+    type: bool
+    default: false
+
+  LOG_LEVEL:
+    source: LOG_LEVEL
+    type: str
+    default: "INFO"
+
+validation:
+  strict: false
+  required:
+    - PRODUCT_DB_HOST
+    - PRODUCT_DB_PORT
+    - PRODUCT_DB_NAME
+    - ODOO_PROD_PASSWORD
+    - DB_PASSWORD
+    - ODOO_PROD_URL
+    - ODOO_PROD_DB
+    - ODOO_PROD_USERNAME
+    - ODOO_PROD_PASSWORD
+    - OPENAI_API_KEY
+  optional:
+    - DEBUG_MODE
+    - LOG_LEVEL
