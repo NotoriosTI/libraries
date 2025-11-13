@@ -10,6 +10,18 @@ variables:
     source: DB_PORT
     type: int
     default: 5432
+  
+  DB_USER:
+    source: DB_USER
+    type: str
+
+  DB_HOST:
+    source: DB_HOST
+    type: str
+
+  JUAN_DB_NAME:
+    source: JUAN_DB_NAME
+    type: str
 
   # API Configuration
   API_KEY:
@@ -67,6 +79,9 @@ validation:
   strict: false
   required:
     - DB_PASSWORD
+    - DB_HOST
+    - DB_USER
+    - JUAN_DB_NAME
     - API_KEY
     - LANGSMITH_PROJECT_ID
     - ODOO_PROD_URL

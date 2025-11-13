@@ -5,7 +5,6 @@ from odoo_engine.sync_manager.models import Base
 from odoo_engine.utils import OdooClient, get_pg_dsn
 from odoo_engine.sync_manager.sync_manager import SyncManager
 
-#from config_manager import secrets
 from env_manager import init_config, get_config, require_config
 from dev_utils.pretty_logger import PrettyLogger
 
@@ -37,10 +36,6 @@ def main():
     odoo_db = get_config("ODOO_PROD_DB")
     odoo_user = get_config("ODOO_PROD_USERNAME")
     odoo_password = get_config("ODOO_PROD_PASSWORD")
-    #odoo_url = secrets.ODOO_PROD_URL
-    #odoo_db = secrets.ODOO_PROD_DB
-    #odoo_user = secrets.ODOO_PROD_USERNAME
-    #odoo_password = secrets.ODOO_PROD_PASSWORD
 
     if not all([odoo_url, odoo_db, odoo_user, odoo_password]):
         raise RuntimeError("❌ Missing required Odoo environment variables")
