@@ -28,7 +28,11 @@ from psycopg2.extras import RealDictCursor, execute_values
 # Fetches data from the refactored, external odoo-api library
 from odoo_api.sales import OdooSales
 # Fetches configuration from the external config-manager library
-from config_manager import secrets
+try:
+    from env_manager import get_config
+except ImportError:
+    print("⚠️  env_manager no disponible, usando solo variables de entorno")
+    get_config = None
 
 # Reemplazar structlog por pretty logger
 try:
@@ -113,25 +117,54 @@ class DatabaseUpdater:
 
     def __init__(self, use_test_odoo: bool = False):
         """Initialize DatabaseUpdater with centralized configuration."""
-        self.config = secrets
         self.logger = logger
         self.component = "sales_database_updater"
         self.odoo_env = "test" if use_test_odoo else "production"
         self.use_test_odoo = use_test_odoo
         self._connection_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
         
+        environment = os.getenv("ENVIRONMENT", "local")
+        if get_config  is not None:
+            try:
+                environment= get_config("ENVIRONMENT")
+            except Exception:
+                pass
+
+
         # --- NEW: Instantiate the OdooSales class ---
-        odoo_config = self.config.get_odoo_config(use_test=self.use_test_odoo)
+        if self.use_test_odoo:
+            prefix = "ODOO_TEST_"
+        else:
+            prefix = "ODOO_"
+
+        def _cfg(key: str, default: Optional[str] = None) -> str:
+            if get_config is not None:
+                try:
+                    return get_config(prefix + key)
+                except Exception:
+                    pass
+            value = os.getenv(prefix + key, default)
+            if value is None:
+                raise RuntimeError(f"Missing Odoo config value for {prefix + key}")
+            return value
+
+        odoo_config = {
+            "db": _cfg("DB"),
+            "url": _cfg("URL"),
+            "username": _cfg("USERNAME"),
+            "password": _cfg("PASSWORD"),
+        }
+
         self.odoo_api = OdooSales(
-            db=odoo_config['db'],
-            url=odoo_config['url'],
-            username=odoo_config['username'],
-            password=odoo_config['password']
+            db=odoo_config["db"],
+            url=odoo_config["url"],
+            username=odoo_config["username"],
+            password=odoo_config["password"]
         )
         
         self.logger.info(
             "DatabaseUpdater initialized",
-            environment=self.config.ENVIRONMENT,
+            environment=environment,
             use_test_odoo=self.use_test_odoo,
             component=self.component,
             odoo_env=self.odoo_env
@@ -140,13 +173,49 @@ class DatabaseUpdater:
     def _get_connection_params(self) -> Dict[str, Any]:
         """Get database connection parameters from centralized config."""
         try:
-            db_config = self.config.get_database_config()
-            db_config['port'] = int(db_config['port'])
-            return db_config
+            if get_config is not None:
+                try:
+                    host = get_config("DB_HOST")
+                    port = int(get_config("DB_PORT"))
+                    database = get_config("DB_NAME")
+                    user = get_config("DB_USER")
+                    password = get_config("DB_PASSWORD")
+
+                    return {
+                        "host": host,
+                        "port": port,
+                        "database": database,
+                        "user": user,
+                        "password": password
+                    }
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to load DB config from env-manager, falling back to environment variables",
+                        error=str(e),
+                        component=self.component,
+                        odoo_env=self.odoo_env,
+                    )
+            host = os.getenv("DB_HOST", "127.0.0.1")
+            port = int(os.getenv("DB_PORT", "5432"))
+            database = os.getenv("DB_NAME", "sales_db")
+            user = os.getenv("DB_USER", "postgres")
+            password = os.getenv("DB_PASSWORD", "")
+
+            return {
+                "host": host,
+                "port": port,
+                "database": database,
+                "user": user,
+                "password": password
+            }
         except Exception as e:
-            self.logger.error("Database configuration error", error=str(e),
-                             component=self.component, odoo_env=self.odoo_env)
-            raise DatabaseConnectionError("Database configuration is incomplete.") from e
+            self.logger.error(
+                "Database configuration error",
+                error=str(e),
+                component=self.component,
+                odoo_env=self.odoo_env,
+            )
+            raise DatabaseConnectionError("Database configuration error.") from e
 
     def _setup_connection_pool(self):
         """Initialize database connection pool."""

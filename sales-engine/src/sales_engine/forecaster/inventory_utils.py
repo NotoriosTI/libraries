@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Dict, List
 
 try:
-    from config_manager import secrets
+    from env_manager import get_config
 except ImportError:
-    print("Warning: config_manager not available")
-    secrets = None
+    print("Warning: env-manager not available, falling back to enviroment variables")
+    get_config = None
 
 
 def get_inventory_from_odoo(skus: List[str], use_test_odoo: bool = False) -> Dict[str, Dict]:
@@ -39,16 +39,33 @@ def get_inventory_from_odoo(skus: List[str], use_test_odoo: bool = False) -> Dic
         sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "odoo-api" / "src"))
         from odoo_api.warehouses import OdooWarehouse
         
-        if not secrets:
-            raise Exception("Configuración de secrets no disponible")
+        #  Obtener configuración de Odoo vía env-manager o variables de entorno
+        if use_test_odoo:
+            db_key = "ODOO_TEST_DB"
+            url_key = "ODOO_TEST_URL"
+            user_key = "ODOO_TEST_USERNAME"
+            pass_key = "ODOO_TEST_PASSWORD"
+        else:
+            db_key = "ODOO_PROD_DB"
+            url_key = "ODOO_PROD_URL"
+            user_key = "ODOO_PROD_USERNAME"
+            pass_key = "ODOO_PROD_PASSWORD"
+
+        def cfg(key: str) -> str:
+            if get_config is not None:
+                try:
+                    return get_config(key)
+                except Exception:
+                    pass
+            value = os.getenv(key)
+            if value is None:
+                raise Exception(f"Misiing Odoo config balue: {key}")
         
-        # Obtener configuración de Odoo
-        odoo_config = secrets.get_odoo_config(use_test=use_test_odoo)
         odoo_warehouse = OdooWarehouse(
-            db=odoo_config['db'],
-            url=odoo_config['url'],
-            username=odoo_config['username'],
-            password=odoo_config['password']
+            db= cfg(db_key),
+            url= cfg(url_key),
+            username= cfg(user_key),
+            password= cfg(pass_key),
         )
         
         # Normalizar SKUs a string para alinear con Odoo (evita miss-match int vs str)
