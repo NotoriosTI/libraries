@@ -9,7 +9,7 @@ dependencies = [
   "pandas (>=2.2.3,<3.0.0)",
   "python-decouple (>=3.8,<4.0)",
   "pytz (>=2025.2,<2026.0)",
-  "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
+  "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
   "pydantic (>=2.11.7,<3.0.0)",
 ]
 
