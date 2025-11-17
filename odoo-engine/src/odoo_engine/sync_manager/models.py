@@ -4,12 +4,14 @@ from sqlalchemy import (
     Integer,
     String,
     Boolean,
+    Date,
     DateTime,
     Numeric,
     Text,
     JSON,
     ForeignKey,
     Index,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -215,6 +217,37 @@ class InventoryQuant(Base):
         Index("idx_inventory_odoo_id", "odoo_id"),
         Index("idx_inventory_product_id", "product_id"),
         Index("idx_inventory_write_date", "write_date"),
+    )
+
+
+class DailyStockHistory(Base):
+    __tablename__ = "daily_stock_history"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_id = Column(BigInteger, ForeignKey("product.id"), nullable=False, index=True)
+    location_id = Column(BigInteger, nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False)
+    quantity = Column(Numeric, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    product = relationship("Product")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id",
+            "location_id",
+            "snapshot_date",
+            name="uq_stock_history_product_location_day",
+        ),
+        Index("idx_stock_history_snapshot_date", "snapshot_date"),
+        Index(
+            "idx_stock_history_product_location_snapshot",
+            "product_id",
+            "location_id",
+            "snapshot_date",
+        ),
     )
 
 

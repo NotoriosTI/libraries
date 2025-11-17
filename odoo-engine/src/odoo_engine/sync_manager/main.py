@@ -45,6 +45,7 @@ def main():
         ("BOM Lines", "sync_bom_lines"),
         ("Production Orders", "sync_production_orders"),
         ("Inventory Quants", "sync_inventory_quants"),
+        ("Daily Stock History", "record_daily_stock_history"),
         ("Sale Orders", "sync_sale_orders"),
         ("Sale Order Lines", "sync_sale_order_lines"),
         ("Purchase Orders", "sync_purchase_orders"),

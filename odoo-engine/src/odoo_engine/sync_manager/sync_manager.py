@@ -2,7 +2,7 @@ import logging
 from math import ceil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 import datetime
@@ -16,6 +16,7 @@ from odoo_engine.sync_manager.models import (
     BomLine,
     ProductionOrder,
     InventoryQuant,
+    DailyStockHistory,
     SaleOrder,
     SaleOrderLine,
     PurchaseOrder,
@@ -43,9 +44,18 @@ class SyncManager:
     # Generic helpers
     # ------------------------
     def _upsert(self, model, data_list, unique_field="odoo_id"):
-        """Chunked UPSERT into Postgres."""
+        """Chunked UPSERT into Postgres.
+
+        `unique_field` can be a single column name or an iterable of column names.
+        """
         if not data_list:
             return
+        if isinstance(unique_field, (list, tuple, set)):
+            unique_fields = [field for field in unique_field if field]
+        else:
+            unique_fields = [unique_field] if unique_field else []
+        if not unique_fields:
+            raise ValueError("unique_field must reference at least one column")
         # If running against Postgres use efficient INSERT ... ON CONFLICT
         dialect_name = getattr(self.session.bind.dialect, "name", None)
         if dialect_name == "postgresql":
@@ -54,10 +64,12 @@ class SyncManager:
                 chunk = data_list[i * UPSERT_CHUNK : (i + 1) * UPSERT_CHUNK]
                 stmt = insert(model).values(chunk)
                 update_cols = {
-                    c.name: c for c in stmt.excluded if c.name not in [unique_field, "id"]
+                    c.name: c
+                    for c in stmt.excluded
+                    if c.name not in set(unique_fields + ["id"])
                 }
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=[unique_field], set_=update_cols
+                    index_elements=unique_fields, set_=update_cols
                 )
                 self.session.execute(stmt)
                 self.session.commit()
@@ -73,10 +85,17 @@ class SyncManager:
             for i in range(total_chunks):
                 chunk = data_list[i * UPSERT_CHUNK : (i + 1) * UPSERT_CHUNK]
                 for row in chunk:
-                    odoo_id = row.get(unique_field)
-                    if odoo_id is None:
+                    filter_kwargs = {}
+                    missing_key = False
+                    for field in unique_fields:
+                        value = row.get(field)
+                        if value is None:
+                            missing_key = True
+                            break
+                        filter_kwargs[field] = value
+                    if missing_key:
                         continue
-                    existing = self.session.query(model).filter_by(odoo_id=odoo_id).one_or_none()
+                    existing = self.session.query(model).filter_by(**filter_kwargs).one_or_none()
                     if existing:
                         # update fields
                         for k, v in row.items():
@@ -429,6 +448,50 @@ class SyncManager:
         ]
         self._upsert(InventoryQuant, data)
         logger.info("✅ Synced %d Inventory Quants", len(data))
+
+    def record_daily_stock_history(self, snapshot_date=None):
+        """Aggregate on-hand stock per product and persist a daily snapshot."""
+        if snapshot_date is None:
+            snapshot_date = datetime.datetime.utcnow().date()
+        elif isinstance(snapshot_date, datetime.datetime):
+            snapshot_date = snapshot_date.date()
+
+        stmt = (
+            select(
+                InventoryQuant.product_id.label("product_id"),
+                InventoryQuant.location_id.label("location_id"),
+                func.sum(InventoryQuant.quantity).label("quantity"),
+            )
+            .where(
+                InventoryQuant.product_id.isnot(None),
+                InventoryQuant.location_id.isnot(None),
+            )
+            .group_by(InventoryQuant.product_id, InventoryQuant.location_id)
+        )
+        rows = self.session.execute(stmt).all()
+        data = []
+        for row in rows:
+            product_id = row.product_id
+            location_id = row.location_id
+            if product_id is None or location_id is None:
+                continue
+            quantity = row.quantity or 0
+            data.append(
+                {
+                    "product_id": product_id,
+                    "location_id": location_id,
+                    "snapshot_date": snapshot_date,
+                    "quantity": quantity,
+                }
+            )
+        self._upsert(
+            DailyStockHistory,
+            data,
+            unique_field=["product_id", "location_id", "snapshot_date"],
+        )
+        logger.info(
+            "✅ Recorded %d stock snapshots for %s", len(data), snapshot_date.isoformat()
+        )
 
     def sync_sale_orders(self):
         # Excluir cotizaciones (draft/sent) y cancelados
