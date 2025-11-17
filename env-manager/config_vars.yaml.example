@@ -1,0 +1,53 @@
+# Example configuration for env-manager
+# Copy to config_vars.yaml and customize
+
+variables:
+  # Database credentials
+  DB_PASSWORD:
+    source: DB_PASSWORD
+    type: str
+
+  DB_PORT:
+    source: DB_PORT
+    type: int
+    default: 5432
+
+  # API Configuration
+  API_KEY:
+    source: API_KEY
+    type: str
+
+  API_TIMEOUT:
+    source: API_TIMEOUT
+    type: int
+    default: 30
+
+  # LangSmith Configuration
+  LANGSMITH_PROJECT_ID:
+    source: LANGSMITH_PROJECT_ID
+    type: str
+
+  LANGSMITH_API_KEY:
+    source: LANGSMITH_API_KEY
+    type: str
+
+  # Application Settings
+  DEBUG_MODE:
+    source: DEBUG_MODE
+    type: bool
+    default: false
+
+  LOG_LEVEL:
+    source: LOG_LEVEL
+    type: str
+    default: "INFO"
+
+validation:
+  strict: false
+  required:
+    - DB_PASSWORD
+    - API_KEY
+    - LANGSMITH_PROJECT_ID
+  optional:
+    - DEBUG_MODE
+    - LOG_LEVEL
