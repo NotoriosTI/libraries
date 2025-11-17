@@ -1,5 +1,6 @@
 from config_manager import secrets
 
+
 def get_pg_dsn() -> str:
     user = secrets.DB_USER
     password = secrets.DB_PASSWORD
