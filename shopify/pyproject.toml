@@ -11,7 +11,8 @@ dependencies = [
     "requests (>=2.32.3,<3.0.0)",
     "pandas (>=2.2.3,<3.0.0)",
     "beautifulsoup4 (>=4.13.4,<5.0.0)",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager"
+    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=dev-utils",
+    "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
 ]
 
 [tool.poetry]
