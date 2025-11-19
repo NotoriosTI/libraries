@@ -1,4 +1,4 @@
-from .api import OdooAPI
+from odoo_api.api import OdooAPI
 import pandas as pd
 import time
 import xmlrpc.client

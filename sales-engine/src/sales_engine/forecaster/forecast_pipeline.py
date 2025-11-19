@@ -23,11 +23,8 @@ import pandas as pd
 from .sales_forcaster import SalesForecaster
 from .generate_all_forecasts import DatabaseForecastUpdater
 from .inventory_utils import get_inventory_from_odoo
-from config_manager import secrets
 from odoo_api.product import OdooProduct
-
-# Logger consistente con el resto del proyecto
-from dev_utils import PrettyLogger
+from sales_engine.config import get_config
 logger = PrettyLogger("forecast-pipeline")
 
 @dataclass
@@ -267,19 +264,23 @@ def run_pipeline(year: Optional[int] = None, month: Optional[int] = None, use_te
     t5 = time.monotonic()
     logger.info("[6] Inicializando conexión a Odoo para BOMs")
     if use_test_odoo:
-        odoo_product = OdooProduct(
-            db=secrets.ODOO_TEST_DB,
-            url=secrets.ODOO_TEST_URL,
-            username=secrets.ODOO_TEST_USERNAME,
-            password=secrets.ODOO_TEST_PASSWORD
-        )
+        db= get_config("ODOO_TEST_DB") if get_config else os.getenv("ODOO_TEST_DB")
+        url= get_config("ODOO_TEST_URL") if get_config else os.getenv("ODOO_TEST_URL")
+        username= get_config("ODOO_TEST_USERNAME") if get_config else os.getenv("ODOO_TEST_USERNAME")
+        password= get_config("ODOO_TEST_PASSWORD") if get_config else os.getenv("ODOO_TEST_PASSWORD")
     else:
-        odoo_product = OdooProduct(
-            db=secrets.ODOO_PROD_DB,
-            url=secrets.ODOO_PROD_URL,
-            username=secrets.ODOO_PROD_USERNAME,
-            password=secrets.ODOO_PROD_PASSWORD
-        )
+        db= get_config("ODOO_PROD_DB") if get_config else os-getenv("ODOO_PROD_DB")
+        url= get_config("ODOO_PROD_URL") if get_config else os.getenv("ODOO_PROD_URL")
+        username= get_config("ODOO_PROD_USERNAME") if get_config else os.getenv("ODOO_PROD_USERNAME")
+        password= get_config("ODOO_PROD_PASSWORD") if get_config else os.getenv("ODOO_PROD_PASSWORD")
+    
+    odoo_product = OdooProduct(
+        db=db,
+        url=url,
+        username=username,
+        password=password
+    )
+
     logger.info("[6] Conexión a Odoo inicializada", duration_seconds=round(time.monotonic() - t5, 1))
 
     # 8) Construir DataFrame unificado

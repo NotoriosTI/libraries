@@ -26,7 +26,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 # Import the centralized configuration
-from config_manager import secrets
+from sale_enngine.config import get_config
 
 # --- ANSI Color Codes for Output ---
 class Colors:
@@ -62,7 +62,13 @@ class HistoricalDataLoader:
     
     def __init__(self):
         """Initialize the loader with database configuration."""
-        self.db_config = secrets.get_database_config()
+        self.db_config = {
+            "host": get_cofig("POSTGRES_HOST"),
+            "port": get_config("POSTGRES_PORT"),
+            "database": get_config("POSTGRES_DB"),
+            "user": get_config("POSTGRES_USER"),
+            "password": get_config("POSTGRES_PASSWORD"),
+        }
         
         # Column mapping for the 18 columns in the CSV (in order)
         # Based on sample: F00004281,Factura,4281,11265,MARIA A. OLMOS S.,8.337.898-0,,CHEQUE AL DIA,TIENDA,66245.0,12587.0,78832.0,Aceite Esencial Sandalo 10ML,7425,1.0,5966.39,2016-06-09,Tienda Sabaj

@@ -17,6 +17,8 @@ dependencies = [
     "pgvector>=0.2.0",
     "odoo-api @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=odoo-api",
     "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
+    "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
+    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=dev-utils",
 ]
 
 [project.optional-dependencies]

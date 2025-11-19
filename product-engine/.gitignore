@@ -1,5 +1,4 @@
 .env
 __pycache__/
-*.csv
-DS_Store
+poetry.lock
 *.toml

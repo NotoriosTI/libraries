@@ -34,20 +34,28 @@ pip install -e odoo-api/
 
 ## Configuration
 
-You can construct clients directly by passing credentials, or use `config-manager` to centralize environment configuration. Example using explicit credentials:
+You can construct clients directly by passing credentials, or load them once with env-manager:
 
 ```python
+from env_manager import init_config, get_config
 from odoo_api.product import OdooProduct
 
+init_config("config/config_vars.yaml")
+
 client = OdooProduct(
-  db="your_db",
-  url="https://your-odoo",
-  username="user",
-  password="pass",
+  db=get_config("ODOO_PROD_DB"),
+  url=get_config("ODOO_PROD_URL"),
+  username=get_config("ODOO_PROD_USERNAME"),
+  password=get_config("ODOO_PROD_PASSWORD"),
 )
+
 ```
 
-When used together with `config-manager`, read secrets from environment/Secret Manager and pass them to the constructor.
+When used together with `env-manager`, read secrets from environment/Secret Manager and pass them to the constructor.
+
+from odoo_api.config import secrets
+creds = secrets.get_odoo_config(use_test=False)
+client = OdooProduct(**creds)
 
 ## Quick Start
 

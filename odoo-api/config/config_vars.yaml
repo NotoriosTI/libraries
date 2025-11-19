@@ -1,0 +1,50 @@
+variables:
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+  ODOO_PROD_DB:
+    source: ODOO_PROD_DB
+    type: str
+  ODOO_PROD_USERNAME:
+    source: ODOO_PROD_USERNAME
+    type: str
+  ODOO_PROD_PASSWORD:
+    source: ODOO_PROD_PASSWORD
+    type: str
+
+  ODOO_TEST_URL:
+    source: ODOO_TEST_URL
+    type: str
+  ODOO_TEST_DB:
+    source: ODOO_TEST_DB
+    type: str
+  ODOO_TEST_USERNAME:
+    source: ODOO_TEST_USERNAME
+    type: str
+  ODOO_TEST_PASSWORD:
+    source: ODOO_TEST_PASSWORD
+    type: str
+
+  ENVIRONMENT:
+    source: ENVIRONMENT
+    type: str
+    default: "local_machine"
+
+  GCP_PROJECT_ID:
+    source: GCP_PROJECT_ID
+    type: str
+
+validation:
+  strict: false
+  required:
+    - ODOO_PROD_URL
+    - ODOO_PROD_DB
+    - ODOO_PROD_USERNAME
+    - ODOO_PROD_PASSWORD
+    - ODOO_TEST_URL
+    - ODOO_TEST_DB
+    - ODOO_TEST_USERNAME
+    - ODOO_TEST_PASSWORD
+  optional:
+    - ENVIRONMENT
+    - GCP_PROJECT_ID

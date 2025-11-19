@@ -4,6 +4,7 @@ DatabaseReader Simplificado para Sales Engine
 Cliente de lectura de base de datos simplificado.
 """
 
+
 import os
 import pandas as pd
 import psycopg2
@@ -22,11 +23,7 @@ except ImportError:
         def success(self, msg, **kwargs): print(f"✅ {msg}")
     logger = LoggerFallback()
 
-try:
-    from config_manager import secrets
-except ImportError:
-    print("⚠️  config_manager no disponible, usando configuración básica")
-    secrets = None
+from sales_engine.config import get_config
 
 
 class DatabaseReader:
@@ -37,20 +34,42 @@ class DatabaseReader:
         self.logger = logger
         self._connection_pool = None
         
-        logger.info("DatabaseReader inicializado", 
-                   environment=os.getenv('ENVIRONMENT', 'local'),
-                   use_test_odoo=use_test_odoo,
-                   component="sales_database_reader")
+
+        environment = os.getenv('ENVIRONMENT', 'local')
+        if get_config is not None:
+            try:
+                environment = get_config("ENVIRONMENT")
+            except Exception:
+                pass
+
+        logger.info(
+            "DatabaseReader inicializado",
+            environment=environment,
+            use_test_odoo=use_test_odoo,
+            component="sales_database_reader"
+        )
     
     def _get_connection_params(self) -> Dict[str, Any]:
         """Obtener parámetros de conexión."""
-        if secrets:
+        if get_config is not None:
             try:
-                db_config = secrets.get_database_config()
-                db_config['port'] = int(db_config['port'])
-                return db_config
-            except:
-                pass
+                host = get_config("DB_HOST")
+                port = int(get_config("DB_PORT"))
+                database = get_config("DB_NAME")
+                user = get_config("DB_USER")
+                password = get_config("DB_PASSWORD")
+
+                return {
+                    'host': host,
+                    'port': port,
+                    'database': database,
+                    'user': user,
+                    'password': password
+                }
+            except Exception as e:
+                logger.error("No se pudo obtener configuración de DB desde env_manager, usando variables de entorno",
+                error=str(e),
+                component="sales_database_reader")
         
         # Configuración por defecto desde variables de entorno
         return {

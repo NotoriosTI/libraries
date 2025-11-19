@@ -1,0 +1,121 @@
+variables:
+  # Database/local defaults (si las usas desde scripts legacy)
+  DB_PASSWORD:
+    source: DB_PASSWORD
+    type: str
+  DB_PORT:
+    source: DB_PORT
+    type: int
+    default: 5432
+  DB_USER:
+    source: DB_USER
+    type: str
+  DB_HOST:
+    source: DB_HOST
+    type: str
+  DB_NAME:
+    source: DB_NAME
+    type: str
+
+  # Shopify credentials (genéricas)
+  SHOPIFY_API_KEY:
+    source: SHOPIFY_API_KEY
+    type: str
+  SHOPIFY_API_SECRET:
+    source: SHOPIFY_API_SECRET
+    type: str
+  SHOPIFY_SHOP_URL:
+    source: SHOPIFY_SHOP_URL
+    type: str
+  SHOPIFY_TOKEN_API_ADMIN:
+    source: SHOPIFY_TOKEN_API_ADMIN
+    type: str
+  SHOPIFY_TOKEN_API_STOREFRONT:
+    source: SHOPIFY_TOKEN_API_STOREFRONT
+    type: str
+  SHOPIFY_API_VERSION:
+    source: SHOPIFY_API_VERSION
+    type: str
+    default: "2025-04"
+
+  # Agent-specific (para GraphQL/Storefront)
+  EMILIA_SHOPIFY_SHOP_URL:
+    source: EMILIA_SHOPIFY_SHOP_URL
+    type: str
+  EMILIA_SHOPIFY_ADMIN_TOKEN:
+    source: EMILIA_SHOPIFY_ADMIN_TOKEN
+    type: str
+  EMILIA_SHOPIFY_STOREFRONT_TOKEN:
+    source: EMILIA_SHOPIFY_STOREFRONT_TOKEN
+    type: str
+  EMILIA_SHOPIFY_API_VERSION:
+    source: EMILIA_SHOPIFY_API_VERSION
+    type: str
+    default: "2025-04"
+
+  EMMA_SHOPIFY_SHOP_URL:
+    source: EMMA_SHOPIFY_SHOP_URL
+    type: str
+  EMMA_SHOPIFY_ADMIN_TOKEN:
+    source: EMMA_SHOPIFY_ADMIN_TOKEN
+    type: str
+  EMMA_SHOPIFY_STOREFRONT_TOKEN:
+    source: EMMA_SHOPIFY_STOREFRONT_TOKEN
+    type: str
+  EMMA_SHOPIFY_API_VERSION:
+    source: EMMA_SHOPIFY_API_VERSION
+    type: str
+    default: "2025-04"
+
+  # Misc / env flags
+  API_KEY:
+    source: API_KEY
+    type: str
+  LANGSMITH_PROJECT_ID:
+    source: LANGSMITH_PROJECT_ID
+    type: str
+  LANGSMITH_API_KEY:
+    source: LANGSMITH_API_KEY
+    type: str
+  DEBUG_MODE:
+    source: DEBUG_MODE
+    type: bool
+    default: false
+  LOG_LEVEL:
+    source: LOG_LEVEL
+    type: str
+    default: "INFO"
+  ENVIRONMENT:
+    source: ENVIRONMENT
+    type: str
+    default: "development"
+
+validation:
+  strict: false
+  required:
+    - SHOPIFY_API_KEY
+    - SHOPIFY_API_SECRET
+    - SHOPIFY_SHOP_URL
+    - SHOPIFY_TOKEN_API_ADMIN
+    - SHOPIFY_TOKEN_API_STOREFRONT
+    - SHOPIFY_API_VERSION
+    - API_KEY
+    - LANGSMITH_PROJECT_ID
+    - DB_HOST
+    - DB_PORT
+    - DB_NAME
+    - DB_USER
+    - DB_PASSWORD
+    - ENVIRONMENT
+  optional:
+    - LOG_LEVEL
+    - DEBUG_MODE
+    - LANGSMITH_API_KEY
+    - EMILIA_SHOPIFY_SHOP_URL
+    - EMILIA_SHOPIFY_ADMIN_TOKEN
+    - EMILIA_SHOPIFY_STOREFRONT_TOKEN
+    - EMILIA_SHOPIFY_API_VERSION
+    - EMMA_SHOPIFY_SHOP_URL
+    - EMMA_SHOPIFY_ADMIN_TOKEN
+    - EMMA_SHOPIFY_STOREFRONT_TOKEN
+    - EMMA_SHOPIFY_API_VERSION

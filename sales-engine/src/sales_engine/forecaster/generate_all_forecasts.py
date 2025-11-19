@@ -29,7 +29,7 @@ FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports
 from sales_engine.forecaster import SalesForecaster
-from config_manager import secrets
+from sales_engine.config import get_config
 
 # Configurar logger
 logger = structlog.get_logger(__name__)
@@ -43,25 +43,45 @@ class DatabaseForecastUpdater:
     
     def __init__(self):
         """Inicializar el updater de forecasts."""
-        self.config = secrets
         self.logger = logger.bind(component="forecast_database_updater")
         self._connection_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
         
+        environment = os.getenv('ENVIRONMENT', 'local')
+        if get_config is not None:
+            try:
+                environment = get_config("ENVIRONMENT")
+            except Exception:
+                pass
+        
+        self.environment = environment
+
         self.logger.info(
             "DatabaseForecastUpdater inicializado",
-            environment=self.config.ENVIRONMENT
+            environment=self.environment
         )
     
     def _get_connection_params(self) -> Dict[str, Any]:
-        """Obtener parámetros de conexión de la base de datos."""
-        try:
-            db_config = self.config.get_database_config()
-            db_config['port'] = int(db_config['port'])
-            return db_config
-        except Exception as e:
-            self.logger.error("Error en configuración de base de datos", error=str(e))
-            raise Exception("La configuración de base de datos está incompleta.") from e
-    
+        """Obtener parámetros de conexión desde env-manager o variables de entorno."""
+        if get_config is not None:
+            try:
+                return {
+                    'host': get_config("DB_HOST"),
+                    'port': int(get_config("DB_PORT")),
+                    'database': get_config("DB_NAME"),
+                    'user': get_config("DB_USER"),
+                    'password': get_config("DB_PASSWORD"),
+                }
+            except Exception as e:
+                self.logger.error("Error obteniendo configuración desde env-manager, usando cariables de entorno", error=str(e))
+
+        return {
+            'host': os.getenv('DB_HOST', '127.0.0.1'),
+            'port': int(os.getenv('DB_PORT', '5432')),
+            'database': os.getenv('DB_NAME', 'sales_db'),
+            'user': os.getenv('DB_USER', 'postgres'),
+            'password': os.getenv('DB_PASSWORD', 'password'),
+        }
+        
     def _setup_connection_pool(self):
         """Inicializar pool de conexiones de base de datos."""
         if self._connection_pool:

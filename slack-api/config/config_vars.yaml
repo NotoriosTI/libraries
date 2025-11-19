@@ -1,0 +1,19 @@
+variables:
+  
+  SLACK_BOT_TOKEN:
+    source: SLACK_BOT_TOKEN
+    type: str
+
+  SLACK_APP_TOKEN:
+    source: SLACK_APP_TOKEN
+    type: str
+
+validation:
+  strict: false
+  required: 
+    - SLACK_BOT_TOKEN
+    - SLACK_APP_TOKEN
+  optional:
+    - DEBUG_MODE
+    - LOG_LEVEL
+ 

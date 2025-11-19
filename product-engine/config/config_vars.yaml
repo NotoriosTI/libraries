@@ -1,0 +1,77 @@
+variables:
+  # Database
+  PRODUCT_DB_HOST:
+    source: PRODUCT_DB_HOST
+    type: str
+
+  PRODUCT_DB_PORT:
+    source: PRODUCT_DB_PORT
+    type: int
+    default: 5432
+
+  PRODUCT_DB_NAME:
+    source: PRODUCT_DB_NAME
+    type: str
+
+  PRODUCT_DB_USER:
+    source: PRODUCT_DB_USER
+    type: str
+
+  PRODUCT_DB_PASSWORD:
+    source: PRODUCT_DB_PASSWORD
+    type: str
+
+  # Odoo (production)
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+
+  ODOO_PROD_DB:
+    source: ODOO_PROD_DB
+    type: str
+
+  ODOO_PROD_USERNAME:
+    source: ODOO_PROD_USERNAME
+    type: str
+
+  ODOO_PROD_PASSWORD:
+    source: ODOO_PROD_PASSWORD
+    type: str
+
+  # OpenAI embeddings
+  OPENAI_API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+
+  # Environment flags
+  ENVIRONMENT:
+    source: ENVIRONMENT
+    type: str
+    default: "local_machine"
+
+  DEBUG_MODE:
+    source: DEBUG_MODE
+    type: bool
+    default: false
+
+  LOG_LEVEL:
+    source: LOG_LEVEL
+    type: str
+    default: "INFO"
+
+validation:
+  strict: false
+  required:
+    - PRODUCT_DB_HOST
+    - PRODUCT_DB_PORT
+    - PRODUCT_DB_NAME
+    - PRODUCT_DB_USER
+    - PRODUCT_DB_PASSWORD
+    - ODOO_PROD_URL
+    - ODOO_PROD_DB
+    - ODOO_PROD_USERNAME
+    - ODOO_PROD_PASSWORD
+    - OPENAI_API_KEY
+  optional:
+    - DEBUG_MODE
+    - LOG_LEVEL

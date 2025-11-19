@@ -4,6 +4,7 @@ ForecastReader para Sales Engine
 Cliente para leer forecasts de la tabla forecast en base de datos.
 """
 
+
 import os
 import pandas as pd
 import psycopg2
@@ -23,11 +24,7 @@ except ImportError:
         def warning(self, msg, **kwargs): print(f"⚠️  {msg}")
     logger = LoggerFallback()
 
-try:
-    from config_manager import secrets
-except ImportError:
-    print("⚠️  config_manager no disponible, usando configuración básica")
-    secrets = None
+from sales_engine.config import get_config
 
 
 class ForecastReader:
@@ -38,20 +35,43 @@ class ForecastReader:
         self.logger = logger
         self._connection_pool = None
         
-        logger.info("ForecastReader inicializado", 
-                   environment=os.getenv('ENVIRONMENT', 'local'),
-                   use_test_odoo=use_test_odoo,
-                   component="forecast_reader")
+        environment = os.getenv('ENVIRONMENT', 'local')
+        if get_config is not None:
+            try:
+                environment = get_config("ENVIRONMENT")
+            except Exception:
+                pass
+
+        logger.info(
+            "ForecastReader inicializado",
+            environment=environment,
+            use_test_odoo=self.use_test_odoo,
+            component="forecast_reader",
+        )
     
     def _get_connection_params(self) -> Dict[str, Any]:
-        """Obtener parámetros de conexión."""
-        if secrets:
+        """Obtener parámetros de conexión a la base de datos."""
+        if get_config is not None:
             try:
-                db_config = secrets.get_database_config()
-                db_config['port'] = int(db_config['port'])
-                return db_config
+                host = get_config("DB_HOST")
+                port = int(get_config("DB_PORT"))
+                database = get_config("DB_NAME")
+                user = get_config("DB_USER")
+                password = get_config("DB_PASSWORD")
+
+                return {
+                    'host': host,
+                    'port': port,
+                    'database': database,
+                    'user': user,
+                    'password': password
+                }
             except Exception as e:
-                logger.error(f"Error obteniendo configuración de secrets: {e}")
+                logger.error(
+                    "No se pudo obtener configuracion de DB desde env-manager, usando variables de entorno",
+                    error=str(e),
+                    component="forecast_reader",
+                )
         
         # Configuración por defecto desde variables de entorno
         return {

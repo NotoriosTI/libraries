@@ -26,7 +26,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 # Import the centralized configuration
-from config_manager import secrets
+from sales_engine.config import get_config
 
 # --- ANSI Color Codes for Output ---
 class Colors:
@@ -62,8 +62,32 @@ class HistoricalDataLoader:
     
     def __init__(self):
         """Initialize the loader with database configuration."""
-        self.db_config = secrets.get_database_config()
-        
+        if get_config is not None:
+            try:
+                self.deb_config = {
+                    "host": get_config("DB_HOST"),
+                    "port": int(get_config("DB_PORT")),
+                    "database": get_config("DB_NAME"),
+                    "user": get_config("DB_USER"),
+                    "password": get_config("DB_PASSWORD"),
+                }
+            except Exception:
+                self.db_config = {
+                    "host": os.getenv("DB_HOST", "127.0.0.1"),
+                    "port": int(os.getenv("DB_PORT", "5432")),
+                    "database": os.getenv("DB_NAME", "salesdb"),
+                    "user": os.getenv("DB_USER", "postgres"),
+                    "password": os.getenv("DB_PASSWORD", ""),
+                }
+        else:
+            self.db_config = {
+                "host": os.getenv("DB_HOST", "127.0.0.1"),
+                "port": int(os.getenv("DB_PORT", "5432")),
+                "database": os.getenv("DB_NAME", "salesdb"),
+                "user": os.getenv("DB_USER", "postgres"),
+                "password": os.getenv("DB_PASSWORD", ""),
+            }
+        print_info(f"HistoricalDataLoader initialized for database'{self.db_config.get('database', 'salesdb')}' with {len(self.csv_columns)} columns") 
         # Column mapping for the 18 columns in the CSV (in order)
         # Based on sample: F00004281,Factura,4281,11265,MARIA A. OLMOS S.,8.337.898-0,,CHEQUE AL DIA,TIENDA,66245.0,12587.0,78832.0,Aceite Esencial Sandalo 10ML,7425,1.0,5966.39,2016-06-09,Tienda Sabaj
         self.csv_columns = [

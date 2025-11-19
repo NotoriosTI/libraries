@@ -3,17 +3,25 @@ import time
 from urllib.parse import urlparse
 
 import odoorpc
-from config_manager import secrets
+from env_manager import init_config, get_config, require_config
 
+init_config(
+    "config/config_vars.yaml",
+    secret_origin=None, 
+    gcp_project_id=None,
+    strict=None,
+    dotenv_path=None,
+    debug=False,
+)
 
 class OdooClient:
     """Wrapper de odoorpc con parseo robusto de URL, timeout y reintentos."""
 
     def __init__(self):
-        self.url = (secrets.ODOO_PROD_URL or "").strip().rstrip("/")
-        self.db = secrets.ODOO_PROD_DB
-        self.username = secrets.ODOO_PROD_USERNAME
-        self.password = secrets.ODOO_PROD_PASSWORD
+        self.url = (get_config("ODOO_PROD_URL") or "").strip().rstrip("/")
+        self.db = get_config("ODOO_PROD_DB")
+        self.username = get_config("ODOO_PROD_USERNAME")
+        self.password = get_config("ODOO_PROD_PASSWORD")
 
         if not all([self.url, self.db, self.username, self.password]):
             raise ValueError("Faltan credenciales/URL de Odoo en variables de entorno")
