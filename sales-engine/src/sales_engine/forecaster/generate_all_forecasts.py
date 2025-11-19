@@ -29,11 +29,7 @@ FORECASTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Imports
 from sales_engine.forecaster import SalesForecaster
-try:
-    from env_manager import get_config
-except ImportError:
-    print("⚠️  env_manager no disponible, usando solo variables de entorno")
-    get_config = None
+from sales_engine.config import get_config
 
 # Configurar logger
 logger = structlog.get_logger(__name__)

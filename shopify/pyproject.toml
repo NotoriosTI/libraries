@@ -6,12 +6,12 @@ authors = [
     {name = "bastianibanez",email = "bastian.miba@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "requests (>=2.32.3,<3.0.0)",
     "pandas (>=2.2.3,<3.0.0)",
     "beautifulsoup4 (>=4.13.4,<5.0.0)",
-    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=dev-utils",
+    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=dev-utils",
     "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
 ]
 

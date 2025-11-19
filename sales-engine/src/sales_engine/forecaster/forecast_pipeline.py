@@ -24,13 +24,7 @@ from .sales_forcaster import SalesForecaster
 from .generate_all_forecasts import DatabaseForecastUpdater
 from .inventory_utils import get_inventory_from_odoo
 from odoo_api.product import OdooProduct
-import os
-try:
-    from env_manager import get_config
-except ImportError:
-    get_config = None
-# Logger consistente con el resto del proyecto
-from dev_utils import PrettyLogger
+from sales_engine.config import get_config
 logger = PrettyLogger("forecast-pipeline")
 
 @dataclass

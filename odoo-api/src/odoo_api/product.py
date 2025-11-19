@@ -1996,7 +1996,7 @@ class OdooProduct(OdooAPI):
             )
 
 if __name__ == "__main__":
-    from config_manager import secrets
+    from odoo_api.config import secrets
     odoo_product = OdooProduct(
         db=secrets.ODOO_PROD_DB,
         url=secrets.ODOO_PROD_URL,

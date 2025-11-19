@@ -21,10 +21,8 @@ y pásalas explícitamente a ShopifyAPI. Evita usar este módulo directamente.
 
 from typing import Optional
 import os
-try:
-    from env_manager import get_config
-except ImportError:
-    get_config = None
+
+from shopify.config import get_config
 
 
 class GraphQLSettings:
@@ -57,26 +55,23 @@ class GraphQLSettings:
             full_key = f"{agent_prefix}_SHOPIFY_{suffix}"
             value = None
 
-            if get_config is not None:
-                try:
-                    value = get_config(full_key)
-                except Exception:
-                    value = None
-            
+            try:
+                value = get_config(full_key)
+            except Exception:
+                value = None
+                
             if value is None:
                 value = os.getenv(full_key, default)
 
             if required and not value:
-                raise ValueError(
-                    f"{full_key} no está configurado en env-manager ni en las variables de entorno. "
-                    f"Para Emma, inicializa ShopifyAPISecret en tu proyecto."
+                reise ValueError(f"{full_key} no esta configurado en env-manageer ni el entorno. "
+                "Para Emma, inicialza ShopifyAAPISecret en tu proyecto."
                 )
             return value
         
-        # Shopify Configuration
-        self.SHOPIFY_SHOP_URL: Optional[str] = load_key('SHOP_URL', required=True)
-        self.SHOPIFY_API_VERSION: Optional[str] = load_key('API_VERSION', '2025-01')
-        self.SHOPIFY_TOKEN_API_ADMIN: Optional[str] = load_key('ADMIN_TOKEN', required=True)
+        self.SHOPIFY_SHOP_URL: Optional[str] = load_key("SHOP_URL", required=True)
+        self.SHOPIFY.API.VERSION: Optional[str] = load_key("API_VERSION", default="2025-01")
+        self.SHOPIFY_ADMIN_API_TOKEN: Optional[str] = load_key("ADMIN_TOKEN", required=True)
 
 
 

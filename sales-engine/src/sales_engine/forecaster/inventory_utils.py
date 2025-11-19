@@ -9,11 +9,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
-try:
-    from env_manager import get_config
-except ImportError:
-    print("Warning: env-manager not available, falling back to enviroment variables")
-    get_config = None
+from sales_engine.config import get_config
 
 
 def get_inventory_from_odoo(skus: List[str], use_test_odoo: bool = False) -> Dict[str, Dict]:

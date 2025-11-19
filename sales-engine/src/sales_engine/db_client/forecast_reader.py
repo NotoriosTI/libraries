@@ -24,11 +24,7 @@ except ImportError:
         def warning(self, msg, **kwargs): print(f"⚠️  {msg}")
     logger = LoggerFallback()
 
-try:
-    from env_manager import get_config
-except ImportError:
-    print("⚠️  env_manager no disponible, usando solo variables de entorno")
-    get_config = None
+from sales_engine.config import get_config
 
 
 class ForecastReader:

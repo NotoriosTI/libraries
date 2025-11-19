@@ -12,7 +12,7 @@ Key Features:
 
 Author: Bastian Ibañez (Refactored)
 """
-import os
+import os 
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
@@ -28,11 +28,7 @@ from psycopg2.extras import RealDictCursor, execute_values
 # Fetches data from the refactored, external odoo-api library
 from odoo_api.sales import OdooSales
 # Fetches configuration from the external config-manager library
-try:
-    from env_manager import get_config
-except ImportError:
-    print("⚠️  env_manager no disponible, usando solo variables de entorno")
-    get_config = None
+from sales_engine.config import get_config
 
 # Reemplazar structlog por pretty logger
 try:

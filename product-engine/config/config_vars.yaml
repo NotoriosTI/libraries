@@ -1,6 +1,5 @@
-
 variables:
-  # product Database credentials
+  # Database
   PRODUCT_DB_HOST:
     source: PRODUCT_DB_HOST
     type: str
@@ -15,24 +14,14 @@ variables:
     type: str
 
   PRODUCT_DB_USER:
-    source: PRODUCT_DB_NAME
+    source: PRODUCT_DB_USER
     type: str
 
   PRODUCT_DB_PASSWORD:
     source: PRODUCT_DB_PASSWORD
     type: str
 
-  # API Configuration
-  OPENAI_API_KEY:
-    source: OPENAI_API_KEY
-    type: str
-
-  API_TIMEOUT:
-    source: API_TIMEOUT
-    type: int
-    default: 30
-
-  # Odoo configuration
+  # Odoo (production)
   ODOO_PROD_URL:
     source: ODOO_PROD_URL
     type: str
@@ -49,23 +38,17 @@ variables:
     source: ODOO_PROD_PASSWORD
     type: str
 
-  #Entorno
+  # OpenAI embeddings
+  OPENAI_API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+
+  # Environment flags
   ENVIRONMENT:
     source: ENVIRONMENT
     type: str
-    default: "development"
+    default: "local_machine"
 
-
-  # LangSmith Configuration
-  #   LANGSMITH_PROJECT_ID:
-  #    source: LANGSMITH_PROJECT_ID
-  #    type: str
-
-  #   LANGSMITH_API_KEY:
-  #    source: LANGSMITH_API_KEY
-  #    type: str
-
-  # Application Settings
   DEBUG_MODE:
     source: DEBUG_MODE
     type: bool
@@ -82,8 +65,8 @@ validation:
     - PRODUCT_DB_HOST
     - PRODUCT_DB_PORT
     - PRODUCT_DB_NAME
-    - ODOO_PROD_PASSWORD
-    - DB_PASSWORD
+    - PRODUCT_DB_USER
+    - PRODUCT_DB_PASSWORD
     - ODOO_PROD_URL
     - ODOO_PROD_DB
     - ODOO_PROD_USERNAME

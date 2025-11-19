@@ -26,7 +26,7 @@ from pathlib import Path
 from contextlib import contextmanager
 
 # Import the centralized configuration
-from env_manager import get_config
+from sale_enngine.config import get_config
 
 # --- ANSI Color Codes for Output ---
 class Colors:

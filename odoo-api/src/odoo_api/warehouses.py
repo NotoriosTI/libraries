@@ -2,7 +2,7 @@ from .api import OdooAPI
 import pandas as pd
 from pprint import pprint
 from typing import List, Tuple
-from config_manager import secrets
+from odoo_api.config import secrets
 
 class OdooWarehouse(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
