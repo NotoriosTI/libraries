@@ -13,7 +13,8 @@ dependencies = [
     "slack-bolt (>=1.23.0,<2.0.0)",
     "openai (>=1.91.0,<2.0.0)",
     "requests (>=2.32.4,<3.0.0)",
-    "config-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=config-manager",
+    "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
+    "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=dev-utils",
 ]
 
 [tool.poetry]

@@ -7,7 +7,16 @@ import os
 import sys
 import logging
 from queue import Queue
-from config_manager import secrets
+from env_manager import init_config, get_config, require_config
+
+init_config(
+    "config/config_vars.yaml",
+    secret_origin=None, 
+    gcp_project_id=None,
+    strict=None,
+    dotenv_path=None,
+    debug=False,
+)
 
 # Configurar logging
 logging.basicConfig(
@@ -29,8 +38,8 @@ def test_reactions():
     print("=" * 60)
     
     # Configuración de prueba
-    bot_token = secrets.SLACK_BOT_TOKEN
-    app_token = secrets.SLACK_APP_TOKEN
+    bot_token = get_config("SLACK_BOT_TOKEN")
+    app_token = secrets("SLACK_APP_TOKEN")
     
     if not bot_token or not app_token:
         print("❌ Error: Variables de entorno no configuradas")

@@ -7,7 +7,16 @@ import os
 import sys
 import requests
 import json
-from config_manager import secrets
+from env_manager import init_config, get_config, require_config
+
+init_config(
+    "config/config_vars.yaml",
+    secret_origin=None, 
+    gcp_project_id=None,
+    strict=None,
+    dotenv_path=None,
+    debug=False,
+)
 
 def check_bot_permissions():
     """
@@ -17,7 +26,7 @@ def check_bot_permissions():
     print("VERIFICACIÓN DE PERMISOS DEL BOT")
     print("=" * 60)
     
-    bot_token = secrets.SLACK_BOT_TOKEN
+    bot_token = get_config("SLACK_BOT_TOKEN")
     
     if not bot_token:
         print("❌ Error: SLACK_BOT_TOKEN no configurado")
