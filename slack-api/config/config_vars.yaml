@@ -14,4 +14,6 @@ validation:
     - SLACK_BOT_TOKEN
     - SLACK_APP_TOKEN
   optional:
+    - DEBUG_MODE
+    - LOG_LEVEL
  
