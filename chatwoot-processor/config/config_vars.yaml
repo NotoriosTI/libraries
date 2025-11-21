@@ -33,6 +33,18 @@ variables:
     source: CHATWOOT_SQLITE_DB_PATH
     type: str
     default: "chatwoot_messages.db"
+  CHATWOOT_EMAIL_INBOX_ID:
+    source: CHATWOOT_EMAIL_INBOX_ID
+    type: str
+    default:
+  CHATWOOT_AGENT_EMAIL:
+    source: CHATWOOT_AGENT_EMAIL
+    type: str
+    default:
+  CHATWOOT_AGENT_NAME:
+    source: CHATWOOT_AGENT_NAME
+    type: str
+    default:
   PORT:
     source: CHATWOOT_PROCESSOR_PORT
     type: int
