@@ -14,7 +14,10 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{ include = "odoo_api", from = "src" }]
+packages = [
+  { include = "odoo_api", from = "src" },
+  { include = "models", from = "src" },
+]
 
 [tool.pyright]
 venvpath = "."
