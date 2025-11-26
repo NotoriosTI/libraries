@@ -10,6 +10,7 @@ Features
 - Message dispatcher that can reply to the latest conversation for an email or start a new one when none exists.
 - Strongly typed Pydantic models for Chatwoot conversation payloads.
 - Centralised configuration via `config/config_vars.yaml` using `env-manager`.
+- Messages expose a computed `direction` field (inbound/outbound) derived from Chatwoot’s `message_type`, whether fetched with `get_conversation` or via `get_conversation_messages`.
 
 Project Layout
 --------------
@@ -74,6 +75,7 @@ Programmatic example:
 
 ```python
 from services.message_dispatcher import MessageDispatcher
+from services.conversations import ChatwootConversation
 from env_manager import get_config, init_config
 
 init_config("config/config_vars.yaml")
@@ -86,6 +88,16 @@ dispatcher = MessageDispatcher(
 
 conversation = dispatcher.send_message("user@example.com", "Hello!", inbox_id=1)
 print(conversation)
+
+conversation_client = ChatwootConversation(
+    get_config("CHATWOOT_ACCOUNT_ID"),
+    get_config("CHATWOOT_API_KEY"),
+    get_config("CHATWOOT_BASE_URL"),
+)
+conv = conversation_client.get_conversation(conversation.data.payload[0].id).data.payload[0]
+print(conv.messages[-1].direction)  # outbound
+all_messages = conversation_client.get_conversation_messages(conv.id)
+print([m.direction for m in all_messages])
 ```
 
 Notes

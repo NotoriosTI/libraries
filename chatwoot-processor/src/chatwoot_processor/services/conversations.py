@@ -8,6 +8,7 @@ from rich.table import Table
 from rich.traceback import install
 from .api import ChatwootAPI
 from chatwoot_processor.models.conversation import (
+    ConversationMessage,
     ConversationModel,
     ConversationSender,
     ConversationsResponse,
@@ -68,6 +69,37 @@ class ChatwootConversation(ChatwootAPI):
         result.raise_for_status()
         payload = result.json()
         return self._coerce_response(payload)
+
+    def get_conversation_messages(self, conversation_id: int) -> list[ConversationMessage]:
+        """Fetch all messages (first page) for a conversation, preserving order."""
+
+        result: Response = request(
+            method="GET",
+            url=(
+                f"{self.base_url}/api/v1/accounts/"
+                f"{self.account_id}/conversations/{conversation_id}/messages"
+            ),
+            headers={"api_access_token": self.api_access_token},
+            timeout=30,
+        )
+        result.raise_for_status()
+        payload = result.json()
+        data = payload.get("data", payload)
+        if isinstance(data, dict) and "payload" in data:
+            data = data["payload"]
+        if not isinstance(data, list):
+            data = []
+        hydrated: list[dict] = []
+        for item in data:
+            # Some message payloads omit account_id/conversation_id; hydrate them to satisfy validation.
+            item = dict(item)
+            item.setdefault("account_id", self.account_id)
+            item.setdefault("conversation_id", conversation_id)
+            hydrated.append(item)
+
+        messages = [ConversationMessage.model_validate(item) for item in hydrated]
+        messages.sort(key=lambda m: m.created_at)
+        return messages
 
     def get_conversations_from_email(self, email: str) -> ConversationsResponse:
         email_lower = email.lower()

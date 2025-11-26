@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class ConversationSender(BaseModel):
@@ -20,6 +21,11 @@ class ConversationSender(BaseModel):
     custom_attributes: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="allow")
+
+
+class Direction(StrEnum):
+    inbound = "inbound"
+    outbound = "outbound"
 
 
 class ConversationMessage(BaseModel):
@@ -44,6 +50,13 @@ class ConversationMessage(BaseModel):
     additional_attributes: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="allow")
+
+    @computed_field
+    @property
+    def direction(self) -> Direction:
+        """Derive a simple inbound/outbound tag from Chatwoot's message_type field."""
+
+        return Direction.outbound if self.message_type else Direction.inbound
 
 
 class ConversationModel(BaseModel):
