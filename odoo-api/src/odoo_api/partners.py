@@ -7,6 +7,45 @@ class OdooPartner(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
         super().__init__(db=db, url=url, username=username, password=password)
 
+    def add_partner(
+        self,
+        name: str,
+        email: str,
+        supplier_rank: int = 0,
+        customer_rank: int = 0,
+    ) -> Partner:
+        if not name:
+            raise ValueError("Name required")
+        if not email:
+            raise ValueError("Email required")
+
+        partner_id = self.models.execute_kw(
+            self.db,
+            self.uid,
+            self.password,
+            "res.partner",
+            "create",
+            [
+                {
+                    "name": name,
+                    "email": email,
+                    "supplier_rank": supplier_rank,
+                    "customer_rank": customer_rank,
+                }
+            ],
+        )
+        created_partner = self.models.execute_kw(
+            self.db,
+            self.uid,
+            self.password,
+            "res.partner",
+            "read",
+            [partner_id],
+            {"fields": ["id", "name", "email", "customer_rank", "supplier_rank"]},
+        )
+
+        return Partner(**created_partner[0])
+
     def get_partner_by_email(self, email) -> Partner:
         if not email:
             raise ValueError("Email required")
@@ -23,6 +62,9 @@ class OdooPartner(OdooAPI):
                 "limit": 1,
             },
         )
+        if not partners:
+            return None
+
         selected_partner = partners[0]
 
         try:
@@ -53,3 +95,10 @@ if __name__ == "__main__":
 
     partner_data = partner.get_partner_by_email("evergara@sabores.cl")
     print(partner_data)
+
+    ADD_PARTNER = False
+
+    if ADD_PARTNER:
+        print(partner.get_partner_by_email("basman176@gmail.com"))
+        partner.add_partner("Bastian Ibañez", "basman176@gmail.com", 1, 0)
+        print(partner.get_partner_by_email("basman176@gmail.com"))
