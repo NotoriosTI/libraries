@@ -11,16 +11,11 @@ from requests import Response, request
 from rich.console import Console
 from rich.traceback import install
 
-from src.models.conversation import ConversationsResponse
+from chatwoot_processor.models.conversation import ConversationsResponse
 from .conversations import ChatwootConversation
 
 install()
 
-PROJECT_ROOT = Path.cwd()
-CONFIG_PATH = PROJECT_ROOT / "config" / "config_vars.yaml"
-DOTENV_PATH = PROJECT_ROOT / ".env"
-
-init_config(CONFIG_PATH, dotenv_path=DOTENV_PATH)
 console = Console()
 
 
@@ -67,7 +62,9 @@ class MessageDispatcher(ChatwootConversation):
             target_id = existing.data.payload[0].id
             self._post_message(target_id, content)
             return self.get_conversation(target_id)
-        created = self._create_conversation_and_send(to_email, content, inbox_id=inbox_id)
+        created = self._create_conversation_and_send(
+            to_email, content, inbox_id=inbox_id
+        )
         return created
 
     def _post_message(self, conversation_id: int, content: str) -> None:
@@ -131,7 +128,9 @@ class MessageDispatcher(ChatwootConversation):
 
     def _ensure_contact(self, email: str, inbox_id: int) -> int:
         """Create or fetch a contact by email."""
-        search_url = f"{self.base_url}/api/v1/accounts/{self.account_id}/contacts/search"
+        search_url = (
+            f"{self.base_url}/api/v1/accounts/{self.account_id}/contacts/search"
+        )
         search_result: Response = request(
             method="GET",
             url=search_url,
@@ -162,7 +161,15 @@ class MessageDispatcher(ChatwootConversation):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Send or reply to Chatwoot conversations.")
+    PROJECT_ROOT = Path.cwd()
+    CONFIG_PATH = PROJECT_ROOT / "config" / "config_vars.yaml"
+    DOTENV_PATH = PROJECT_ROOT / ".env"
+
+    init_config(CONFIG_PATH, dotenv_path=DOTENV_PATH)
+
+    parser = argparse.ArgumentParser(
+        description="Send or reply to Chatwoot conversations."
+    )
     parser.add_argument("--to", required=True, help="Recipient email address.")
     parser.add_argument("--message", required=True, help="Message body to send.")
     parser.add_argument(
@@ -186,7 +193,9 @@ def main() -> None:
 
     try:
         if args.reply:
-            conversations = dispatcher.reply(args.to, args.message, inbox_id=args.inbox_id)
+            conversations = dispatcher.reply(
+                args.to, args.message, inbox_id=args.inbox_id
+            )
         else:
             conversations = dispatcher.send_message(
                 args.to, args.message, args.conversation_id, inbox_id=args.inbox_id

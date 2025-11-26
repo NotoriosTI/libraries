@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.traceback import install
 from .api import ChatwootAPI
-from src.models.conversation import (
+from chatwoot_processor.models.conversation import (
     ConversationModel,
     ConversationSender,
     ConversationsResponse,

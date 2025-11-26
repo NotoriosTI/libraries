@@ -1,5 +1,5 @@
 [project]
-name = "chatwoot-processor"
+name = "chatwoot_processor"
 version = "0.1.0"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
@@ -13,10 +13,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [
-  { include = "models", from = "src" },
-  { include = "services", from = "src" },
-]
+packages = [{ include = "chatwoot_processor", from = "src" }]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
