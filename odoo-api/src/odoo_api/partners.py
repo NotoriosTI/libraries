@@ -7,7 +7,7 @@ class OdooPartner(OdooAPI):
     def __init__(self, db=None, url=None, username=None, password=None):
         super().__init__(db=db, url=url, username=username, password=password)
 
-    def _get_partner_by_email(self, email) -> Partner:
+    def get_partner_by_email(self, email) -> Partner:
         if not email:
             raise ValueError("Email required")
 
@@ -32,11 +32,11 @@ class OdooPartner(OdooAPI):
             print(f"Unknown error when parsing partner object: {e}")
 
     def is_customer(self, email):
-        partner = self._get_partner_by_email(email)
+        partner = self.get_partner_by_email(email)
         return bool(partner and partner.customer_rank > 0)
 
     def is_supplier(self, email):
-        partner = self._get_partner_by_email(email)
+        partner = self.get_partner_by_email(email)
         return bool(partner and partner.supplier_rank > 0)
 
 
@@ -51,5 +51,5 @@ if __name__ == "__main__":
 
     print(partner.is_supplier("evergara@sabores.cl"))
 
-    partner_data = partner._get_partner_by_email("evergara@sabores.cl")
+    partner_data = partner.get_partner_by_email("evergara@sabores.cl")
     print(partner_data)

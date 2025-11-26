@@ -9,7 +9,7 @@ dependencies = [
   "python-dotenv>=1.0.0,<2.0.0",
   "pyyaml>=6.0.1,<7.0.0",
   "google-cloud-secret-manager>=2.20.0,<3.0.0",
-  "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=dev-utils",
+  "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@feature/chatwoot-processor#subdirectory=dev-utils",
   "pytest>=8.0.0,<9.0.0",
   "pytest-mock>=3.14.0,<4.0.0",
 ]

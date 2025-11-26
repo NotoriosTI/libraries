@@ -44,8 +44,8 @@ class MessageDispatcher(ChatwootConversation):
         self,
         to_email: str,
         content: str,
+        inbox_id: int,
         conversation_id: Optional[int] = None,
-        inbox_id: Optional[int] = None,
     ) -> ConversationsResponse:
         if conversation_id:
             self._post_message(conversation_id, content)
