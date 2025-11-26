@@ -13,6 +13,10 @@ dependencies = [
 ]
 
 [tool.poetry]
+packages = [
+  { include = "models", from = "src" },
+  { include = "services", from = "src" },
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -32,7 +36,5 @@ target-version = "py313"
 
 [tool.mypy]
 python_version = "3.13"
-files = [
-  "src",
-]
+files = ["src"]
 ignore_missing_imports = true

@@ -15,12 +15,6 @@ from src.models.conversation import (
 
 install()
 
-PROJECT_ROOT = Path.cwd()
-CONFIG_PATH = PROJECT_ROOT / "config" / "config_vars.yaml"
-DOTENV_PATH = PROJECT_ROOT / ".env"
-
-init_config(CONFIG_PATH, dotenv_path=DOTENV_PATH)
-
 console = Console()
 
 
@@ -88,7 +82,11 @@ class ChatwootConversation(ChatwootAPI):
                 continue
             # fall back to message-level sender matching
             for msg in conv.messages:
-                if msg.sender and msg.sender.email and msg.sender.email.lower() == email_lower:
+                if (
+                    msg.sender
+                    and msg.sender.email
+                    and msg.sender.email.lower() == email_lower
+                ):
                     matched.append(conv)
                     break
 
@@ -132,7 +130,10 @@ class ChatwootConversation(ChatwootAPI):
         )
 
         return ConversationsResponse(
-            data={"meta": {"filtered_by_email": email, "count": len(matched)}, "payload": [merged]}
+            data={
+                "meta": {"filtered_by_email": email, "count": len(matched)},
+                "payload": [merged],
+            }
         )
 
 
@@ -197,6 +198,12 @@ def render_conversations(data: ConversationsResponse) -> None:
 def main() -> None:
     import argparse
 
+    PROJECT_ROOT = Path.cwd()
+    CONFIG_PATH = PROJECT_ROOT / "config" / "config_vars.yaml"
+    DOTENV_PATH = PROJECT_ROOT / ".env"
+
+    init_config(CONFIG_PATH, dotenv_path=DOTENV_PATH)
+
     parser = argparse.ArgumentParser(
         description="Explore Chatwoot conversations via the API."
     )
@@ -226,7 +233,9 @@ def main() -> None:
         if args.conversation_id is not None:
             conversations = conversation_client.get_conversation(args.conversation_id)
         elif args.from_email:
-            conversations = conversation_client.get_conversations_from_email(args.from_email)
+            conversations = conversation_client.get_conversations_from_email(
+                args.from_email
+            )
         else:
             conversations = conversation_client.get_conversations()
     except ValidationError as exc:
@@ -273,7 +282,9 @@ def main() -> None:
                         f"[magenta]{sender_label}[/magenta]: {content}"
                     )
             else:
-                console.print("[yellow]No messages found for the given filter.[/yellow]")
+                console.print(
+                    "[yellow]No messages found for the given filter.[/yellow]"
+                )
 
 
 if __name__ == "__main__":
