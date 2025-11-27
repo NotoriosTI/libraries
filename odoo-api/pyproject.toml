@@ -11,6 +11,7 @@ dependencies = [
   "pytz (>=2025.2,<2026.0)",
   "config-manager @ git+https://github.com/NotoriosTI/libraries.git@feature/chatwoot-processor#subdirectory=config-manager",
   "pydantic (>=2.11.7,<3.0.0)",
+  "rich (>=14.2.0,<15.0.0)",
 ]
 
 [tool.poetry]
