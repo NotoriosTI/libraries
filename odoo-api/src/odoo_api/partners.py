@@ -1,3 +1,4 @@
+from typing import List
 from .api import OdooAPI
 from env_manager import init_config, get_config
 from models.partner_models import Partner
@@ -99,6 +100,76 @@ class OdooPartner(OdooAPI):
             return partner_object
         except Exception as e:
             print(f"Unknown error when parsing partner object: {e}")
+
+
+    def search_partners_flexible(self, query: str, limit: int = 10) -> List[Partner]:
+        """
+        Searches for partners across multiple fields (name, email, vat)
+        using all words in the query.
+
+        Args:
+            query (str): The search query (e.g., "John Doe Corp").
+            limit (int): The maximum number of results to return.
+
+        Returns:
+            List[Partner]: A list of matching partner objects.
+        """
+        if not query or len(query) < 3:
+            return []
+
+        words = query.split()
+        domain = []
+
+        # Build an AND condition for each word in the query
+        for word in words:
+            # Build an OR condition to search this word in multiple fields
+            word_domain = [
+                "|",
+                ("name", "ilike", word),
+                "|",
+                ("email", "ilike", word),
+                ("vat", "ilike", word),
+            ]
+            if domain:
+                # Chain with a logical OR
+                domain = ["|"] + domain + word_domain
+            else:
+                domain = word_domain
+
+        if not domain:
+            return []
+
+        partners = self.models.execute_kw(
+            self.db,
+            self.uid,
+            self.password,
+            "res.partner",
+            "search_read",
+            [domain],
+            {
+                "fields": [
+                    "id",
+                    "name",
+                    "email",
+                    "vat",
+                    "customer_rank",
+                    "supplier_rank",
+                ],
+                "limit": limit,
+            },
+        )
+
+        if not partners:
+            return []
+
+        # Clean up data before parsing
+        for partner_data in partners:
+            if not isinstance(partner_data.get("email"), str):
+                partner_data["email"] = None
+            if not isinstance(partner_data.get("vat"), str):
+                partner_data["vat"] = None
+
+        return [Partner(**p) for p in partners]
 
     def is_customer(self, email):
         partner = self.get_partner_by_email(email)
