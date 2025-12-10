@@ -7,7 +7,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "pydantic (>=2.12.3,<3.0.0)",
-  "env-manager @ git+https://github.com/NotoriosTI/libraries.git@feature/chatwoot-processor#subdirectory=env-manager",
+  "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
   "rich (>=14.2.0,<15.0.0)",
   "requests (>=2.32,<3.0)",
 ]
