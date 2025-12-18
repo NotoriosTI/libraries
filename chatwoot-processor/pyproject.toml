@@ -14,7 +14,7 @@ dependencies = [
   "greenlet (>=3.1.1,<4.0.0)",
   "httpx (>=0.28.1,<0.29.0)",
 =======
-  "env-manager @ git+https://github.com/NotoriosTI/libraries.git@dev#subdirectory=env-manager",
+  "env-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=env-manager",
 >>>>>>> dev
   "rich (>=14.2.0,<15.0.0)",
   "requests (>=2.32,<3.0)",
