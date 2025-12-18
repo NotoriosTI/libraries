@@ -20,53 +20,50 @@ y pásalas explícitamente a ShopifyAPI. Evita usar este módulo directamente.
 """
 
 from typing import Optional
-from config_manager import secrets
 
 
 class GraphQLSettings:
     """
     Clase para cargar configuración GraphQL desde config-manager.
-    
+
     ⚠️ DEPRECADO: Este módulo está optimizado para Emilia.
     Para Emma, inicializa las credenciales en tu proyecto usando ShopifyAPISecret.
     """
-    
-    def __init__(self, agent: str = "emilia") -> None:
+
+    def __init__(
+        self,
+        shopify_shop_url: str,
+        shopify_token_api_admin: str,
+        agent: str = "emilia",
+        shopify_api_version="2025-01",
+    ) -> None:
         """
         Carga la configuración de Shopify GraphQL desde config-manager.
-        
+
         Args:
             agent: Nombre del agente ("emma" o "emilia").
                   Este parámetro solo se usa si intentas cargar config-manager.
                   Para Emma, es recomendable pasar credenciales explícitamente.
-        
+
         Raises:
             ValueError: Si la configuración requerida no está disponible en config-manager
         """
-        # Obtener configuración desde config-manager según el agente
-        if agent.lower() == "emma":
-            shopify_config = secrets.get_emma_shopify_config(use_admin_api=True)
-        else:
-            # Default a emilia para compatibilidad con código existente
-            shopify_config = secrets.get_shopify_config(use_admin_api=True)
-        
         # Shopify Configuration
-        self.SHOPIFY_SHOP_URL: Optional[str] = shopify_config.get('shop_url')
-        self.SHOPIFY_API_VERSION: Optional[str] = shopify_config.get('api_version', '2025-01')
-        self.SHOPIFY_TOKEN_API_ADMIN: Optional[str] = shopify_config.get('admin_token')
-        
-        # Validar configuración requerida
-        if not self.SHOPIFY_SHOP_URL:
-            agent_prefix = agent.upper()
+        self.SHOPIFY_SHOP_URL = shopify_shop_url
+        self.SHOPIFY_API_VERSION = shopify_api_version
+        self.SHOPIFY_TOKEN_API_ADMIN = shopify_token_api_admin
+
+        if not self.SHOPIFY_API_VERSION:
             raise ValueError(
-                f"{agent_prefix}_SHOPIFY_SHOP_URL no está configurado en config-manager. "
-                f"Para Emma, inicializa ShopifyAPISecret en tu proyecto."
+                "No existe la variable SHOPIFY_API_VERSION, verifica la configuración"
+            )
+        if not self.SHOPIFY_SHOP_URL:
+            raise ValueError(
+                "No existe la variable SHOPIFY_SHOP_URL, verifica la configuración"
             )
         if not self.SHOPIFY_TOKEN_API_ADMIN:
-            agent_prefix = agent.upper()
             raise ValueError(
-                f"{agent_prefix}_SHOPIFY_TOKEN_API_ADMIN no está configurado en config-manager. "
-                f"Para Emma, inicializa ShopifyAPISecret en tu proyecto."
+                "No existe la variable SHOPIFY_TOKEN_API_ADMIN, verifica la configuración"
             )
 
 
@@ -77,7 +74,7 @@ _default_settings: Optional[GraphQLSettings] = None
 def _get_default_settings() -> GraphQLSettings:
     """
     Lazy loading de settings por defecto.
-    
+
     Solo se evalúa cuando se accede por primera vez a 'settings'.
     Esto permite que la inicialización sea perezosa.
     """
@@ -91,11 +88,11 @@ def _get_default_settings() -> GraphQLSettings:
 class SettingsProxy:
     """
     Proxy que carga los settings de manera perezosa.
-    
+
     Permite evitar errores de importación si config-manager no está disponible
     en el momento de importar este módulo.
     """
-    
+
     def __getattr__(self, name: str):
         """Delega atributos al objeto settings cargado."""
         return getattr(_get_default_settings(), name)
@@ -108,23 +105,23 @@ settings = SettingsProxy()
 def get_graphql_settings(agent: str = "emilia") -> GraphQLSettings:
     """
     Obtiene la configuración GraphQL para un agente específico.
-    
+
     ⚠️ DEPRECADO: Este módulo está optimizado para Emilia.
     Para Emma, inicializa las credenciales en tu proyecto.
-    
+
     Args:
         agent: Nombre del agente ("emma" o "emilia")
-        
+
     Returns:
         Instancia de GraphQLSettings con la configuración del agente
-        
+
     Raises:
         ValueError: Si la configuración no está disponible en config-manager
-    
+
     Examples:
         # Legacy - Para Emilia (mantener para compatibilidad)
         settings = get_graphql_settings("emilia")
-        
+
         # Para Emma, es mejor:
         # 1. Inicializar en tu proyecto
         from config_manager.emma import ShopifyAPISecret
@@ -137,4 +134,3 @@ def get_graphql_settings(agent: str = "emilia") -> GraphQLSettings:
         )
     """
     return GraphQLSettings(agent=agent)
-
