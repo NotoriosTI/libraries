@@ -1,23 +1,22 @@
 [project]
-name = "chatwoot-processor"
+name = "chatwoot_processor"
 version = "0.1.0"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-  "fastapi (>=0.121.0,<0.122.0)",
-  "uvicorn (>=0.38.0,<0.39.0)",
   "pydantic (>=2.12.3,<3.0.0)",
   "env-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=env-manager",
+<<<<<<< HEAD
   "sqlalchemy[asyncio] (>=2.0,<3.0)",
   "aiosqlite (>=0.20,<0.21)",
   "greenlet (>=3.1.1,<4.0.0)",
   "httpx (>=0.28.1,<0.29.0)",
+=======
+>>>>>>> release/shopify/1.3.0
   "rich (>=14.2.0,<15.0.0)",
-  "asyncpg (>=0.30,<0.31)",
-  "alembic (>=1.13,<2.0)",
-  "psycopg[binary] (>=3.2,<4.0)",
+  "requests (>=2.32,<3.0)",
 ]
 
 [tool.poetry]
@@ -32,7 +31,6 @@ dev = [
   "pytest (>=8.2,<9.0)",
   "black (>=25.9.0,<26.0.0)",
   "isort (>=7.0.0,<8.0.0)",
-  "pytest-asyncio (>=0.23,<0.24)",
   "mypy (>=1.12,<2.0)",
   "ruff (>=0.6,<0.7)",
 ]
@@ -40,29 +38,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 
-[tool.ruff.lint.per-file-ignores]
-"src/routers/inbound.py" = ["F601"]
-"tests/chatwoot_widget/test_chatwoot_webhook.py" = ["E402"]
-"tests/chatwoot_widget/test_live_sqlite_ingest.py" = ["F401"]
-
 [tool.mypy]
 python_version = "3.13"
-files = [
-  "src/db",
-  "src/models/conversation.py",
-  "src/models/message.py",
-  "tests/phase2_1/test_schema.py",
-]
+files = ["src"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "src.routers.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "src.adapters.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "tests.chatwoot_widget.*"
-ignore_errors = true
