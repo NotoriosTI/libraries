@@ -70,7 +70,7 @@ def _safe_int(value: Any, default: int) -> int:
 
 
 def test_search_products_shows_total_and_payload(product_manager: ShopifyProductManager) -> None:
-    query = _get_env("SHOPIFY_TEST_SEARCH_QUERY") or "status:active"
+    query = "pack case"
     limit = _safe_int(_get_env("SHOPIFY_TEST_SEARCH_LIMIT"), 5)
 
     results: List[Dict[str, Any]] = product_manager.search_products(query, limit=limit)
@@ -92,7 +92,7 @@ def test_search_products_shows_total_and_payload(product_manager: ShopifyProduct
 def test_read_product_info_shows_total_and_payload(product_manager: ShopifyProductManager) -> None:
     identifier = _get_env("SHOPIFY_TEST_PRODUCT_IDENTIFIER")
     if not identifier:
-        fallback_query = _get_env("SHOPIFY_TEST_SEARCH_QUERY") or "status:active"
+        fallback_query = "10121115631915"
         seed = product_manager.search_products(fallback_query, limit=1)
         if not seed:
             pytest.skip("No se encontró ningún producto para usar como fallback.")

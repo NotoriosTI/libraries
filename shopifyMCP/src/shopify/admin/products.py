@@ -6,14 +6,19 @@ class ShopifyProductManager:
     def __init__(self, client: ShopifyAdminClient):
         self.client = client
 
-    def search_products(self, query_term: str, limit: int = 5) -> List[Dict]:
+    def search_products(self, query_term: str, limit: int = 5, only_active: bool = True) -> List[Dict]:
         """
         Busca productos usando sintaxis avanzada de Shopify.
         No hace bucles, usa el motor de búsqueda nativo.
         
         Args:
             query_term: Ej. "title:zapatos AND tag:oferta" o simplemente "zapatos"
+            only_active: Si es True, fuerza filtro `status:active` (a menos que el query ya incluya `status:`)
         """
+        query_term = (query_term or "").strip()
+        if only_active and "status:" not in query_term.lower():
+            query_term = f"{query_term} AND status:active" if query_term else "status:active"
+
         gql_query = """
         query SearchProducts($query: String!, $limit: Int!) {
           products(first: $limit, query: $query) {
@@ -24,11 +29,14 @@ class ShopifyProductManager:
                 status
                 totalInventory
                 descriptionHtml
-                variants(first: 1) {
+                variants(first: 50) {
                   edges {
                     node {
+                      id
+                      title
                       price
                       sku
+                      inventoryQuantity
                     }
                   }
                 }
@@ -51,10 +59,22 @@ class ShopifyProductManager:
             # Procesamiento de datos (Flattening)
             price = "0"
             sku = ""
-            if node["variants"]["edges"]:
-                v = node["variants"]["edges"][0]["node"]
-                price = v["price"]
-                sku = v["sku"]
+            variants = []
+            variant_edges = node.get("variants", {}).get("edges", [])
+            if variant_edges:
+                first_variant = variant_edges[0]["node"]
+                price = first_variant.get("price", "0")
+                sku = first_variant.get("sku", "")
+
+                for variant_edge in variant_edges:
+                    v = variant_edge["node"]
+                    variants.append({
+                        "id": v["id"].split("/")[-1],
+                        "title": v.get("title"),
+                        "sku": v.get("sku"),
+                        "price": v.get("price"),
+                        "stock": v.get("inventoryQuantity"),
+                    })
 
             # Limpieza HTML (Opcional, pero recomendado tenerlo aquí)
             desc_text = ""
@@ -69,7 +89,9 @@ class ShopifyProductManager:
                 "sku_ref": sku,
                 "price_ref": price,
                 "stock_total": node["totalInventory"],
-                "summary": desc_text
+                "summary": desc_text,
+                "variants": variants,
+                "variants_count": len(variants)
             })
             
         return results
