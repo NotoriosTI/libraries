@@ -1,7 +1,7 @@
 [project]
 name = "shopifyMCP"
 version = "0.1.0"
-description = ""
+description = "Cliente de infraestructura agnóstico y optimizado para las APIs GraphQL de Shopify (Admin y Storefront)"
 authors = [
     {name = "1aravena",email = "vichoaravenas186@gmail.com"}
 ]
