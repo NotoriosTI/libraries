@@ -1,7 +1,7 @@
 [project]
 name = "odoo-api"
 version = "3.3.0"
-description = ""
+description = "Odoo xmlrpc api wrapper"
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
