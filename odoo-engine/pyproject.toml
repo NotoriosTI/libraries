@@ -1,6 +1,6 @@
 [project]
 name = "odoo-engine"
-version = "1.2.0"
+version = "1.2.1"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
