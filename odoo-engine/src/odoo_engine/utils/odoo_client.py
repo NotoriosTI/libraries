@@ -1,9 +1,13 @@
+import logging
 import os
 import time
 from urllib.parse import urlparse
 
 import odoorpc
 from config_manager import secrets
+
+
+logger = logging.getLogger(__name__)
 
 
 class OdooClient:
@@ -70,6 +74,112 @@ class OdooClient:
     def read(self, model, ids, fields=None):
         """Read records by ID."""
         return self.odoo.env[model].read(ids, fields=fields or [])
+
+    def get_product_variant_attributes(self, product_ids: list) -> dict:
+        """Obtiene atributos de variante para una lista de IDs de product.product.
+
+        Implementación en batch usando odoorpc:
+        1) Lee `product_template_attribute_value_ids` desde `product.product`
+        2) Lee los nombres desde `product.template.attribute.value`
+
+        Returns:
+            dict: {product_id: ["100ml", "1L", ...]}
+
+        Nota: Si ocurre un error, se loguea warning y se devuelve lo que se pudo.
+        """
+        if not product_ids:
+            return {}
+
+        # Evitar payloads enormes; 5000 es consistente con el batch size del SyncManager.
+        chunk_size = 5000
+
+        def _chunks(values, size):
+            for i in range(0, len(values), size):
+                yield values[i : i + size]
+
+        # Stage 1: obtener ids de attribute values por producto
+        products_by_id: dict[int, list[int]] = {}
+        all_attr_ids: list[int] = []
+
+        for chunk in _chunks([int(pid) for pid in product_ids if pid is not None], chunk_size):
+            try:
+                rows = self.read(
+                    "product.product",
+                    chunk,
+                    fields=["id", "product_template_attribute_value_ids"],
+                )
+            except Exception as exc:
+                logger.warning(
+                    "No se pudieron leer variantes de product.product (chunk=%d): %s",
+                    len(chunk),
+                    exc,
+                )
+                continue
+
+            for row in rows or []:
+                pid = row.get("id")
+                if pid is None:
+                    continue
+                attr_ids = row.get("product_template_attribute_value_ids") or []
+                # Odoo puede devolver False en vez de lista
+                if not isinstance(attr_ids, list):
+                    attr_ids = []
+                attr_ids = [int(aid) for aid in attr_ids if aid]
+                products_by_id[int(pid)] = attr_ids
+                all_attr_ids.extend(attr_ids)
+
+        if not products_by_id:
+            return {int(pid): [] for pid in product_ids if pid is not None}
+
+        # Stage 2: resolver ids -> nombre
+        attr_map: dict[int, str] = {}
+        unique_attr_ids = list({int(aid) for aid in all_attr_ids if aid})
+        if unique_attr_ids:
+            for chunk in _chunks(unique_attr_ids, chunk_size):
+                try:
+                    attrs = self.read(
+                        "product.template.attribute.value",
+                        chunk,
+                        fields=["id", "name"],
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "No se pudieron leer nombres de atributos (chunk=%d): %s",
+                        len(chunk),
+                        exc,
+                    )
+                    continue
+
+                for a in attrs or []:
+                    aid = a.get("id")
+                    name = a.get("name")
+                    if aid is None or not name:
+                        continue
+                    attr_map[int(aid)] = str(name)
+
+        # Stage 3: construir resultado preservando orden de ids por producto
+        result: dict[int, list[str]] = {}
+        for pid, attr_ids in products_by_id.items():
+            names: list[str] = []
+            seen: set[str] = set()
+            for aid in attr_ids:
+                n = attr_map.get(int(aid))
+                if not n:
+                    continue
+                # dedupe conservando orden
+                if n in seen:
+                    continue
+                seen.add(n)
+                names.append(n)
+            result[int(pid)] = names
+
+        # Asegurar que devolvemos key para todos los IDs solicitados
+        for pid in product_ids:
+            if pid is None:
+                continue
+            result.setdefault(int(pid), [])
+
+        return result
 
     def create_purchase_order(self, product_id, supplier_id, quantity, unit_price, product_name=""):
         """

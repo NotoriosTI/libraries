@@ -21,6 +21,7 @@ def make_client_returning_products(records):
         end = start + (limit or len(records))
         return records[start:end]
     client.search_read = MagicMock(side_effect=search_read)
+    client.get_product_variant_attributes = MagicMock(return_value={})
     client.odoo = MagicMock()
     return client
 

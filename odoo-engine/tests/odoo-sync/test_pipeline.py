@@ -19,6 +19,7 @@ def test_pipeline_ordering_and_mapping(in_memory_session):
         [{"id": 100, "name":"UOM1", "write_date":"2025-01-01"}],
         [{"id": 200, "default_code":"P1", "name":"Prod1", "uom_id":[100], "write_date":"2025-01-02"}]
     ])
+    client.get_product_variant_attributes = MagicMock(return_value={200: ["100ml"]})
     sync = SyncManager(in_memory_session, client)
     sync.sync_uoms()
     sync.sync_products()
@@ -27,3 +28,4 @@ def test_pipeline_ordering_and_mapping(in_memory_session):
     assert len(uoms) == 1
     assert len(prods) == 1
     assert prods[0].uom_id is not None
+    assert prods[0].name == "Prod1 (100ml)"
