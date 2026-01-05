@@ -16,6 +16,7 @@ def in_memory_session():
 def make_client_returning_products(records):
     client = MagicMock()
     client.search_read = MagicMock(return_value=records)
+    client.get_product_variant_attributes = MagicMock(return_value={})
     client.odoo = MagicMock()
     return client
 

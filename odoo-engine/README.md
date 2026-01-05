@@ -9,6 +9,7 @@ Ingests operational data from Odoo into PostgreSQL and optionally generates prod
 - Covers core models: products, UoMs, partners, BOMs, production orders, inventory quants, sales/purchase orders and lines
 - Optional embeddings pipeline for products using OpenAI
 - Uses `config-manager` for environment-aware configuration
+- Product names include variant attributes (e.g. `Aceite de coco (100ml)`) for better search and embeddings
 
 ### Installation
 
@@ -62,8 +63,8 @@ Typical usage is to wire a database `Session` and the Odoo client, then run a fu
 ```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from odoo_engine.odoo_client import OdooClient
-from odoo_engine.sync_manager import SyncManager
+from odoo_engine.utils import OdooClient
+from odoo_engine.sync_manager.sync_manager import SyncManager
 
 engine = create_engine("postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/odoo_engine")
 Session = sessionmaker(bind=engine)
@@ -86,6 +87,29 @@ Populate embeddings after a sync:
 
 ```python
 sync.populate_product_embeddings(model="text-embedding-3-small", batch_size=100)
+```
+
+### Product name + variants
+
+When syncing products, `Product.name` is stored as:
+
+- With variants: `Base name (attr1, attr2, ...)`
+- Without variants: `Base name`
+
+Variant attributes are fetched in batch from Odoo using:
+
+- `product.product.product_template_attribute_value_ids`
+- `product.template.attribute.value.name`
+
+This means embeddings generated from `Product.name` automatically include variant information.
+
+Quick validation in Postgres:
+
+```sql
+SELECT odoo_id, default_code, name
+FROM product
+WHERE name LIKE '%(%)%'
+LIMIT 25;
 ```
 
 ### Internals
@@ -146,6 +170,12 @@ Notes and next steps:
 
 ```bash
 poetry run pytest
+```
+
+Optional integration test (hits real Odoo and prints `odoo_id/default_code/name` for "Aceite de coco"):
+
+```bash
+RUN_ODOO_INTEGRATION=1 poetry run pytest -vs -s tests/odoo-sync/test_product_variants.py -k integration
 ```
 
 ### Notes

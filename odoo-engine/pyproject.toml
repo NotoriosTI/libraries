@@ -1,6 +1,6 @@
 [project]
 name = "odoo-engine"
-version = "1.2.0"
+version = "1.2.1"
 description = ""
 authors = [{ name = "bastianibanez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"
@@ -29,6 +29,10 @@ packages = [{ include = "odoo_engine", from = "src" }]
 [project.scripts]
 sync = "odoo_engine.sync_manager.main:main"
 
+[tool.pytest.ini_options]
+markers = [
+  "integration: tests que requieren Odoo real / red / credenciales",
+]
 [tool.pyright]
 venvpath = "."
 venv = ".venv"

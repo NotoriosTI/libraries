@@ -320,16 +320,38 @@ class SyncManager:
             since=last,
         )
 
+        attributes_by_product_id = {}
+        if records:
+            product_ids = [rec.get("id") for rec in records if rec.get("id")]
+            try:
+                logger.info("🧩 Obteniendo atributos de variante para %d productos", len(product_ids))
+                attributes_by_product_id = self.client.get_product_variant_attributes(product_ids)
+            except Exception as exc:
+                # No bloquear el sync completo si falla el fetch de variantes.
+                logger.warning(
+                    "No se pudieron obtener atributos de variante; usando nombre base. Error: %s",
+                    exc,
+                )
+                attributes_by_product_id = {}
+
         uom_map = self._id_map(UnitOfMeasure)
         data = []
         remote_ids = set()
         for rec in records:
             remote_ids.add(rec["id"])
             wd = self._parse_write_date(rec.get("write_date"))
+
+            base_name = rec.get("name") or ""
+            attrs = attributes_by_product_id.get(rec["id"], []) or []
+            if base_name and attrs:
+                name = f"{base_name} ({', '.join(attrs)})"
+            else:
+                name = base_name
+
             data.append({
                 "odoo_id": rec["id"],
                 "default_code": rec.get("default_code"),
-                "name": rec.get("name"),
+                "name": name,
                 "type": rec.get("type"),
                 "sale_ok": rec.get("sale_ok", False),
                 "purchase_ok": rec.get("purchase_ok", False),
