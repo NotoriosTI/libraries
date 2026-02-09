@@ -370,21 +370,21 @@ class SyncManager:
         if records:
             self._set_last_synced("product.product", datetime.datetime.utcnow())
 
-        # Delete detection: compute local ids not present remotely
-        local_rows = self.session.execute(select(Product.odoo_id)).all()
-        local_ids = {r[0] for r in local_rows}
-        to_delete = local_ids - remote_ids
-        if to_delete:
-            if delete_policy == "mark_inactive":
-                self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).update({"active": False}, synchronize_session='fetch')
-                self.session.commit()
-                # ensure session state reflects DB changes
-                self.session.expire_all()
-            elif delete_policy == "delete":
-                self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).delete(synchronize_session='fetch')
-                self.session.commit()
-                self.session.expire_all()
-            # else: ignore
+        # Delete detection: only valid on full sync (not incremental)
+        if last is None:
+            local_rows = self.session.execute(select(Product.odoo_id)).all()
+            local_ids = {r[0] for r in local_rows}
+            to_delete = local_ids - remote_ids
+            if to_delete:
+                if delete_policy == "mark_inactive":
+                    self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).update({"active": False}, synchronize_session='fetch')
+                    self.session.commit()
+                    self.session.expire_all()
+                elif delete_policy == "delete":
+                    self.session.query(Product).filter(Product.odoo_id.in_(to_delete)).delete(synchronize_session='fetch')
+                    self.session.commit()
+                    self.session.expire_all()
+                # else: ignore
 
     def sync_boms(self):
         records = self._fetch_in_batches(
