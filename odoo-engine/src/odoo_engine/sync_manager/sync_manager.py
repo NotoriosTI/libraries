@@ -315,6 +315,7 @@ class SyncManager:
                 "purchase_ok",
                 "uom_id",
                 "write_date",
+                "standard_price",
             ],
             domain=[["detailed_type", "!=" , "service"]],
             since=last,
@@ -357,6 +358,7 @@ class SyncManager:
                 "purchase_ok": rec.get("purchase_ok", False),
                 "active": rec.get("active", True),
                 "uom_id": uom_map.get(rec["uom_id"][0]) if rec.get("uom_id") else None,
+                "standard_price": rec.get("standard_price") or None,
                 "write_date": wd,
             })
 
@@ -519,7 +521,7 @@ class SyncManager:
         # Excluir cotizaciones (draft/sent) y cancelados
         records = self._fetch_in_batches(
             "sale.order",
-            ["id", "partner_id", "date_order", "amount_total", "state"],
+            ["id", "partner_id", "date_order", "amount_total", "state", "write_date"],
             domain=[["state", "not in", ["draft", "sent", "cancel"]]],
         )
         partner_map = self._id_map(Partner)
@@ -536,6 +538,7 @@ class SyncManager:
                 "date_order": rec.get("date_order"),
                 "amount_total": rec.get("amount_total", 0),
                 "state": rec.get("state"),
+                "write_date": self._parse_write_date(rec.get("write_date")),
             }
             for rec in records
         ]
@@ -546,7 +549,7 @@ class SyncManager:
         # Excluir líneas pertenecientes a cotizaciones o canceladas
         records = self._fetch_in_batches(
             "sale.order.line",
-            ["id", "order_id", "product_id", "product_uom_qty", "price_unit", "state"],
+            ["id", "order_id", "product_id", "product_uom_qty", "price_unit", "state", "write_date"],
             domain=[["state", "not in", ["draft", "sent", "cancel"]]],
         )
         order_map = self._id_map(SaleOrder)
@@ -558,6 +561,7 @@ class SyncManager:
                 "product_id": product_map.get(rec["product_id"][0]) if rec.get("product_id") else None,
                 "quantity": rec.get("product_uom_qty", 0),
                 "unit_price": rec.get("price_unit", 0),
+                "write_date": self._parse_write_date(rec.get("write_date")),
             }
             for rec in records
         ]
