@@ -56,6 +56,7 @@ class Product(Base):
     uom_id = Column(BigInteger, ForeignKey("uom.id"))
     type = Column(Text)
     barcode = Column(Text)
+    standard_price = Column(Numeric, nullable=True)
     # Nueva columna para vincular cada producto con su embedding
     embedding_id = Column(BigInteger, ForeignKey("product_embedding.id"), index=True)
     raw_json = Column(JSON)

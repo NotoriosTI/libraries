@@ -15,8 +15,15 @@ def main():
     dsn = get_pg_dsn()
     engine = create_engine(dsn, echo=False, future=True)
 
-    # Create tables if they don’t exist
+    # Create tables if they don't exist
     Base.metadata.create_all(engine)
+
+    # Idempotent migration: add columns that create_all won't add to existing tables
+    with engine.connect() as conn:
+        conn.execute(text("""
+            ALTER TABLE product ADD COLUMN IF NOT EXISTS standard_price NUMERIC
+        """))
+        conn.commit()
 
     Session = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
