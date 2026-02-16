@@ -427,11 +427,22 @@ class SyncManager:
         self._upsert(BomLine, data)
         logger.info("✅ Synced %d BOM Lines", len(data))
 
+    @staticmethod
+    def _parse_mo_origin(name: str | None) -> str | None:
+        if not name:
+            return None
+        if name.endswith("_AUTO"):
+            return "AUTO"
+        if name.endswith("_CHAT"):
+            return "CHAT"
+        return None
+
     def sync_production_orders(self):
         records = self._fetch_in_batches(
             "mrp.production",
             [
                 "id",
+                "name",
                 "product_id",
                 "product_qty",
                 "date_start",
@@ -448,6 +459,7 @@ class SyncManager:
                 "state": rec.get("state"),
                 "date_planned_start": rec.get("date_start"),
                 "date_planned_finished": rec.get("date_finished"),
+                "origin": self._parse_mo_origin(rec.get("name") or None),
             }
             for rec in records
         ]

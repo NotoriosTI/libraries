@@ -1221,7 +1221,8 @@ class OdooProduct(OdooAPI):
             return picking_data
 
     def create_single_production_order(
-        self, product_sku: str, product_qty: int, picking_qty: int, debug=False
+        self, product_sku: str, product_qty: int, picking_qty: int,
+        origin_suffix: str = None, debug=False,
     ):
         """
         Crea una orden de poducción en Odoo basándose en el DataFrame de ordenes de producción.
@@ -1310,6 +1311,32 @@ class OdooProduct(OdooAPI):
             production_order_data["production_order_id"] = production_order_id
             production_order_data["product_data"] = product_info
             production_order_data["bom_data"] = bom_data
+
+            # Write-back: append origin suffix to the MO name
+            if origin_suffix:
+                try:
+                    mo_record = self.models.execute_kw(
+                        self.db,
+                        self.uid,
+                        self.password,
+                        "mrp.production",
+                        "read",
+                        [[production_order_id]],
+                        {"fields": ["name"]},
+                    )
+                    if mo_record and mo_record[0].get("name"):
+                        original_name = mo_record[0]["name"]
+                        self.models.execute_kw(
+                            self.db,
+                            self.uid,
+                            self.password,
+                            "mrp.production",
+                            "write",
+                            [[production_order_id], {"name": f"{original_name}_{origin_suffix}"}],
+                        )
+                except Exception as e:
+                    if debug:
+                        print(f"[ODOO_PRODUCT]: Warning - could not write origin suffix: {e}")
         else:
             production_order_data["status"] = "error"
             production_order_data["message"] = f"Error al crear la orden de producción"
