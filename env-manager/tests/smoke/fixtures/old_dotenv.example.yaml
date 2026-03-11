@@ -1,3 +1,4 @@
+# Old format — no environments block.
 variables:
   APP_DB_NAME:
     source: APP_DB_NAME
@@ -11,16 +12,13 @@ variables:
   APP_DB_USER:
     source: APP_DB_USER
     type: str
-
-environments:
-  default:
-    origin: gcp
-    gcp_project_id: <your-gcp-project-id>
-
+  APP_DB_PASSWORD:
+    source: APP_DB_PASSWORD
+    type: str
 validation:
-  strict: true
   required:
     - APP_DB_NAME
     - APP_DB_HOST
     - APP_DB_PORT
     - APP_DB_USER
+    - APP_DB_PASSWORD

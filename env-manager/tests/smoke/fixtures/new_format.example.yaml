@@ -1,0 +1,28 @@
+# New format — environments block selects loader per environment.
+# ENVIRONMENT=gcp   → GCPSecretLoader (project from gcp_project_id)
+# ENVIRONMENT=local → DotEnvLoader reading .env in the same directory
+
+environments:
+  local:
+    origin: local
+    dotenv_path: .env
+  gcp:
+    origin: gcp
+    gcp_project_id: <your-gcp-project-id>
+
+variables:
+  APP_DB_NAME:
+    source: APP_DB_NAME
+    type: str
+  APP_DB_HOST:
+    source: APP_DB_HOST
+    type: str
+  APP_DB_PORT:
+    source: APP_DB_PORT
+    type: int
+  APP_DB_USER:
+    source: APP_DB_USER
+    type: str
+  APP_DB_PASSWORD:
+    source: APP_DB_PASSWORD
+    type: str
