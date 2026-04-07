@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from dotenv import dotenv_values, find_dotenv
 
+from env_manager.environment import EnvironmentConfig, parse_environments
 from env_manager.factory import create_loader
 from env_manager.utils import coerce_type, load_yaml, logger, mask_secret
 
@@ -32,6 +33,9 @@ class ConfigManager:
         self._raw_config = load_yaml(str(self._config_path))
         self._variables = self._extract_variables()
         self._validation = self._extract_validation()
+        self._environments: dict[str, EnvironmentConfig] = parse_environments(
+            self._raw_config, project_root=str(self._config_path.parent)
+        )
         self._dotenv_path = self._resolve_dotenv_path(dotenv_path)
         self._dotenv_values = self._read_dotenv_values()
         self._debug = debug
@@ -129,6 +133,31 @@ class ConfigManager:
                     f"Validation '{key}' entry must be a list if provided."
                 )
         return data
+
+    def _select_environment(self) -> Optional[EnvironmentConfig]:
+        """Return the active environment, or ``None`` when none is configured.
+
+        Selection order:
+        1. ``ENVIRONMENT`` env var (if set, must match a key in ``_environments``)
+        2. A single environment flagged with ``default: true``
+        3. An environment literally keyed ``"default"``
+        """
+        env_var = os.environ.get("ENVIRONMENT")
+        if env_var:
+            return self._environments.get(env_var)
+
+        # Explicit default: true marker takes precedence over key name
+        explicit_defaults = [e for e in self._environments.values() if e.is_default]
+        if explicit_defaults:
+            return explicit_defaults[0]  # parse_environments guarantees at most one
+
+        # Fall back to environment literally named "default"
+        return self._environments.get("default")
+
+    @property
+    def active_environment(self) -> Optional[EnvironmentConfig]:
+        """Return the active :class:`EnvironmentConfig`, or ``None``."""
+        return self._select_environment()
 
     def _ensure_loader(self) -> SecretLoader:
         if self._loader is None:

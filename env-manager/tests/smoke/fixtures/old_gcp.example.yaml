@@ -1,0 +1,18 @@
+# Old format — no environments block.
+# Project ID supplied at runtime via .env.smoke (SMOKE_GCP_PROJECT_ID=<your-project>).
+variables:
+  APP_DB_NAME:
+    source: APP_DB_NAME
+    type: str
+  APP_DB_HOST:
+    source: APP_DB_HOST
+    type: str
+  APP_DB_PORT:
+    source: APP_DB_PORT
+    type: int
+  APP_DB_USER:
+    source: APP_DB_USER
+    type: str
+  APP_DB_PASSWORD:
+    source: APP_DB_PASSWORD
+    type: str

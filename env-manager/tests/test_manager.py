@@ -19,7 +19,7 @@ def reset_singleton():
 
 
 def _prepare_config(tmp_path: Path) -> tuple[Path, Path]:
-    config_source = FIXTURES / "test_config.yaml"
+    config_source = FIXTURES / "test_config.example.yaml"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(config_source.read_text(), encoding="utf-8")
     env_path = tmp_path / ".env"
