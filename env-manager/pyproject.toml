@@ -1,6 +1,6 @@
 [project]
 name = "env-manager"
-version = "0.1.4"
+version = "0.1.5"
 description = "Environment-aware configuration loader with GCP Secret Manager support"
 authors = [{ name = "Bastian Ibañez", email = "bastian.miba@gmail.com" }]
 readme = "README.md"

@@ -1,3 +1,7 @@
+> **DEPRECATED** — This package is deprecated. Use [NotoriosTI/env-manager](https://github.com/NotoriosTI/env-manager) instead.
+
+---
+
 # env-manager
 
 A simple, environment-aware configuration manager that unifies secrets from local `.env` files and Google Cloud Secret Manager. It handles type coercion, validation, secret masking, and automatically loads variables to `os.environ` so external libraries work seamlessly.

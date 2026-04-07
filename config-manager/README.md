@@ -1,3 +1,7 @@
+> **DEPRECATED** — This package is deprecated. Use [NotoriosTI/env-manager](https://github.com/NotoriosTI/env-manager) instead.
+
+---
+
 Config Manager
 Centralized configuration and secret management for all services in the libraries ecosystem.
 Overview

@@ -54,3 +54,7 @@ tests/smoke/fixtures/*.yaml
 # OS
 .DS_Store
 Thumbs.db
+.claude/
+.planning/
+**/*.lock
+
