@@ -1170,15 +1170,17 @@ class OdooProduct(OdooAPI):
             stock_transfer_data["message"] = f"Error al crear el movimiento de stock"
             return stock_transfer_data
 
-    def create_product_picking(self, product_data, picking_quantity):
+    def create_product_picking(
+        self,
+        product_data,
+        picking_quantity,
+        source_location_id: int = 8,
+        destination_location_id: int = 20,
+        picking_type_id: int = 5,
+    ):
         """
         Crea una transferencia interna de picking para un producto específico.
         """
-        # Hardcoded values
-        source_location_id = 8
-        destination_location_id = 20
-        picking_type_id_internal = 5  # ID para 'transferencia-interna'
-
         picking_data = {
             "status": None,
             "message": None,
@@ -1192,7 +1194,7 @@ class OdooProduct(OdooAPI):
         picking_vals = {
             "location_id": source_location_id,
             "location_dest_id": destination_location_id,
-            "picking_type_id": picking_type_id_internal,
+            "picking_type_id": picking_type_id,
         }
 
         try:
@@ -1223,6 +1225,10 @@ class OdooProduct(OdooAPI):
     def create_single_production_order(
         self, product_sku: str, product_qty: int, picking_qty: int,
         origin_suffix: str = None, debug=False,
+        location_dest_id: int = 8,
+        picking_source_location_id: int | None = None,
+        picking_destination_location_id: int = 20,
+        picking_type_id: int = 5,
     ):
         """
         Crea una orden de poducción en Odoo basándose en el DataFrame de ordenes de producción.
@@ -1284,7 +1290,7 @@ class OdooProduct(OdooAPI):
         production_order_vals = {
             "product_id": production_order_data["product_data"]["product_id"],
             "product_qty": product_qty,
-            "location_dest_id": 8,
+            "location_dest_id": location_dest_id,
         }
         # Solo agregar bom_id si existe
         if bom_data["bom_id"] is not None:
@@ -1345,7 +1351,13 @@ class OdooProduct(OdooAPI):
         # 5. Crear el picking
         if debug:
             print(f"[ODOO_PRODUCT]: Creando picking")
-        picking_data = self.create_product_picking(product_info, picking_qty)
+        picking_data = self.create_product_picking(
+            product_info,
+            picking_qty,
+            source_location_id=picking_source_location_id if picking_source_location_id is not None else location_dest_id,
+            destination_location_id=picking_destination_location_id,
+            picking_type_id=picking_type_id,
+        )
         if picking_data["status"] == "error":
             production_order_data["status"] = "error"
             production_order_data["message"] = f"Error al crear el picking"
