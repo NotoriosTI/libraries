@@ -8,7 +8,9 @@ services:
     restart: "no"
     environment:
       - PYTHONUNBUFFERED=1
-      - ENVIRONMENT=production
+      # env-manager elige el entorno por APP_ENV. No renombrar a ENVIRONMENT:
+      # cae en silencio al bloque `default: true` y se queda sin secretos.
+      - APP_ENV=production
       - GCP_PROJECT_ID=${PROJECT_ID}
       - DB_HOST=127.0.0.1
       - DB_PORT=5432

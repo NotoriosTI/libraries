@@ -133,14 +133,15 @@ class SyncManager:
         """
         domain = domain or []
         if since:
-            # ensure domain is a list of tuples/lists
-            # Odoo JSON RPC requires JSON-serializable values; convert datetimes to ISO strings
-            try:
-                if isinstance(since, datetime.datetime):
-                    since_val = since.isoformat()
-                else:
-                    since_val = since
-            except Exception:
+            # Odoo guarda write_date como UTC sin zona horaria, y Odoo 19 rechaza
+            # de plano cualquier valor con tzinfo ("expecting only datetimes with
+            # no timezone"). El watermark viene de una columna timestamptz, así
+            # que llega tz-aware: hay que normalizarlo a UTC y soltar la zona.
+            if isinstance(since, datetime.datetime):
+                if since.tzinfo is not None:
+                    since = since.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                since_val = since.strftime("%Y-%m-%d %H:%M:%S")
+            else:
                 since_val = since
 
             # append a simple tuple condition (avoid nested lists which some Odoo servers reject)

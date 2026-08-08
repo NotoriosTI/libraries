@@ -3,7 +3,7 @@ import time
 from urllib.parse import urlparse
 
 import odoorpc
-from config_manager import secrets
+from odoo_engine.config import secrets
 
 
 class OdooClient:

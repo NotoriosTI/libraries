@@ -15,7 +15,7 @@ dependencies = [
   "pytest (>=8.4.2,<9.0.0)",
   "openai (>=1.50.2,<2.0.0)",
   "tiktoken (>=0.4.0,<0.9.0)",
-  "config-manager @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=config-manager",
+  "notoriosti-env-manager @ git+https://github.com/NotoriosTI/env-manager.git@main",
   "dev-utils @ git+https://github.com/NotoriosTI/libraries.git@main#subdirectory=dev-utils",
   "google-cloud-bigquery (>=3.38.0,<4.0.0)",
   "scikit-learn (>=1.7.2,<2.0.0)",

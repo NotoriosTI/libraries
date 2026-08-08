@@ -1,0 +1,76 @@
+# Configuración de env-manager (>=0.3.0) para odoo-engine.
+#
+# El bloque `production` lleva `consolidated_secret: odoo-engine-config`: un solo
+# acceso a Secret Manager al arrancar precarga toda la caché en memoria, y de ahí
+# en adelante todo sale de memoria. Las claves que falten en ese JSON caen al
+# lookup individual, así que agregar una variable nueva no obliga a rotar nada.
+#
+# Cuál de los bloques se usa lo decide **APP_ENV**, no ENVIRONMENT. Con el nombre
+# equivocado env-manager cae al que tiene `default: true` sin avisar, y el fallo
+# aparece después y disfrazado: fue exactamente así como el sync terminó
+# reportando "password authentication failed for user automation_admin" cuando en
+# realidad no había leído ningún secreto.
+environments:
+  production:
+    origin: gcp
+    gcp_project_id: notorios
+    consolidated_secret: odoo-engine-config
+  local:
+    origin: local
+    dotenv_path: .env
+    default: true
+
+variables:
+  # --- Odoo de producción ----------------------------------------------------
+  ODOO_PROD_URL:
+    source: ODOO_PROD_URL
+    type: str
+  ODOO_PROD_DB:
+    source: ODOO_PROD_DB
+    type: str
+  ODOO_PROD_USERNAME:
+    source: ODOO_PROD_USERNAME
+    type: str
+  ODOO_PROD_PASSWORD:
+    source: ODOO_PROD_PASSWORD
+    type: str
+
+  # --- Postgres destino del sync ---------------------------------------------
+  # DB_HOST/DB_PORT apuntan al cloud-sql-proxy compartido de la VM, por eso
+  # traen default: el contenedor corre en network_mode host.
+  DB_HOST:
+    source: DB_HOST
+    type: str
+    default: "127.0.0.1"
+  DB_PORT:
+    source: DB_PORT
+    type: int
+    default: 5432
+  DB_USER:
+    source: DB_USER
+    type: str
+  DB_PASSWORD:
+    source: DB_PASSWORD
+    type: str
+  # Ojo: el sync escribe en la base central de juan, no en DB_NAME.
+  JUAN_DB_NAME:
+    source: JUAN_DB_NAME
+    type: str
+
+  # --- Embeddings de producto ------------------------------------------------
+  OPENAI_API_KEY:
+    source: OPENAI_API_KEY
+    type: str
+
+validation:
+  strict: false
+  required:
+    - ODOO_PROD_URL
+    - ODOO_PROD_DB
+    - ODOO_PROD_USERNAME
+    - ODOO_PROD_PASSWORD
+    - DB_USER
+    - DB_PASSWORD
+    - JUAN_DB_NAME
+  optional:
+    - OPENAI_API_KEY

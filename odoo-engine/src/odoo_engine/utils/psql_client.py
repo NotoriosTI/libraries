@@ -1,4 +1,4 @@
-from config_manager import secrets
+from odoo_engine.config import secrets
 
 
 def get_pg_dsn() -> str:

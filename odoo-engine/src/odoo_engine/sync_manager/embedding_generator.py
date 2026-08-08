@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import OpenAI
 
-from config_manager import secrets
+from odoo_engine.config import secrets
 
 
 class EmbeddingGenerator:

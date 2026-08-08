@@ -50,17 +50,23 @@ check_prerequisites() {
 
 verify_secrets() {
   if [ "$SKIP_SECRETS" = true ]; then echo "⏭️  Skipping secrets verification"; return 0; fi
-  REQUIRED_SECRETS=(
+  # Un solo secreto JSON por app: env-manager lo lee entero al arrancar.
+  CONSOLIDATED_SECRET="odoo-engine-config"
+  if ! gcloud secrets describe "$CONSOLIDATED_SECRET" >/dev/null 2>&1; then
+    echo "❌ Falta el secreto consolidado: $CONSOLIDATED_SECRET"; exit 1
+  fi
+  REQUIRED_KEYS=(
     "ODOO_PROD_URL" "ODOO_PROD_DB" "ODOO_PROD_USERNAME" "ODOO_PROD_PASSWORD"
-    "DB_HOST" "DB_PORT" "DB_NAME" "DB_USER" "DB_PASSWORD"
-    "OPENAI_API_KEY"
+    "DB_USER" "DB_PASSWORD" "JUAN_DB_NAME"
   )
-  missing=()
-  for s in "${REQUIRED_SECRETS[@]}"; do
-    if ! gcloud secrets describe "$s" >/dev/null 2>&1; then missing+=("$s"); fi
-  done
-  if [ ${#missing[@]} -ne 0 ]; then
-    echo "❌ Missing secrets:"; for m in "${missing[@]}"; do echo "  - $m"; done; exit 1
+  missing=$(gcloud secrets versions access latest --secret="$CONSOLIDATED_SECRET" \
+    | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(' '.join(k for k in '''${REQUIRED_KEYS[*]}'''.split() if not d.get(k)))
+")
+  if [ -n "$missing" ]; then
+    echo "❌ Claves ausentes o vacías en $CONSOLIDATED_SECRET: $missing"; exit 1
   fi
 }
 
@@ -95,7 +101,7 @@ gcloud compute ssh $VM_NAME --zone=$ZONE --command="
 PROJECT_ID=$PROJECT_ID
 REGION=$REGION
 INSTANCE_NAME=$INSTANCE_NAME
-ENVIRONMENT=production
+APP_ENV=production
 EOF
   echo 'Ensuring shared Cloud SQL proxy...'
   sudo docker compose --env-file .env -f docker-compose.shared-proxy.yml up -d

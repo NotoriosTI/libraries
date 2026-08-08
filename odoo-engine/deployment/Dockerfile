@@ -40,6 +40,9 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy application code
 COPY src /app/src
 
+# env-manager lee su definición de variables desde aquí (ver odoo_engine/config.py)
+COPY config /app/config
+
 # Set ownership
 RUN chown -R appuser:appuser /app
 

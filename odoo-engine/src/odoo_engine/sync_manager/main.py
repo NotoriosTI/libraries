@@ -5,7 +5,7 @@ from odoo_engine.sync_manager.models import Base
 from odoo_engine.utils import OdooClient, get_pg_dsn
 from odoo_engine.sync_manager.sync_manager import SyncManager
 
-from config_manager import secrets
+from odoo_engine.config import secrets
 from dev_utils.pretty_logger import PrettyLogger
 
 def main():
