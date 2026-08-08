@@ -2036,8 +2036,7 @@ class OdooProduct(OdooAPI):
                 "volume",  # Volume
                 "sale_ok",  # Can be sold
                 "purchase_ok",  # Can be purchased
-                "type",  # Product type
-                "detailed_type",  # Detailed product type
+                "type",  # Product type (Odoo 18+ eliminó detailed_type)
                 "uom_id",  # Unit of measure
                 "uom_po_id",  # Purchase unit of measure
                 "product_tag_ids",  # Product tags

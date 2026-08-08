@@ -191,15 +191,43 @@ class SyncManager:
     # ------------------------
     # Individual sync methods
     # ------------------------
+    @staticmethod
+    def _uom_family_root(odoo_id, reference_by_odoo_id):
+        """Sube por relative_uom_id hasta la unidad raíz de su familia.
+
+        Args:
+            odoo_id: ID en Odoo de la unidad de partida.
+            reference_by_odoo_id: Mapa odoo_id -> odoo_id de su unidad de referencia.
+
+        Returns:
+            El odoo_id de la unidad raíz. El guardia `visited` corta cadenas cíclicas
+            devolviendo la última unidad alcanzada.
+        """
+        visited = set()
+        current = odoo_id
+        while True:
+            parent = reference_by_odoo_id.get(current)
+            if parent is None or parent in visited:
+                return current
+            visited.add(current)
+            current = parent
+
     def sync_uoms(self):
-        records = self._fetch_in_batches("uom.uom", ["id", "name", "category_id"])
+        # Odoo 19 eliminó el modelo uom.category. Las unidades ya no declaran una
+        # categoría: declaran la unidad de referencia a la que se convierten
+        # (relative_uom_id), formando una jerarquía autorreferente. La raíz de esa
+        # cadena agrupa exactamente las mismas unidades que la antigua categoría,
+        # así que es lo que se guarda en category_id.
+        records = self._fetch_in_batches("uom.uom", ["id", "name", "relative_uom_id"])
+        reference_by_odoo_id = {
+            rec["id"]: rec["relative_uom_id"][0] if rec.get("relative_uom_id") else None
+            for rec in records
+        }
         data = [
             {
                 "odoo_id": rec["id"],
                 "name": rec["name"],
-                "category_id": rec["category_id"][0]
-                if rec.get("category_id")
-                else None,
+                "category_id": self._uom_family_root(rec["id"], reference_by_odoo_id),
             }
             for rec in records
         ]
@@ -301,7 +329,10 @@ class SyncManager:
         )
 
     def sync_products(self, delete_policy="mark_inactive"):
-        # Excluir productos de tipo servicio
+        # Excluir productos de tipo servicio.
+        # Odoo 18 eliminó detailed_type: el tipo vive en `type` (consu/service/combo)
+        # y lo almacenable se distingue con el booleano `is_storable`. Filtrar por
+        # `type != service` cubre el mismo universo que el filtro anterior.
         last = self._get_last_synced("product.product")
         records = self._fetch_in_batches(
             "product.product",
@@ -310,14 +341,13 @@ class SyncManager:
                 "default_code",
                 "name",
                 "type",
-                "detailed_type",
                 "sale_ok",
                 "purchase_ok",
                 "uom_id",
                 "write_date",
                 "standard_price",
             ],
-            domain=[["detailed_type", "!=" , "service"]],
+            domain=[["type", "!=", "service"]],
             since=last,
         )
 

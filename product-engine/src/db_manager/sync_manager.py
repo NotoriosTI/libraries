@@ -243,7 +243,7 @@ class SyncManager:
             'default_code': 'sku',
             'categ_id_id': 'category_id',
             'categ_id_name': 'category_name',
-            'detailed_type': 'product_type',
+            'type': 'product_type',  # Odoo 18+ eliminó detailed_type
             'uom_id_id': 'uom_id',
             'uom_id_name': 'uom_name',
             'write_date': 'last_update'

@@ -106,7 +106,7 @@ def test_integration_print_coconut_oil_variants_from_real_odoo():
     client = OdooClient()
 
     # Buscar productos cuyo nombre contenga 'Aceite de coco'
-    domain = [["name", "ilike", "Aceite de coco"], ["detailed_type", "!=", "service"]]
+    domain = [["name", "ilike", "Aceite de coco"], ["type", "!=", "service"]]
     records = client.search_read(
         "product.product",
         domain=domain,
