@@ -42,7 +42,7 @@ done
 PROJECT_ID="notorios"  # Hardcoded project ID
 REGION=${1:-"us-central1"}
 ZONE=${2:-"us-central1-c"}
-VM_NAME="langgraph"
+VM_NAME="notorios-vm"
 IMAGE_NAME="gcr.io/$PROJECT_ID/sales-engine"
 VERSION=${3:-$(date +%Y%m%d-%H%M%S)}
 INSTANCE_NAME="app-temp"  # Cloud SQL instance name

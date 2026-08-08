@@ -37,15 +37,15 @@ else
   echo "📍 Running locally, connecting to VM..."
   case $COMMAND in
     start)
-      gcloud compute ssh langgraph --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d";;
+      gcloud compute ssh notorios-vm --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d";;
     stop)
-      gcloud compute ssh langgraph --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml down";;
+      gcloud compute ssh notorios-vm --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml down";;
     restart)
-      gcloud compute ssh langgraph --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml restart";;
+      gcloud compute ssh notorios-vm --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml restart";;
     status)
-      gcloud compute ssh langgraph --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml ps";;
+      gcloud compute ssh notorios-vm --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml ps";;
     logs)
-      gcloud compute ssh langgraph --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml logs -f";;
+      gcloud compute ssh notorios-vm --zone=us-central1-c --command="cd /opt/odoo-engine && sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml logs -f";;
   esac
 fi
 

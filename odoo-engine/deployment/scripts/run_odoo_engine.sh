@@ -42,7 +42,7 @@ if [ -f "/opt/odoo-engine/.env" ]; then
   fi
   else
     echo "📍 Running locally, connecting to VM..."
-    gcloud compute ssh langgraph --zone=us-central1-c --command="
+    gcloud compute ssh notorios-vm --zone=us-central1-c --command="
     cd /opt/odoo-engine
     if [ '$COMMAND' = 'test' ]; then
       sudo docker compose --env-file .env -f docker-compose.prod.yml pull odoo-engine && \

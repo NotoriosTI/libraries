@@ -71,7 +71,7 @@ Antes de ejecutar el deployment, asegúrate de que tienes:
    gcloud config set project notorios
    ```
 
-2. **VM `langgraph` configurada en GCP**
+2. **VM `notorios-vm` configurada en GCP**
    - La VM debe existir en la zona `us-central1-c`
    - Debe tener Docker y docker-compose instalados
    - Debe tener acceso a Google Container Registry
@@ -114,7 +114,7 @@ Antes de ejecutar el deployment, asegúrate de que tienes:
 
 3. **Verifica que la VM existe**:
    ```bash
-   gcloud compute instances describe langgraph --zone=us-central1-c
+   gcloud compute instances describe notorios-vm --zone=us-central1-c
    ```
 
 4. **Verifica que los secrets existen**:
@@ -144,16 +144,16 @@ El script realizará automáticamente:
 
 ```bash
 # Ver logs en tiempo real
-gcloud compute ssh langgraph --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml logs -f'
+gcloud compute ssh notorios-vm --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml logs -f'
 
 # Verificar estado de servicios
-gcloud compute ssh langgraph --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml ps'
+gcloud compute ssh notorios-vm --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml ps'
 
 # Ejecutar manualmente (adicional a la prueba del deployment)
-gcloud compute ssh langgraph --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml run --rm sales-engine'
+gcloud compute ssh notorios-vm --zone=us-central1-c --command='cd /opt/sales-engine && docker-compose -f docker-compose.prod.yml run --rm sales-engine'
 
 # Verificar timer del sistema
-gcloud compute ssh langgraph --zone=us-central1-c --command='sudo systemctl status sales-engine.timer'
+gcloud compute ssh notorios-vm --zone=us-central1-c --command='sudo systemctl status sales-engine.timer'
 ```
 
 ### ⏰ Ejecución y Scheduling

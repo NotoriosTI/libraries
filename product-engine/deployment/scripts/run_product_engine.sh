@@ -117,7 +117,7 @@ else
     echo "📍 Running locally, connecting to VM..."
     
     # Run locally but connect to VM
-    gcloud compute ssh langgraph --zone=us-central1-c --command="
+    gcloud compute ssh notorios-vm --zone=us-central1-c --command="
         cd /opt/product-engine
         
         # Update environment variables in .env file

@@ -105,7 +105,7 @@ else
     case $COMMAND in
         start)
             echo "🚀 Starting shared Cloud SQL proxy on VM..."
-            gcloud compute ssh langgraph --zone=us-central1-c --command="
+            gcloud compute ssh notorios-vm --zone=us-central1-c --command="
                 cd /opt/product-engine
                 sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml up -d
                 echo '✅ Shared proxy started'
@@ -113,7 +113,7 @@ else
             ;;
         stop)
             echo "🛑 Stopping shared Cloud SQL proxy on VM..."
-            gcloud compute ssh langgraph --zone=us-central1-c --command="
+            gcloud compute ssh notorios-vm --zone=us-central1-c --command="
                 cd /opt/product-engine
                 sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml down
                 echo '✅ Shared proxy stopped'
@@ -121,7 +121,7 @@ else
             ;;
         restart)
             echo "🔄 Restarting shared Cloud SQL proxy on VM..."
-            gcloud compute ssh langgraph --zone=us-central1-c --command="
+            gcloud compute ssh notorios-vm --zone=us-central1-c --command="
                 cd /opt/product-engine
                 sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml restart
                 echo '✅ Shared proxy restarted'
@@ -129,14 +129,14 @@ else
             ;;
         status)
             echo "📊 Shared proxy status on VM:"
-            gcloud compute ssh langgraph --zone=us-central1-c --command="
+            gcloud compute ssh notorios-vm --zone=us-central1-c --command="
                 cd /opt/product-engine
                 sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml ps
             "
             ;;
         logs)
             echo "📋 Shared proxy logs from VM:"
-            gcloud compute ssh langgraph --zone=us-central1-c --command="
+            gcloud compute ssh notorios-vm --zone=us-central1-c --command="
                 cd /opt/product-engine
                 sudo docker-compose --env-file .env -f docker-compose.shared-proxy.yml logs -f
             "

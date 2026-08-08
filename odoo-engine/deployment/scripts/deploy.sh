@@ -24,7 +24,7 @@ done
 PROJECT_ID="notorios"
 REGION=${REGION:-"us-central1"}
 ZONE=${ZONE:-"us-central1-c"}
-VM_NAME="langgraph"
+VM_NAME="notorios-vm"
 IMAGE_NAME="gcr.io/$PROJECT_ID/odoo-engine"
 VERSION=${VERSION:-$(date +%Y%m%d-%H%M%S)}
 INSTANCE_NAME="app-temp"
